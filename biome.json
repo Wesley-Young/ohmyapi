@@ -49,6 +49,12 @@
   },
   "overrides": [
     {
+      "includes": ["daemon/drizzle/meta/**"],
+      "formatter": {
+        "enabled": false
+      }
+    },
+    {
       "includes": ["biome.json"],
       "formatter": {
         "lineWidth": 80

@@ -12,12 +12,21 @@
     "dev": "tsx watch --env-file-if-exists=../.env src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file-if-exists=../.env dist/index.js",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.tools.json",
+    "db:generate": "node --env-file-if-exists=../.env node_modules/drizzle-kit/bin.cjs generate",
+    "db:migrate": "tsx --env-file-if-exists=../.env src/cli/migrate.ts",
+    "db:init": "tsx --env-file-if-exists=../.env src/cli/init.ts"
   },
   "dependencies": {
     "@fraqjs/kernel": "^1.1.1",
     "@fraqjs/plugin-hono": "^1.1.0",
     "@trpc/server": "^11.19.0",
-    "hono": "^4.13.13"
+    "drizzle-orm": "^0.45.3",
+    "hono": "^4.13.13",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11"
   }
 }

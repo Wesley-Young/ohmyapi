@@ -1,13 +1,7 @@
 import { createApp } from './app.js';
+import { readServerConfig } from './config.js';
 
-const host = process.env.HOST ?? '127.0.0.1';
-const port = Number(process.env.PORT ?? 8000);
-
-if (!Number.isInteger(port) || port < 1 || port > 65535) {
-  throw new Error('PORT must be an integer between 1 and 65535');
-}
-
-const ctx = createApp({ host, port });
+const ctx = createApp(readServerConfig());
 let stopping = false;
 
 async function shutdown() {

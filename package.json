@@ -14,7 +14,11 @@
     "start": "pnpm --filter @ohmyapi/daemon start",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
-    "format": "biome check --write ."
+    "format": "biome check --write .",
+    "db:up": "docker compose up -d --wait db",
+    "db:generate": "pnpm --filter @ohmyapi/daemon db:generate",
+    "db:migrate": "pnpm --filter @ohmyapi/daemon db:migrate",
+    "db:init": "pnpm --filter @ohmyapi/daemon db:init"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
