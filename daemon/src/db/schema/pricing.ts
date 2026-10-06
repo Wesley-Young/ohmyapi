@@ -60,6 +60,7 @@ export const priceRules = pgTable(
       .notNull()
       .references(() => priceVersions.id),
     kind: priceRuleKind('kind').notNull(),
+    label: text('label').default('价格规则').notNull(),
     // Context intervals use [min, max), with NULL max meaning no upper bound.
     contextMin: tokenCount('context_min'),
     contextMax: tokenCount('context_max'),

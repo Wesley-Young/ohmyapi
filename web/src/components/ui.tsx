@@ -179,3 +179,49 @@ export function ConfirmAction({
     </Dialog.Root>
   );
 }
+
+/** Form dialogs preserve keyboard focus, escape handling and scrollable small-screen layouts. */
+export function FormDialog({
+  open,
+  onClose,
+  title,
+  busy,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  busy?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Dialog.Root
+      open={open}
+      onOpenChange={(e) => {
+        if (!e.open && !busy) onClose();
+      }}
+      closeOnEscape={!busy}
+      closeOnInteractOutside={!busy}
+      placement="center"
+      scrollBehavior="inside"
+      size="lg"
+    >
+      <Portal>
+        <Dialog.Backdrop />
+        <Dialog.Positioner>
+          <Dialog.Content mx="4" maxH="calc(100dvh - 32px)">
+            <Dialog.Header>
+              <Dialog.Title>{title}</Dialog.Title>
+            </Dialog.Header>
+            <Dialog.Body pb="6">{children}</Dialog.Body>
+            <Dialog.CloseTrigger asChild>
+              <Button aria-label="关闭" variant="ghost" size="sm" position="absolute" right="3" top="3" disabled={busy}>
+                ×
+              </Button>
+            </Dialog.CloseTrigger>
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Portal>
+    </Dialog.Root>
+  );
+}

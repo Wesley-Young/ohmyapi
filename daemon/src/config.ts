@@ -56,3 +56,17 @@ export function readSessionConfig(env: Environment = process.env) {
   }
   return { secure: raw === undefined ? env.NODE_ENV === 'production' : raw === 'true', origin };
 }
+
+export function readGatewayConfig(env: Environment = process.env) {
+  if (env.GATEWAY_ENABLED !== undefined && !['true', 'false'].includes(env.GATEWAY_ENABLED))
+    throw new Error('GATEWAY_ENABLED must be true or false');
+  const enabled = env.GATEWAY_ENABLED === 'true';
+  if (enabled && !env.CHANNEL_ENCRYPTION_KEY)
+    throw new Error('CHANNEL_ENCRYPTION_KEY is required when the gateway is enabled');
+  return {
+    enabled,
+    maxBodyBytes: integerSetting(env, 'GATEWAY_MAX_BODY_BYTES', 4 * 1024 * 1024, 32 * 1024 * 1024),
+    maxConcurrent: integerSetting(env, 'GATEWAY_USER_CONCURRENCY', 4, 100),
+    requestsPerMinute: integerSetting(env, 'GATEWAY_USER_RPM', 60, 10_000),
+  };
+}

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, foreignKey, index, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { check, foreignKey, index, jsonb, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { createdAt, id, micros } from './common.js';
 import { users } from './identity.js';
@@ -36,6 +36,7 @@ export const walletLedger = pgTable(
     reservedAfterMicros: micros('reserved_after_micros').notNull(),
     actorId: uuid('actor_id').references(() => users.id),
     reason: text('reason').notNull(),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
     createdAt: createdAt(),
   },
   (table) => [
@@ -44,6 +45,9 @@ export const walletLedger = pgTable(
     uniqueIndex('wallet_ledger_request_event_unique')
       .on(table.requestId, table.kind)
       .where(sql`${table.kind} in ('reserve', 'settlement', 'release')`),
+    uniqueIndex('wallet_ledger_request_final_unique')
+      .on(table.requestId)
+      .where(sql`${table.kind} in ('settlement', 'release')`),
     check('wallet_ledger_reserved_nonnegative', sql`${table.reservedAfterMicros} >= 0`),
     check('wallet_ledger_reason_present', sql`length(trim(${table.reason})) > 0`),
     check(

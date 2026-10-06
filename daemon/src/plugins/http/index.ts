@@ -7,7 +7,11 @@ import { serialize } from 'hono/utils/cookie';
 import { readSessionConfig } from '../../config.js';
 import { definePlugin } from '../../kernel.js';
 import { AuthService } from '../../services/auth.js';
+import { BillingService } from '../../services/billing.js';
+import { CatalogService, endpoints } from '../../services/catalog.js';
+import { GatewayService } from '../../services/gateway.js';
 import { KeyService } from '../../services/keys.js';
+import { PricingService } from '../../services/pricing.js';
 import { UserService } from '../../services/users.js';
 import { WalletService } from '../../services/wallet.js';
 import { appRouter } from '../../trpc/router.js';
@@ -19,6 +23,10 @@ export const HttpPlugin = definePlugin({
     hono: HonoService,
     database: DatabaseService,
     auth: AuthService,
+    catalog: CatalogService,
+    gateway: GatewayService,
+    pricing: PricingService,
+    billing: BillingService,
     keys: KeyService,
     users: UserService,
     wallet: WalletService,
@@ -46,6 +54,7 @@ export const HttpPlugin = definePlugin({
     app.get('/api/ready', async (c) => {
       try {
         await ctx.database.checkConnection();
+        ctx.billing.assertReady();
         return c.json({ name: 'ohmyapi', status: 'ready' });
       } catch {
         return c.json({ name: 'ohmyapi', status: 'unavailable' }, 503);
@@ -63,6 +72,10 @@ export const HttpPlugin = definePlugin({
             token,
             principal: await ctx.auth.resolve(token),
             auth: ctx.auth,
+            catalog: ctx.catalog,
+            gateway: ctx.gateway,
+            pricing: ctx.pricing,
+            billing: ctx.billing,
             keys: ctx.keys,
             users: ctx.users,
             wallet: ctx.wallet,
@@ -78,6 +91,12 @@ export const HttpPlugin = definePlugin({
         },
       }),
     );
+    for (const endpoint of endpoints) {
+      app.post(endpoint, (c) => ctx.gateway.forward(c.req.raw, endpoint));
+      app.all(endpoint, () =>
+        ctx.gateway.error(endpoint, 405, 'method_not_allowed', 'Only POST is supported', crypto.randomUUID()),
+      );
+    }
     app.notFound((c) => c.json({ error: 'Not found' }, 404));
     app.onError((_error, c) => {
       ctx.logger.error('HTTP request failed');

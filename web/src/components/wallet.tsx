@@ -1,5 +1,6 @@
-import { Box, Grid, Heading, Stack, Table, Text } from '@chakra-ui/react';
+import { Box, Grid, Heading, Link, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
+import { Link as RouterLink } from 'react-router';
 
 import { displayMoney, localDate } from '../lib/format';
 import { Panel } from './ui';
@@ -51,10 +52,12 @@ export function Ledger({ items }: { items: Output['wallet']['ledger']['items'] }
           <Table.Row>
             <Table.ColumnHeader>时间</Table.ColumnHeader>
             <Table.ColumnHeader>类型</Table.ColumnHeader>
-            <Table.ColumnHeader textAlign="end">金额</Table.ColumnHeader>
+            <Table.ColumnHeader textAlign="end">余额变化</Table.ColumnHeader>
+            <Table.ColumnHeader textAlign="end">冻结变化</Table.ColumnHeader>
             <Table.ColumnHeader textAlign="end">余额</Table.ColumnHeader>
             <Table.ColumnHeader>原因</Table.ColumnHeader>
             <Table.ColumnHeader>操作人</Table.ColumnHeader>
+            <Table.ColumnHeader>请求</Table.ColumnHeader>
           </Table.Row>
         </Table.Header>
         <Table.Body>
@@ -66,12 +69,24 @@ export function Ledger({ items }: { items: Output['wallet']['ledger']['items'] }
                 {displayMoney(item.amount)}
               </Table.Cell>
               <Table.Cell textAlign="end" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
+                {displayMoney(item.reservedAmount)}
+              </Table.Cell>
+              <Table.Cell textAlign="end" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
                 {displayMoney(item.balanceAfter)}
               </Table.Cell>
               <Table.Cell minW="150px" maxW="340px" overflowWrap="anywhere">
                 {item.reason}
               </Table.Cell>
               <Table.Cell whiteSpace="nowrap">{item.actorName ?? '系统'}</Table.Cell>
+              <Table.Cell>
+                {item.requestId && (
+                  <Link asChild color="#635bff" fontSize="xs">
+                    <RouterLink to={`/console/requests?request=${item.requestId}`}>
+                      {item.requestId.slice(0, 8)}
+                    </RouterLink>
+                  </Link>
+                )}
+              </Table.Cell>
             </Table.Row>
           ))}
         </Table.Body>

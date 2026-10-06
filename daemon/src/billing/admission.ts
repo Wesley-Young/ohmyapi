@@ -1,0 +1,123 @@
+import { GatewayError } from '../gateway/errors.js';
+import type { Endpoint } from '../services/catalog.js';
+import type { LockedPrice } from '../services/pricing.js';
+import { ruleTimeMatcher } from './pricing.js';
+
+/** Freeze against declared model capacity, never a floating-point/local tokenizer estimate. */
+export function reservationAmount(price: LockedPrice, inputLimit: number, outputLimit: number) {
+  let inputPrice = 0n;
+  let outputPrice = 0n;
+  // Include every context tier, even above the declared capacity, to remain conservative.
+  const matchesTime = ruleTimeMatcher(price.receivedAt);
+  for (const r of price.rules.filter(matchesTime)) {
+    for (const p of [r.inputPriceMicros, r.cacheReadPriceMicros, r.cacheWritePriceMicros])
+      if (p !== null && p > inputPrice) inputPrice = p;
+    if (r.outputPriceMicros > outputPrice) outputPrice = r.outputPriceMicros;
+  }
+  const numerator = (BigInt(inputLimit) * inputPrice + BigInt(outputLimit) * outputPrice) * price.multiplierMicros;
+  const amount = (numerator + 999_999_999_999n) / 1_000_000_000_000n;
+  if (amount > 9_223_372_036_854_775_807n)
+    throw new GatewayError(400, 'reservation_overflow', 'The configured reservation exceeds the supported amount');
+  return amount;
+}
+
+export function validateBillableRequest(
+  body: Record<string, unknown>,
+  bytes: number,
+  endpoint: Endpoint,
+  inputLimit: number,
+  outputLimit: number,
+) {
+  const fields =
+    endpoint === '/v1/responses'
+      ? ['max_output_tokens']
+      : endpoint === '/v1/messages'
+        ? ['max_tokens']
+        : ['max_completion_tokens', 'max_tokens'];
+  const supplied = fields.filter((field) => body[field] !== undefined);
+  if (supplied.length !== 1)
+    throw new GatewayError(400, 'output_limit_required', `Provide exactly one output limit: ${fields.join(' or ')}`);
+  const output = body[supplied[0]];
+  const minimum = endpoint === '/v1/responses' ? 16 : 1;
+  if (typeof output !== 'number' || !Number.isSafeInteger(output) || output < minimum || output > outputLimit)
+    throw new GatewayError(
+      400,
+      'invalid_output_limit',
+      `Output limit must be an integer between ${minimum} and ${outputLimit}`,
+    );
+  if (body.n !== undefined && body.n !== 1)
+    throw new GatewayError(400, 'unsupported_billing_mode', 'Only one completion per request is supported');
+  if (body.service_tier !== undefined && body.service_tier !== 'default')
+    throw new GatewayError(400, 'unsupported_billing_mode', 'Only the default service tier is supported');
+  for (const field of ['previous_response_id', 'conversation', 'prompt', 'audio', 'prediction'])
+    if (body[field] !== undefined && body[field] !== null)
+      throw new GatewayError(400, 'unsupported_billing_mode', `${field} is not supported for billing`);
+  if (body.modalities !== undefined && (!Array.isArray(body.modalities) || body.modalities.some((m) => m !== 'text')))
+    throw new GatewayError(400, 'unsupported_billing_mode', 'Only text modalities are supported');
+  if (
+    Array.isArray(body.tools) &&
+    body.tools.some(
+      (tool) =>
+        !tool ||
+        typeof tool !== 'object' ||
+        !(
+          ['function', 'custom'].includes(tool.type) ||
+          (endpoint === '/v1/messages' &&
+            tool.type === undefined &&
+            typeof tool.name === 'string' &&
+            tool.input_schema &&
+            typeof tool.input_schema === 'object')
+        ),
+    )
+  )
+    throw new GatewayError(
+      400,
+      'unsupported_billing_mode',
+      'Hosted tools and their additional charges are not supported',
+    );
+  const forbidden = new Set([
+    'image',
+    'image_url',
+    'input_image',
+    'audio',
+    'input_audio',
+    'output_audio',
+    'file',
+    'input_file',
+    'document',
+    'video',
+    'computer_use',
+    'web_search_tool_result',
+    'server_tool_use',
+  ]);
+  const stack: unknown[] = [body];
+  while (stack.length) {
+    const item = stack.pop();
+    if (!item || typeof item !== 'object') continue;
+    if (Array.isArray(item)) {
+      for (const value of item) stack.push(value);
+      continue;
+    }
+    const object = item as Record<string, unknown>;
+    if (typeof object.type === 'string' && forbidden.has(object.type))
+      throw new GatewayError(
+        400,
+        'unsupported_billing_mode',
+        'Images, audio, files and hosted tools are not supported for billing',
+      );
+    for (const value of Object.values(object)) stack.push(value);
+  }
+  // This bounds local payload size; declared upstream model capacity is the financial bound.
+  if (bytes > inputLimit)
+    throw new GatewayError(
+      413,
+      'input_limit_exceeded',
+      `JSON body exceeds this model's ${inputLimit}-byte admission limit`,
+    );
+  if (endpoint === '/v1/chat/completions' && body.stream === true) {
+    const options = body.stream_options as Record<string, unknown> | undefined;
+    if (options?.include_usage !== true)
+      throw new GatewayError(400, 'usage_required', 'Streaming chat requires stream_options.include_usage=true');
+  }
+  return output;
+}

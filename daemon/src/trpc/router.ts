@@ -1,9 +1,13 @@
-import { type inferRouterOutputs, initTRPC, TRPCError } from '@trpc/server';
+import { type inferRouterInputs, type inferRouterOutputs, initTRPC, TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { parseMoney } from '../billing/conventions.js';
 import type { AuthService, Principal } from '../services/auth.js';
+import { type BillingService, correctBillInput, resolveBillInput } from '../services/billing.js';
+import { type CatalogService, channelInput, modelInput } from '../services/catalog.js';
+import type { GatewayService } from '../services/gateway.js';
 import type { KeyService } from '../services/keys.js';
+import { type PricingService, previewInput, priceScope, savePriceInput } from '../services/pricing.js';
 import type { UserService } from '../services/users.js';
 import type { WalletService } from '../services/wallet.js';
 
@@ -15,6 +19,10 @@ export interface RpcContext {
   keys: KeyService;
   users: UserService;
   wallet: WalletService;
+  catalog: CatalogService;
+  gateway: GatewayService;
+  pricing: PricingService;
+  billing: BillingService;
   setSession(token: string, expiresAt: Date): void;
   clearSession(): void;
 }
@@ -90,11 +98,16 @@ export const appRouter = t.router({
     list: protectedProcedure
       .input(pagination)
       .query(({ ctx, input }) => ctx.keys.list(ctx.principal.user.id, input.page)),
+    channels: protectedProcedure.query(({ ctx }) => ctx.keys.availableChannels(ctx.principal)),
+    bindChannel: protectedProcedure
+      .input(z.object({ keyId: z.uuid(), channelId: z.uuid() }))
+      .mutation(({ ctx, input }) => ctx.keys.bindChannel(ctx.principal, input.keyId, input.channelId)),
     models: protectedProcedure.query(({ ctx }) => ctx.keys.availableModels(ctx.principal)),
     create: protectedProcedure
       .input(
         z.object({
           name: z.string().trim().min(1, '请填写名称').max(64, '名称最多 64 个字符'),
+          channelId: z.uuid(),
           expiresAt: z.iso.datetime().optional(),
           modelIds: z.array(z.uuid()).min(1, '至少选择一个模型').max(100).optional(),
         }),
@@ -110,7 +123,51 @@ export const appRouter = t.router({
       .input(pagination)
       .query(({ ctx, input }) => ctx.wallet.ledger(ctx.principal.user.id, input.page)),
   }),
+  requests: protectedProcedure
+    .input(pagination)
+    .query(({ ctx, input }) => ctx.gateway.list(ctx.principal.user.id, input.page)),
+  requestDetail: protectedProcedure
+    .input(z.object({ requestId: z.uuid() }))
+    .query(({ ctx, input }) => ctx.billing.detail(ctx.principal, input.requestId)),
   admin: t.router({
+    billing: t.router({
+      resolve: adminProcedure
+        .input(resolveBillInput)
+        .mutation(({ ctx, input }) => ctx.billing.resolve(ctx.principal, input)),
+      correct: adminProcedure
+        .input(correctBillInput)
+        .mutation(({ ctx, input }) => ctx.billing.correct(ctx.principal, input)),
+      reconcile: adminProcedure.input(userId).query(({ ctx, input }) => ctx.billing.reconcile(input.userId)),
+    }),
+    pricing: t.router({
+      list: adminProcedure.input(priceScope).query(({ ctx, input }) => ctx.pricing.list(input)),
+      createDraft: adminProcedure
+        .input(priceScope.extend({ sourceVersionId: z.uuid().optional() }))
+        .mutation(({ ctx, input }) => ctx.pricing.createDraft(ctx.principal, input)),
+      saveDraft: adminProcedure
+        .input(savePriceInput)
+        .mutation(({ ctx, input }) => ctx.pricing.saveDraft(ctx.principal, input)),
+      publish: adminProcedure
+        .input(z.object({ versionId: z.uuid(), effectiveAt: z.iso.datetime({ offset: true }).optional() }))
+        .mutation(({ ctx, input }) => ctx.pricing.publish(ctx.principal, input.versionId, input.effectiveAt)),
+      preview: adminProcedure.input(previewInput).mutation(({ ctx, input }) => ctx.pricing.preview(input)),
+    }),
+    catalog: t.router({
+      list: adminProcedure.query(({ ctx }) => ctx.catalog.list()),
+      saveChannel: adminProcedure
+        .input(channelInput)
+        .mutation(({ ctx, input }) => ctx.catalog.saveChannel(ctx.principal, input)),
+      saveModel: adminProcedure
+        .input(modelInput)
+        .mutation(({ ctx, input }) => ctx.catalog.saveModel(ctx.principal, input)),
+      grants: adminProcedure.input(userId).query(({ ctx, input }) => ctx.catalog.grants(input.userId)),
+      setGrants: adminProcedure
+        .input(userId.extend({ modelIds: z.array(z.uuid()).max(100) }))
+        .mutation(({ ctx, input }) => ctx.catalog.setGrants(ctx.principal, input.userId, input.modelIds)),
+    }),
+    requests: adminProcedure
+      .input(z.object({ page, reviewOnly: z.boolean().default(false) }).default({ page: 0, reviewOnly: false }))
+      .query(({ ctx, input }) => ctx.gateway.list(undefined, input.page, input.reviewOnly)),
     users: t.router({
       list: adminProcedure
         .input(z.object({ page, search: z.string().trim().max(64).default('') }).default({ page: 0, search: '' }))
@@ -157,3 +214,5 @@ export const appRouter = t.router({
 
 export type AppRouter = typeof appRouter;
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
+
+export type RouterInputs = inferRouterInputs<AppRouter>;

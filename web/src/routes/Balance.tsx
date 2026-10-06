@@ -9,8 +9,12 @@ import { queryClient, trpc } from '../lib/trpc';
 
 export default function Balance() {
   const [page, setPage] = useState(0);
-  const wallet = useQuery(trpc.wallet.get.queryOptions());
-  const ledger = useQuery(trpc.wallet.ledger.queryOptions({ page }));
+  const wallet = useQuery(
+    trpc.wallet.get.queryOptions(undefined, { refetchOnMount: 'always', refetchInterval: 10000 }),
+  );
+  const ledger = useQuery(
+    trpc.wallet.ledger.queryOptions({ page }, { refetchOnMount: 'always', refetchInterval: 10000 }),
+  );
   return (
     <Stack gap="7">
       <Title

@@ -1,5 +1,18 @@
 import { sql } from 'drizzle-orm';
-import { check, foreignKey, index, jsonb, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  check,
+  foreignKey,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 import { channels, models } from './catalog.js';
 import { createdAt, endpoint, id, micros, tokenCount } from './common.js';
@@ -7,6 +20,7 @@ import { apiKeys, users } from './identity.js';
 import { priceRules, priceVersions } from './pricing.js';
 
 export const requestStatus = pgEnum('request_status', [
+  'completed',
   'received',
   'reserved',
   'forwarding',
@@ -37,10 +51,20 @@ export const requests = pgTable(
     priceRuleId: uuid('price_rule_id').references(() => priceRules.id),
     reservedMicros: micros('reserved_micros').default(sql`0`).notNull(),
     chargedMicros: micros('charged_micros'),
+    quotedMicros: micros('quoted_micros'),
+    billingEnabled: boolean('billing_enabled').default(false).notNull(),
+    heldMicros: micros('held_micros').default(sql`0`).notNull(),
+    ownerId: uuid('owner_id'),
+    usageFinal: boolean('usage_final').default(false).notNull(),
+    reservationSnapshot: jsonb('reservation_snapshot').$type<Record<string, unknown>>(),
+    resolutionKey: text('resolution_key').unique(),
+    resolutionPayload: jsonb('resolution_payload').$type<Record<string, unknown>>(),
     // Filled during settlement; no prompts, completions, or credentials.
     pricingSnapshot: jsonb('pricing_snapshot').$type<Record<string, unknown>>(),
     upstreamRequestId: text('upstream_request_id'),
     errorCode: text('error_code'),
+    httpStatus: integer('http_status'),
+    streaming: boolean('streaming').default(false).notNull(),
     createdAt: createdAt(),
   },
   (table) => [
@@ -58,6 +82,11 @@ export const requests = pgTable(
       'requests_price_scope',
       sql`(${table.priceVersionId} is null or ${table.modelId} is not null) and (${table.priceRuleId} is null or ${table.priceVersionId} is not null)`,
     ),
+    check(
+      'requests_billing_terminal_shape',
+      sql`not ${table.billingEnabled} or (${table.status} = 'settled' and ${table.chargedMicros} is not null and ${table.heldMicros} = 0) or (${table.status} = 'released' and ${table.chargedMicros} = 0 and ${table.heldMicros} = 0) or (${table.status} in ('reserved', 'forwarding', 'settling', 'needs_review') and ${table.chargedMicros} is null)`,
+    ),
+    check('requests_hold_range', sql`${table.heldMicros} >= 0 and ${table.heldMicros} <= ${table.reservedMicros}`),
     index('requests_user_time_idx').on(table.userId, table.receivedAt),
     index('requests_recovery_idx').on(table.status, table.heartbeatAt),
     check(

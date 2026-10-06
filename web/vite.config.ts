@@ -16,13 +16,13 @@ export default defineConfig(({ mode }) => {
       host: '127.0.0.1',
       port: 5173,
       strictPort: true,
-      proxy: { '/api': apiTarget },
+      proxy: { '/api': apiTarget, '/v1': apiTarget },
     },
     preview: {
       host: '127.0.0.1',
       port: 4173,
       strictPort: true,
-      proxy: { '/api': apiTarget },
+      proxy: { '/api': apiTarget, '/v1': apiTarget },
     },
   };
 });

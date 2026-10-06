@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
-import { ErrorText, FormInput, Loading, PageControls, Panel, PrimaryButton, Title } from '../components/ui';
+import { ErrorText, FormDialog, FormInput, Loading, PageControls, Panel, PrimaryButton, Title } from '../components/ui';
 import { displayMoney, formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 
@@ -94,7 +94,16 @@ export default function Users() {
         </Panel>
       )}
       {creating && (
-        <Panel>
+        <FormDialog
+          open
+          title="创建用户"
+          onClose={() => {
+            setCreating(false);
+            setPassword('');
+            task.reset();
+          }}
+          busy={task.isPending}
+        >
           <Box maxW="400px">
             <form
               onSubmit={(event) => {
@@ -144,7 +153,7 @@ export default function Users() {
               </Stack>
             </form>
           </Box>
-        </Panel>
+        </FormDialog>
       )}
       <form
         onSubmit={(event) => {

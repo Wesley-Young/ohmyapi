@@ -36,6 +36,34 @@
       "when": 1791288065307,
       "tag": "0004_optional_password_change",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791291042514,
+      "tag": "0005_gateway",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791300075428,
+      "tag": "0006_channel_pricing",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791303374374,
+      "tag": "0007_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791303750345,
+      "tag": "0008_billing_guards",
+      "breakpoints": true
     }
   ]
 }

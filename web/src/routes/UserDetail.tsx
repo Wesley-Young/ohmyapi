@@ -4,6 +4,8 @@ import { TRPCClientError } from '@trpc/client';
 import { useRef, useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router';
 
+import { ModelGrants } from '../components/model-grants';
+import { WalletReconciliation } from '../components/request-billing';
 import {
   ConfirmAction,
   ErrorText,
@@ -230,10 +232,14 @@ export default function UserDetail() {
               {user.data.username}
             </Title>
             <WalletSummary wallet={wallet.data} />
+            <Box>
+              <WalletReconciliation userId={userId} />
+            </Box>
             <Grid templateColumns={{ base: '1fr', md: '1fr 1fr' }} gap="5">
               <Adjustment key={userId} userId={userId} />
               {user.data.role === 'user' && <ResetPassword key={userId} userId={userId} />}
             </Grid>
+            {user.data.role === 'user' && <ModelGrants key={userId} userId={userId} />}
             {user.data.role === 'user' && (
               <Box>
                 <ConfirmAction

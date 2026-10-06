@@ -14,7 +14,14 @@ export default function Console() {
   const links = [
     { to: '/console', label: '余额', end: true },
     { to: '/console/keys', label: 'API Key', end: false },
-    ...(auth.data.role === 'admin' ? [{ to: '/console/users', label: '用户', end: false }] : []),
+    { to: '/console/requests', label: '请求', end: false },
+    ...(auth.data.role === 'admin'
+      ? [
+          { to: '/console/users', label: '用户', end: false },
+          { to: '/console/channels', label: '渠道', end: false },
+          { to: '/console/models', label: '模型', end: false },
+        ]
+      : []),
   ];
   return (
     <Box key={auth.data.id}>
@@ -42,7 +49,7 @@ export default function Console() {
               </Button>
             </HStack>
           </Flex>
-          <HStack as="nav" aria-label="控制台导航" gap="6">
+          <HStack as="nav" aria-label="控制台导航" gap="6" overflowX="auto">
             {links.map((link) => (
               <NavLink
                 key={link.to}
@@ -53,6 +60,7 @@ export default function Console() {
                   borderBottom: `2px solid ${isActive ? '#635bff' : 'transparent'}`,
                   padding: '0 0 14px',
                   fontSize: '14px',
+                  whiteSpace: 'nowrap',
                   fontWeight: isActive ? 600 : 400,
                 })}
               >

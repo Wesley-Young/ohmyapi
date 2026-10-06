@@ -2,8 +2,19 @@ import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 
-import { apiKeyModelGrants, apiKeys, models, userModelGrants, users } from '../db/schema/index.js';
-import { type AuthService, digestToken, type Principal } from './auth.js';
+import type { Database } from '../db/client.js';
+import {
+  apiKeyChannels,
+  apiKeyModelGrants,
+  apiKeys,
+  channelAvailableModels,
+  channelEndpoints,
+  channels,
+  modelEndpoints,
+  models,
+  userModelGrants,
+} from '../db/schema/index.js';
+import { type AuthService, digestToken, type Principal, type Transaction } from './auth.js';
 import { pageSize } from './users.js';
 
 import { randomBytes } from 'node:crypto';
@@ -30,6 +41,56 @@ export class KeyService {
       .orderBy(models.name);
   }
 
+  private async offerings(db: Database | Transaction, userId: string, role: string) {
+    const allowed = role === 'admin' ? undefined : eq(userModelGrants.userId, userId);
+    const base = db
+      .selectDistinct({
+        channelId: channels.id,
+        channelName: channels.name,
+        multiplierMicros: channels.multiplierMicros,
+        modelId: models.id,
+        modelName: models.name,
+      })
+      .from(channels)
+      .innerJoin(channelAvailableModels, eq(channels.id, channelAvailableModels.channelId))
+      .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
+      .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
+      .innerJoin(
+        modelEndpoints,
+        and(eq(modelEndpoints.modelId, models.id), eq(modelEndpoints.endpoint, channelEndpoints.endpoint)),
+      )
+      .leftJoin(userModelGrants, and(eq(userModelGrants.modelId, models.id), eq(userModelGrants.userId, userId)))
+      .where(and(eq(channels.enabled, true), eq(models.enabled, true), allowed))
+      .orderBy(channels.name, models.name);
+    return base;
+  }
+  async availableChannels(principal: Principal) {
+    const rows = await this.offerings(this.auth.db, principal.user.id, principal.user.role);
+    return [...new Set(rows.map((r) => r.channelId))].map((id) => ({
+      id,
+      name: rows.find((r) => r.channelId === id)?.channelName as string,
+      models: rows.filter((r) => r.channelId === id).map((r) => ({ id: r.modelId, name: r.modelName })),
+    }));
+  }
+  async bindChannel(principal: Principal, keyId: string, channelId: string) {
+    return this.auth.authorized(principal, {}, async (tx, user) => {
+      const [key] = await tx
+        .select()
+        .from(apiKeys)
+        .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, user.id)))
+        .for('update');
+      if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'Key 不存在' });
+      if (key.revokedAt || (key.expiresAt && key.expiresAt <= new Date()))
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Key 已失效' });
+      const [existing] = await tx.select().from(apiKeyChannels).where(eq(apiKeyChannels.apiKeyId, keyId));
+      if (existing) throw new TRPCError({ code: 'CONFLICT', message: 'Key 已绑定渠道，请创建新的 Key' });
+      const offerings = await this.offerings(tx, user.id, user.role);
+      if (!offerings.some((o) => o.channelId === channelId))
+        throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用或没有授权模型' });
+      await tx.insert(apiKeyChannels).values({ apiKeyId: keyId, channelId });
+      return { success: true };
+    });
+  }
   async list(userId: string, page: number) {
     const rows = await this.auth.db
       .select({
@@ -40,8 +101,12 @@ export class KeyService {
         revokedAt: apiKeys.revokedAt,
         createdAt: apiKeys.createdAt,
         restrictModels: apiKeys.restrictModels,
+        channelId: apiKeyChannels.channelId,
+        channelName: channels.name,
       })
       .from(apiKeys)
+      .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
+      .leftJoin(channels, eq(channels.id, apiKeyChannels.channelId))
       .where(eq(apiKeys.userId, userId))
       .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
       .limit(pageSize + 1)
@@ -71,7 +136,10 @@ export class KeyService {
     };
   }
 
-  async create(principal: Principal, input: { name: string; expiresAt?: string; modelIds?: string[] }) {
+  async create(
+    principal: Principal,
+    input: { channelId: string; name: string; expiresAt?: string; modelIds?: string[] },
+  ) {
     return this.auth.authorized(principal, {}, async (tx, user) => {
       const expiresAt = input.expiresAt ? new Date(input.expiresAt) : undefined;
       if (expiresAt && expiresAt.getTime() <= Date.now())
@@ -88,23 +156,10 @@ export class KeyService {
         );
       if (count >= 100) throw new TRPCError({ code: 'BAD_REQUEST', message: '最多保留 100 个有效 Key' });
       const modelIds = [...new Set(input.modelIds ?? [])];
-      if (modelIds.length) {
-        const available =
-          user.role === 'admin'
-            ? await tx
-                .select({ id: models.id })
-                .from(models)
-                .where(and(inArray(models.id, modelIds), eq(models.enabled, true)))
-            : await tx
-                .select({ id: models.id })
-                .from(models)
-                .innerJoin(userModelGrants, eq(models.id, userModelGrants.modelId))
-                .where(
-                  and(eq(userModelGrants.userId, user.id), inArray(models.id, modelIds), eq(models.enabled, true)),
-                );
-        if (available.length !== modelIds.length)
-          throw new TRPCError({ code: 'FORBIDDEN', message: '包含不可用或未授权的模型' });
-      }
+      const offerings = (await this.offerings(tx, user.id, user.role)).filter((o) => o.channelId === input.channelId);
+      if (!offerings.length) throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用或没有授权模型' });
+      if (modelIds.some((id) => !offerings.some((o) => o.modelId === id)))
+        throw new TRPCError({ code: 'FORBIDDEN', message: '包含渠道不可用或未授权的模型' });
       const token = `oma_${randomBytes(32).toString('base64url')}`;
       const [key] = await tx
         .insert(apiKeys)
@@ -117,6 +172,7 @@ export class KeyService {
           restrictModels: input.modelIds !== undefined,
         })
         .returning({ id: apiKeys.id });
+      await tx.insert(apiKeyChannels).values({ apiKeyId: key.id, channelId: input.channelId });
       if (modelIds.length)
         await tx.insert(apiKeyModelGrants).values(modelIds.map((modelId) => ({ apiKeyId: key.id, modelId })));
       return { id: key.id, token };
@@ -133,23 +189,5 @@ export class KeyService {
       if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'Key 不存在' });
       return { success: true };
     });
-  }
-
-  /** Used by the stage-2 gateway; Key credentials never grant console access. */
-  async authenticate(token: string) {
-    if (!/^oma_[A-Za-z0-9_-]{43}$/.test(token)) return null;
-    const [key] = await this.auth.db
-      .select({ keyId: apiKeys.id, userId: users.id, restrictModels: apiKeys.restrictModels })
-      .from(apiKeys)
-      .innerJoin(users, eq(apiKeys.userId, users.id))
-      .where(
-        and(
-          eq(apiKeys.keyHash, digestToken(token)),
-          isNull(apiKeys.revokedAt),
-          or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
-          eq(users.status, 'active'),
-        ),
-      );
-    return key ?? null;
   }
 }
