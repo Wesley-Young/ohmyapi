@@ -346,9 +346,6 @@ export default function Catalog({ section }: { section: 'channels' | 'models' })
               ))}
             {channels ? (
               <>
-                <Text fontSize="sm" color="gray.500">
-                  Key 固定绑定渠道；模型专属倍率覆盖整体倍率。
-                </Text>
                 <Box overflowX="auto">
                   <Table.Root size="sm">
                     <Table.Header>
@@ -399,9 +396,6 @@ export default function Catalog({ section }: { section: 'channels' | 'models' })
               </>
             ) : (
               <>
-                <Text fontSize="sm" color="gray.500">
-                  在模型中定义单价与条件规则，费用按所选渠道倍率计算。
-                </Text>
                 {data.data.models.map((m) => (
                   <HStack
                     key={m.id}

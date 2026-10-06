@@ -162,11 +162,11 @@ function ResetPassword({ userId }: { userId: string }) {
                 setPassword(event.target.value);
                 task.reset();
               }}
-              minLength={12}
+              minLength={8}
               maxLength={1024}
               required
               error={error?.fields.password?.[0]}
-              helper="至少 12 个字符；会话和 API Key 将失效"
+              helper="至少 8 个字符；会话和 API Key 将失效"
             />
             <ErrorText>{error?.message}</ErrorText>
             {task.isSuccess && (

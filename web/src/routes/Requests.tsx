@@ -47,9 +47,6 @@ export default function Requests() {
       >
         请求记录
       </Title>
-      <Text color="gray.500" fontSize="sm">
-        费用按实际用量结算。缺少最终用量的请求保留冻结额，核对后结算或释放。
-      </Text>
       {admin && (
         <HStack>
           <Button

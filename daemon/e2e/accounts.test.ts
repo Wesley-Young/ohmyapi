@@ -128,7 +128,7 @@ test('billing gateway through real CLI, PostgreSQL and HTTP: permissions, settle
     const port = await freePort();
     const webPort = await freePort();
     const url = `http://127.0.0.1:${port}`;
-    const adminPassword = 'e2e-initial-admin-password';
+    const adminPassword = 'e2eadmin';
     const env = {
       ...process.env,
       DATABASE_URL: `postgresql://postgres:${databasePassword}@127.0.0.1:${databasePort}/ohmyapi`,
@@ -181,6 +181,10 @@ test('billing gateway through real CLI, PostgreSQL and HTTP: permissions, settle
     assert.match(admin.setCookie(), /HttpOnly/i);
     assert.match(admin.setCookie(), /SameSite=Strict/i);
     assert.ok(!('mustChangePassword' in adminUser));
+    await rejected(
+      () => admin.client.admin.users.create.mutate({ username: 'alice', password: 'short-7' }),
+      'BAD_REQUEST',
+    );
     const alice = await admin.client.admin.users.create.mutate({ username: 'alice' });
     const bob = await admin.client.admin.users.create.mutate({ username: 'bob' });
     assert.equal(alice.password.length, 16);
@@ -260,7 +264,7 @@ test('billing gateway through real CLI, PostgreSQL and HTTP: permissions, settle
     const sibling = agent(url);
     await sibling.client.auth.login.mutate({ username: 'alice', password: alice.password });
     const previousCookie = user.cookie();
-    const newPassword = 'e2e-alice-new-password';
+    const newPassword = 'e2e-new!';
     await user.client.auth.changePassword.mutate({ currentPassword: alice.password, newPassword });
     assert.notEqual(user.cookie(), previousCookie);
     await rejected(() => agent(url, previousCookie).client.wallet.get.query(), 'UNAUTHORIZED');
@@ -290,7 +294,7 @@ test('billing gateway through real CLI, PostgreSQL and HTTP: permissions, settle
     await user.client.auth.login.mutate({ username: 'alice', password: newPassword });
     await admin.client.admin.users.revokeSessions.mutate({ userId: alice.user.id });
     await rejected(() => user.client.wallet.get.query(), 'UNAUTHORIZED');
-    const resetPassword = 'e2e-alice-reset-password';
+    const resetPassword = 'e2ereset';
     await admin.client.admin.users.resetPassword.mutate({ userId: alice.user.id, password: resetPassword });
     await rejected(() => user.client.auth.login.mutate({ username: 'alice', password: newPassword }), 'UNAUTHORIZED');
     await user.client.auth.login.mutate({ username: 'alice', password: resetPassword });
@@ -307,7 +311,7 @@ test('billing gateway through real CLI, PostgreSQL and HTTP: permissions, settle
 
     await user.client.auth.login.mutate({ username: 'alice', password: resetPassword });
     await pricingScenario(admin.client, user.client);
-    await gatewayScenario(url, admin.client, user.client, other.client, alice.user.id);
+    await gatewayScenario(url, admin.client, user.client, other.client, alice.user.id, resetPassword);
     await billingScenario(url, admin.client, {
       client: () => agent(url).client,
       sql: async (query) => {

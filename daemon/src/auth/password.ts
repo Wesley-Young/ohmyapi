@@ -19,8 +19,8 @@ function derive(password: string, salt: Buffer): Promise<Buffer> {
 }
 
 export function validatePassword(password: string) {
-  if (password.length < 12 || Buffer.byteLength(password, 'utf8') > 1024) {
-    throw new Error('密码至少 12 个字符，且不超过 1024 个 UTF-8 字节');
+  if (password.length < 8 || Buffer.byteLength(password, 'utf8') > 1024) {
+    throw new Error('密码至少 8 个字符，且不超过 1024 个 UTF-8 字节');
   }
 }
 

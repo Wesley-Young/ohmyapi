@@ -127,7 +127,7 @@ export default function Users() {
                   type="password"
                   autoComplete="new-password"
                   value={password}
-                  minLength={12}
+                  minLength={8}
                   maxLength={1024}
                   onChange={(event) => setPassword(event.target.value)}
                   error={error?.fields.password?.[0]}

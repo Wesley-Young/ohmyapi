@@ -10,7 +10,14 @@ import { setTimeout } from 'node:timers/promises';
 const endpoints = ['/v1/chat/completions', '/v1/responses', '/v1/messages'] as const;
 type Rpc = TRPCClient<AppRouter>;
 
-export async function gatewayScenario(url: string, admin: Rpc, user: Rpc, other: Rpc, userId: string) {
+export async function gatewayScenario(
+  url: string,
+  admin: Rpc,
+  user: Rpc,
+  other: Rpc,
+  userId: string,
+  userPassword: string,
+) {
   const calls: { path: string; headers: IncomingHttpHeaders; body: Record<string, unknown>; expected: string }[] = [];
   let mode:
     | 'normal'
@@ -524,7 +531,7 @@ export async function gatewayScenario(url: string, admin: Rpc, user: Rpc, other:
     await admin.admin.users.setStatus.mutate({ userId, status: 'disabled' });
     assert.equal((await send(endpoints[0])).status, 401);
     await admin.admin.users.setStatus.mutate({ userId, status: 'active' });
-    await user.auth.login.mutate({ username: 'alice', password: 'e2e-alice-reset-password' });
+    await user.auth.login.mutate({ username: 'alice', password: userPassword });
     await user.keys.revoke.mutate({ keyId: key.id });
     assert.equal((await send(endpoints[0])).status, 401);
     assert.ok(!JSON.stringify(await admin.admin.requests.query()).includes(credential));

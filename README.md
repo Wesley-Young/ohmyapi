@@ -13,7 +13,7 @@ pnpm install
 cp .env.example .env
 ```
 
-编辑 `.env`，设置数据库连接、管理员用户名和至少 12 字符的初始密码。币种默认 USD，也可在首次初始化时选择 CNY，之后固定。
+编辑 `.env`，设置数据库连接、管理员用户名和至少 8 字符的初始密码。币种默认 USD，也可在首次初始化时选择 CNY，之后固定。
 
 ```sh
 pnpm db:up       # 已有 PostgreSQL 时跳过

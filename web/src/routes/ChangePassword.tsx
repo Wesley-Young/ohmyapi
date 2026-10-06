@@ -58,9 +58,9 @@ export default function ChangePassword() {
               value={newPassword}
               onChange={(event) => setNew(event.target.value)}
               required
-              minLength={12}
+              minLength={8}
               maxLength={1024}
-              helper="至少 12 个字符"
+              helper="至少 8 个字符"
               error={error?.fields.newPassword?.[0]}
             />
             <FormInput
@@ -70,7 +70,7 @@ export default function ChangePassword() {
               value={confirmation}
               onChange={(event) => setConfirmation(event.target.value)}
               required
-              minLength={12}
+              minLength={8}
               maxLength={1024}
               error={confirmationError}
             />
