@@ -51,7 +51,6 @@ export class UsageCollector {
         : this.endpoint === '/v1/messages'
           ? (object(data.message) ?? data)
           : data;
-    if (typeof envelope.service_tier === 'string' && envelope.service_tier !== 'default') this.unknownCosts = true;
     if (typeof envelope.id === 'string') this.upstreamId = envelope.id.slice(0, 256);
     const usage = object(envelope.usage);
     if (this.endpoint === '/v1/messages') {

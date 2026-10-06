@@ -47,8 +47,6 @@ export function validateBillableRequest(
     );
   if (body.n !== undefined && body.n !== 1)
     throw new GatewayError(400, 'unsupported_billing_mode', 'Only one completion per request is supported');
-  if (body.service_tier !== undefined && body.service_tier !== 'default')
-    throw new GatewayError(400, 'unsupported_billing_mode', 'Only the default service tier is supported');
   for (const field of ['previous_response_id', 'conversation', 'prompt', 'audio', 'prediction'])
     if (body[field] !== undefined && body[field] !== null)
       throw new GatewayError(400, 'unsupported_billing_mode', `${field} is not supported for billing`);
