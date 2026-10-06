@@ -42,3 +42,17 @@ export function readBillingCurrency(env: Environment = process.env) {
 export function readServerConfig(env: Environment = process.env) {
   return { host: env.HOST ?? '127.0.0.1', port: integerSetting(env, 'PORT', 8000, 65535) };
 }
+
+export function readSessionConfig(env: Environment = process.env) {
+  const raw = env.SESSION_COOKIE_SECURE;
+  if (raw !== undefined && raw !== 'true' && raw !== 'false')
+    throw new Error('SESSION_COOKIE_SECURE must be true or false');
+  let origin: string | undefined;
+  if (env.APP_ORIGIN) {
+    const url = new URL(env.APP_ORIGIN);
+    if (!['http:', 'https:'].includes(url.protocol) || url.origin !== env.APP_ORIGIN)
+      throw new Error('APP_ORIGIN must be an HTTP(S) origin without a trailing slash');
+    origin = url.origin;
+  }
+  return { secure: raw === undefined ? env.NODE_ENV === 'production' : raw === 'true', origin };
+}

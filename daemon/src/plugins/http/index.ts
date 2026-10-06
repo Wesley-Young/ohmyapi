@@ -1,16 +1,46 @@
 import { HonoService } from '@fraqjs/plugin-hono';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
+import { bodyLimit } from 'hono/body-limit';
+import { getCookie } from 'hono/cookie';
+import { serialize } from 'hono/utils/cookie';
 
+import { readSessionConfig } from '../../config.js';
 import { definePlugin } from '../../kernel.js';
+import { AuthService } from '../../services/auth.js';
+import { KeyService } from '../../services/keys.js';
+import { UserService } from '../../services/users.js';
+import { WalletService } from '../../services/wallet.js';
 import { appRouter } from '../../trpc/router.js';
 import { DatabaseService } from '../database/index.js';
 
 export const HttpPlugin = definePlugin({
   name: 'ohmyapi-http',
-  inject: { hono: HonoService, database: DatabaseService },
+  inject: {
+    hono: HonoService,
+    database: DatabaseService,
+    auth: AuthService,
+    keys: KeyService,
+    users: UserService,
+    wallet: WalletService,
+  },
   apply(ctx) {
     const app = ctx.hono.app;
     const startedAt = new Date().toISOString();
+    const sessionConfig = readSessionConfig();
+    const cookieName: string = sessionConfig.secure ? '__Host-ohmyapi_session' : 'ohmyapi_session';
+    const cookieOptions = { path: '/', httpOnly: true, sameSite: 'Strict' as const, secure: sessionConfig.secure };
+
+    app.use('/api/trpc/*', bodyLimit({ maxSize: 64 * 1024 }));
+    app.use('/api/trpc/*', async (c, next) => {
+      c.header('Cache-Control', 'no-store');
+      if (c.req.method === 'POST') {
+        const origin = c.req.header('Origin');
+        const expectedOrigin = sessionConfig.origin ?? new URL(c.req.url).origin;
+        if (c.req.header('X-Ohmyapi-Request') !== '1' || (origin && origin !== expectedOrigin))
+          return c.json({ error: 'Forbidden' }, 403);
+      }
+      await next();
+    });
 
     app.get('/api/health', (c) => c.json({ name: 'ohmyapi', status: 'ok' }));
     app.get('/api/ready', async (c) => {
@@ -26,12 +56,31 @@ export const HttpPlugin = definePlugin({
         endpoint: '/api/trpc',
         req: c.req.raw,
         router: appRouter,
-        createContext: () => ({ startedAt }),
+        createContext: async ({ resHeaders }) => {
+          const token = getCookie(c, cookieName);
+          return {
+            startedAt,
+            token,
+            principal: await ctx.auth.resolve(token),
+            auth: ctx.auth,
+            keys: ctx.keys,
+            users: ctx.users,
+            wallet: ctx.wallet,
+            setSession: (value: string, expiresAt: Date) =>
+              resHeaders.append('Set-Cookie', serialize(cookieName, value, { ...cookieOptions, expires: expiresAt })),
+            clearSession: () =>
+              resHeaders.append('Set-Cookie', serialize(cookieName, '', { ...cookieOptions, maxAge: 0 })),
+          };
+        },
+        responseMeta: () => ({ headers: { 'Cache-Control': 'no-store' } }),
+        onError: ({ error, path }) => {
+          if (error.code === 'INTERNAL_SERVER_ERROR') ctx.logger.error(`RPC failed: ${path ?? 'unknown'}`);
+        },
       }),
     );
     app.notFound((c) => c.json({ error: 'Not found' }, 404));
-    app.onError((error, c) => {
-      ctx.logger.error('HTTP request failed', error);
+    app.onError((_error, c) => {
+      ctx.logger.error('HTTP request failed');
       return c.json({ error: 'Internal server error' }, 500);
     });
   },

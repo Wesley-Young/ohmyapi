@@ -4,6 +4,11 @@ const cost = 32768;
 const blockSize = 8;
 const parallelism = 1;
 
+export function generatePassword() {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  return [...randomBytes(16)].map((byte) => alphabet[byte & 63]).join('');
+}
+
 function derive(password: string, salt: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     scrypt(password, salt, 32, { N: cost, r: blockSize, p: parallelism, maxmem: 64 * 1024 * 1024 }, (error, key) => {
@@ -15,7 +20,7 @@ function derive(password: string, salt: Buffer): Promise<Buffer> {
 
 export function validatePassword(password: string) {
   if (password.length < 12 || Buffer.byteLength(password, 'utf8') > 1024) {
-    throw new Error('The initial admin password must contain at least 12 characters and at most 1024 UTF-8 bytes');
+    throw new Error('密码至少 12 个字符，且不超过 1024 个 UTF-8 字节');
   }
 }
 

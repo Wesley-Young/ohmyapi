@@ -1,0 +1,155 @@
+import { serviceToken } from '@fraqjs/kernel';
+import { TRPCError } from '@trpc/server';
+import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+
+import { apiKeyModelGrants, apiKeys, models, userModelGrants, users } from '../db/schema/index.js';
+import { type AuthService, digestToken, type Principal } from './auth.js';
+import { pageSize } from './users.js';
+
+import { randomBytes } from 'node:crypto';
+
+export class KeyService {
+  static readonly token = serviceToken<KeyService>('ohmyapi/keys');
+  private readonly auth: AuthService;
+  constructor(auth: AuthService) {
+    this.auth = auth;
+  }
+
+  async availableModels(principal: Principal) {
+    if (principal.user.role === 'admin')
+      return this.auth.db
+        .select({ id: models.id, name: models.name })
+        .from(models)
+        .where(eq(models.enabled, true))
+        .orderBy(models.name);
+    return this.auth.db
+      .select({ id: models.id, name: models.name })
+      .from(models)
+      .innerJoin(userModelGrants, eq(models.id, userModelGrants.modelId))
+      .where(and(eq(userModelGrants.userId, principal.user.id), eq(models.enabled, true)))
+      .orderBy(models.name);
+  }
+
+  async list(userId: string, page: number) {
+    const rows = await this.auth.db
+      .select({
+        id: apiKeys.id,
+        name: apiKeys.name,
+        prefix: apiKeys.keyPrefix,
+        expiresAt: apiKeys.expiresAt,
+        revokedAt: apiKeys.revokedAt,
+        createdAt: apiKeys.createdAt,
+        restrictModels: apiKeys.restrictModels,
+      })
+      .from(apiKeys)
+      .where(eq(apiKeys.userId, userId))
+      .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
+      .limit(pageSize + 1)
+      .offset(page * pageSize);
+    const items = rows.slice(0, pageSize);
+    const grants = items.length
+      ? await this.auth.db
+          .select({ keyId: apiKeyModelGrants.apiKeyId, name: models.name })
+          .from(apiKeyModelGrants)
+          .innerJoin(models, eq(models.id, apiKeyModelGrants.modelId))
+          .where(
+            inArray(
+              apiKeyModelGrants.apiKeyId,
+              items.map((key) => key.id),
+            ),
+          )
+      : [];
+    return {
+      items: items.map((key) => ({
+        ...key,
+        expiresAt: key.expiresAt?.toISOString() ?? null,
+        revokedAt: key.revokedAt?.toISOString() ?? null,
+        createdAt: key.createdAt.toISOString(),
+        modelNames: grants.filter((grant) => grant.keyId === key.id).map((grant) => grant.name),
+      })),
+      hasMore: rows.length > pageSize,
+    };
+  }
+
+  async create(principal: Principal, input: { name: string; expiresAt?: string; modelIds?: string[] }) {
+    return this.auth.authorized(principal, {}, async (tx, user) => {
+      const expiresAt = input.expiresAt ? new Date(input.expiresAt) : undefined;
+      if (expiresAt && expiresAt.getTime() <= Date.now())
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '有效期必须晚于当前时间' });
+      const [{ count }] = await tx
+        .select({ count: sql<number>`count(*)::integer` })
+        .from(apiKeys)
+        .where(
+          and(
+            eq(apiKeys.userId, user.id),
+            isNull(apiKeys.revokedAt),
+            or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
+          ),
+        );
+      if (count >= 100) throw new TRPCError({ code: 'BAD_REQUEST', message: '最多保留 100 个有效 Key' });
+      const modelIds = [...new Set(input.modelIds ?? [])];
+      if (modelIds.length) {
+        const available =
+          user.role === 'admin'
+            ? await tx
+                .select({ id: models.id })
+                .from(models)
+                .where(and(inArray(models.id, modelIds), eq(models.enabled, true)))
+            : await tx
+                .select({ id: models.id })
+                .from(models)
+                .innerJoin(userModelGrants, eq(models.id, userModelGrants.modelId))
+                .where(
+                  and(eq(userModelGrants.userId, user.id), inArray(models.id, modelIds), eq(models.enabled, true)),
+                );
+        if (available.length !== modelIds.length)
+          throw new TRPCError({ code: 'FORBIDDEN', message: '包含不可用或未授权的模型' });
+      }
+      const token = `oma_${randomBytes(32).toString('base64url')}`;
+      const [key] = await tx
+        .insert(apiKeys)
+        .values({
+          userId: user.id,
+          name: input.name,
+          keyHash: digestToken(token),
+          keyPrefix: `${token.slice(0, 12)}…`,
+          expiresAt,
+          restrictModels: input.modelIds !== undefined,
+        })
+        .returning({ id: apiKeys.id });
+      if (modelIds.length)
+        await tx.insert(apiKeyModelGrants).values(modelIds.map((modelId) => ({ apiKeyId: key.id, modelId })));
+      return { id: key.id, token };
+    });
+  }
+
+  async revoke(principal: Principal, keyId: string) {
+    return this.auth.authorized(principal, {}, async (tx, user) => {
+      const [key] = await tx
+        .update(apiKeys)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, user.id)))
+        .returning({ id: apiKeys.id });
+      if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'Key 不存在' });
+      return { success: true };
+    });
+  }
+
+  /** Used by the stage-2 gateway; Key credentials never grant console access. */
+  async authenticate(token: string) {
+    if (!/^oma_[A-Za-z0-9_-]{43}$/.test(token)) return null;
+    const [key] = await this.auth.db
+      .select({ keyId: apiKeys.id, userId: users.id, restrictModels: apiKeys.restrictModels })
+      .from(apiKeys)
+      .innerJoin(users, eq(apiKeys.userId, users.id))
+      .where(
+        and(
+          eq(apiKeys.keyHash, digestToken(token)),
+          isNull(apiKeys.revokedAt),
+          or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
+          eq(users.status, 'active'),
+        ),
+      );
+    return key ?? null;
+  }
+}

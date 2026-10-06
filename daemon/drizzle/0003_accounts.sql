@@ -1,0 +1,1 @@
+ALTER TABLE "api_keys" ADD COLUMN "restrict_models" boolean DEFAULT false NOT NULL;

@@ -18,7 +18,8 @@
     "db:up": "docker compose up -d --wait db",
     "db:generate": "pnpm --filter @ohmyapi/daemon db:generate",
     "db:migrate": "pnpm --filter @ohmyapi/daemon db:migrate",
-    "db:init": "pnpm --filter @ohmyapi/daemon db:init"
+    "db:init": "pnpm --filter @ohmyapi/daemon db:init",
+    "test:e2e": "pnpm build && pnpm --filter @ohmyapi/daemon test:e2e"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

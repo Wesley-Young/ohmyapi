@@ -5,6 +5,7 @@
 - 项目采用前后端分离的 pnpm v12 workspace：`daemon/` 为后端，`web/` 为前端。
 - 后端使用 `@fraqjs/kernel`、Hono 和 tRPC；前端使用 Vite、React Router 和 Chakra UI v3；格式化与静态检查使用 Biome。
 - 设计调整应沿用现有技术栈和组件，不因视觉需求引入另一套 UI 框架。
+- 前端服务端数据状态使用 TanStack Query，优先使用 tRPC 官方的 `queryOptions`、`mutationOptions` 和缓存失效接口，避免自写查询/变更状态 hooks。
 
 ## 测试约定
 

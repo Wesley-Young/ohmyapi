@@ -1,0 +1,114 @@
+import { serviceToken } from '@fraqjs/kernel';
+import { TRPCError } from '@trpc/server';
+import { desc, eq, sql } from 'drizzle-orm';
+
+import { formatMoney, parseMoney } from '../billing/conventions.js';
+import { adminAuditLogs, systemSettings, users, walletLedger, wallets } from '../db/schema/index.js';
+import type { AuthService, Principal } from './auth.js';
+import { pageSize } from './users.js';
+
+const ledgerDto = (entry: typeof walletLedger.$inferSelect) => ({
+  id: entry.id,
+  kind: entry.kind,
+  amount: formatMoney(entry.balanceDeltaMicros),
+  reservedAmount: formatMoney(entry.reservedDeltaMicros),
+  balanceAfter: formatMoney(entry.balanceAfterMicros),
+  reservedAfter: formatMoney(entry.reservedAfterMicros),
+  reason: entry.reason,
+  actorId: entry.actorId,
+  requestId: entry.requestId,
+  createdAt: entry.createdAt.toISOString(),
+});
+
+export class WalletService {
+  static readonly token = serviceToken<WalletService>('ohmyapi/wallet');
+  private readonly auth: AuthService;
+  constructor(auth: AuthService) {
+    this.auth = auth;
+  }
+
+  async get(userId: string) {
+    const [wallet] = await this.auth.db.select().from(wallets).where(eq(wallets.userId, userId));
+    if (!wallet) throw new TRPCError({ code: 'NOT_FOUND', message: '钱包不存在' });
+    const [settings] = await this.auth.db.select({ currency: systemSettings.currency }).from(systemSettings);
+    return {
+      currency: settings.currency,
+      balance: formatMoney(wallet.balanceMicros),
+      reserved: formatMoney(wallet.reservedMicros),
+      available: formatMoney(wallet.balanceMicros - wallet.reservedMicros),
+    };
+  }
+
+  async ledger(userId: string, page: number) {
+    const rows = await this.auth.db
+      .select({ entry: walletLedger, actorName: users.username })
+      .from(walletLedger)
+      .leftJoin(users, eq(walletLedger.actorId, users.id))
+      .where(eq(walletLedger.userId, userId))
+      .orderBy(desc(walletLedger.createdAt), desc(walletLedger.id))
+      .limit(pageSize + 1)
+      .offset(page * pageSize);
+    return {
+      items: rows.slice(0, pageSize).map(({ entry, actorName }) => ({ ...ledgerDto(entry), actorName })),
+      hasMore: rows.length > pageSize,
+    };
+  }
+
+  async adjust(
+    principal: Principal,
+    input: { userId: string; amount: string; reason: string; idempotencyKey: string },
+  ) {
+    const delta = parseMoney(input.amount);
+    if (!delta) throw new TRPCError({ code: 'BAD_REQUEST', message: '调整金额不能为零' });
+    return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
+      const key = `adjust:${actor.id}:${input.idempotencyKey}`;
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
+      const [existing] = await tx.select().from(walletLedger).where(eq(walletLedger.idempotencyKey, key));
+      if (existing) {
+        if (
+          existing.userId !== input.userId ||
+          existing.balanceDeltaMicros !== delta ||
+          existing.reason !== input.reason
+        )
+          throw new TRPCError({ code: 'CONFLICT', message: '该操作标识已用于其他余额调整' });
+        return ledgerDto(existing);
+      }
+      const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, input.userId)).for('update');
+      if (!wallet) throw new TRPCError({ code: 'NOT_FOUND', message: '钱包不存在' });
+      const next = wallet.balanceMicros + delta;
+      if (delta < 0n && next < wallet.reservedMicros)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '扣减金额超过可用余额' });
+      if (next < -9223372036854775808n || next > 9223372036854775807n)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '调整后的余额超出范围' });
+      await tx.update(wallets).set({ balanceMicros: next }).where(eq(wallets.userId, input.userId));
+      const [entry] = await tx
+        .insert(walletLedger)
+        .values({
+          userId: input.userId,
+          kind: 'adjustment',
+          idempotencyKey: key,
+          balanceDeltaMicros: delta,
+          reservedDeltaMicros: 0n,
+          balanceAfterMicros: next,
+          reservedAfterMicros: wallet.reservedMicros,
+          actorId: actor.id,
+          reason: input.reason,
+        })
+        .returning();
+      await tx.insert(adminAuditLogs).values({
+        actorId: actor.id,
+        action: 'wallet.adjust',
+        targetType: 'user',
+        targetId: input.userId,
+        metadata: {
+          ledgerId: entry.id,
+          amount: formatMoney(delta),
+          balanceBefore: formatMoney(wallet.balanceMicros),
+          balanceAfter: formatMoney(next),
+          reason: input.reason,
+        },
+      });
+      return ledgerDto(entry);
+    });
+  }
+}

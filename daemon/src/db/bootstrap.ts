@@ -42,7 +42,6 @@ export async function initializeDatabase(db: Database, options: BootstrapOptions
         username: options.username,
         passwordHash: await hashPassword(options.password),
         role: 'admin',
-        mustChangePassword: true,
       })
       .returning({ id: users.id });
     await tx.insert(wallets).values({ userId: admin.id });

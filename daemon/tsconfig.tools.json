@@ -4,5 +4,5 @@
     "rootDir": ".",
     "noEmit": true
   },
-  "include": ["drizzle.config.ts"]
+  "include": ["drizzle.config.ts", "e2e"]
 }
