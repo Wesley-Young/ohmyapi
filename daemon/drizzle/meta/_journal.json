@@ -5,64 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1791286383056,
+      "when": 1791306362810,
       "tag": "0000_initial_schema",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1791286398742,
-      "tag": "0001_billing_invariants",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1791286628999,
-      "tag": "0002_relational_integrity",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1791287660058,
-      "tag": "0003_accounts",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1791288065307,
-      "tag": "0004_optional_password_change",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1791291042514,
-      "tag": "0005_gateway",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1791300075428,
-      "tag": "0006_channel_pricing",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1791303374374,
-      "tag": "0007_billing",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1791303750345,
-      "tag": "0008_billing_guards",
       "breakpoints": true
     }
   ]

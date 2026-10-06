@@ -1,9 +1,61 @@
 {
-  "id": "c8aa9a19-e818-481a-ae05-e0ffef412b04",
+  "id": "a4d0b898-2a59-400e-9d41-ee744c1880c3",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.api_key_channels": {
+      "name": "api_key_channels",
+      "schema": "",
+      "columns": {
+        "api_key_id": {
+          "name": "api_key_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "api_key_channels_api_key_id_api_keys_id_fk": {
+          "name": "api_key_channels_api_key_id_api_keys_id_fk",
+          "tableFrom": "api_key_channels",
+          "tableTo": "api_keys",
+          "columnsFrom": [
+            "api_key_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "api_key_channels_channel_id_channels_id_fk": {
+          "name": "api_key_channels_channel_id_channels_id_fk",
+          "tableFrom": "api_key_channels",
+          "tableTo": "channels",
+          "columnsFrom": [
+            "channel_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.api_key_model_grants": {
       "name": "api_key_model_grants",
       "schema": "",
@@ -64,17 +116,10 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.channel_models": {
-      "name": "channel_models",
+    "public.channel_available_models": {
+      "name": "channel_available_models",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
         "channel_id": {
           "name": "channel_id",
           "type": "uuid",
@@ -87,67 +132,18 @@
           "primaryKey": false,
           "notNull": true
         },
-        "endpoint": {
-          "name": "endpoint",
-          "type": "endpoint",
-          "typeSchema": "public",
+        "multiplier_micros": {
+          "name": "multiplier_micros",
+          "type": "bigint",
           "primaryKey": false,
-          "notNull": true
-        },
-        "upstream_model": {
-          "name": "upstream_model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "priority": {
-          "name": "priority",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
+          "notNull": false
         }
       },
-      "indexes": {
-        "channel_models_route_idx": {
-          "name": "channel_models_route_idx",
-          "columns": [
-            {
-              "expression": "model_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "endpoint",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "priority",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
-        "channel_models_channel_id_channels_id_fk": {
-          "name": "channel_models_channel_id_channels_id_fk",
-          "tableFrom": "channel_models",
+        "channel_available_models_channel_id_channels_id_fk": {
+          "name": "channel_available_models_channel_id_channels_id_fk",
+          "tableFrom": "channel_available_models",
           "tableTo": "channels",
           "columnsFrom": [
             "channel_id"
@@ -158,9 +154,9 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "channel_models_model_id_models_id_fk": {
-          "name": "channel_models_model_id_models_id_fk",
-          "tableFrom": "channel_models",
+        "channel_available_models_model_id_models_id_fk": {
+          "name": "channel_available_models_model_id_models_id_fk",
+          "tableFrom": "channel_available_models",
           "tableTo": "models",
           "columnsFrom": [
             "model_id"
@@ -172,18 +168,69 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "channel_models_binding_unique": {
-          "name": "channel_models_binding_unique",
-          "nullsNotDistinct": false,
+      "compositePrimaryKeys": {
+        "channel_available_models_channel_id_model_id_pk": {
+          "name": "channel_available_models_channel_id_model_id_pk",
           "columns": [
             "channel_id",
-            "model_id",
+            "model_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "channel_models_multiplier_range": {
+          "name": "channel_models_multiplier_range",
+          "value": "\"channel_available_models\".\"multiplier_micros\" is null or \"channel_available_models\".\"multiplier_micros\" between 0 and 1000000000"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.channel_endpoints": {
+      "name": "channel_endpoints",
+      "schema": "",
+      "columns": {
+        "channel_id": {
+          "name": "channel_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "endpoint": {
+          "name": "endpoint",
+          "type": "endpoint",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "channel_endpoints_channel_id_channels_id_fk": {
+          "name": "channel_endpoints_channel_id_channels_id_fk",
+          "tableFrom": "channel_endpoints",
+          "tableTo": "channels",
+          "columnsFrom": [
+            "channel_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "channel_endpoints_channel_id_endpoint_pk": {
+          "name": "channel_endpoints_channel_id_endpoint_pk",
+          "columns": [
+            "channel_id",
             "endpoint"
           ]
         }
       },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -231,6 +278,13 @@
           "notNull": true,
           "default": 120000
         },
+        "multiplier_micros": {
+          "name": "multiplier_micros",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "1000000"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -256,6 +310,10 @@
         "channels_timeout_positive": {
           "name": "channels_timeout_positive",
           "value": "\"channels\".\"timeout_ms\" > 0"
+        },
+        "channels_multiplier_range": {
+          "name": "channels_multiplier_range",
+          "value": "\"channels\".\"multiplier_micros\" between 0 and 1000000000"
         }
       },
       "isRLSEnabled": false
@@ -332,6 +390,20 @@
           "notNull": true,
           "default": true
         },
+        "input_token_limit": {
+          "name": "input_token_limit",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 32768
+        },
+        "output_token_limit": {
+          "name": "output_token_limit",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 4096
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -353,7 +425,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "models_token_limits": {
+          "name": "models_token_limits",
+          "value": "\"models\".\"input_token_limit\" between 1 and 2000000 and \"models\".\"output_token_limit\" between 1 and 100000"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.user_model_grants": {
@@ -545,6 +622,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "restrict_models": {
+          "name": "restrict_models",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp with time zone",
@@ -604,6 +688,14 @@
           "nullsNotDistinct": false,
           "columns": [
             "key_hash"
+          ]
+        },
+        "api_keys_owner_unique": {
+          "name": "api_keys_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "user_id"
           ]
         }
       },
@@ -862,13 +954,6 @@
           "notNull": true,
           "default": "'active'"
         },
-        "must_change_password": {
-          "name": "must_change_password",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -921,6 +1006,13 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'价格规则'"
         },
         "context_min": {
           "name": "context_min",
@@ -1025,7 +1117,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "price_rules_version_unique": {
+          "name": "price_rules_version_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "price_version_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "price_rules_context_shape": {
@@ -1180,6 +1281,15 @@
             "model_id",
             "endpoint",
             "version"
+          ]
+        },
+        "price_versions_scope_unique": {
+          "name": "price_versions_scope_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "model_id",
+            "endpoint"
           ]
         }
       },
@@ -1383,6 +1493,57 @@
           "primaryKey": false,
           "notNull": false
         },
+        "quoted_micros": {
+          "name": "quoted_micros",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "billing_enabled": {
+          "name": "billing_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "held_micros": {
+          "name": "held_micros",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "0"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "usage_final": {
+          "name": "usage_final",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "reservation_snapshot": {
+          "name": "reservation_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolution_key": {
+          "name": "resolution_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolution_payload": {
+          "name": "resolution_payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "pricing_snapshot": {
           "name": "pricing_snapshot",
           "type": "jsonb",
@@ -1400,6 +1561,19 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "http_status": {
+          "name": "http_status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "streaming": {
+          "name": "streaming",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "created_at": {
           "name": "created_at",
@@ -1531,12 +1705,87 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "requests_api_key_id_user_id_api_keys_id_user_id_fk": {
+          "name": "requests_api_key_id_user_id_api_keys_id_user_id_fk",
+          "tableFrom": "requests",
+          "tableTo": "api_keys",
+          "columnsFrom": [
+            "api_key_id",
+            "user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "requests_price_version_id_model_id_endpoint_price_versions_id_model_id_endpoint_fk": {
+          "name": "requests_price_version_id_model_id_endpoint_price_versions_id_model_id_endpoint_fk",
+          "tableFrom": "requests",
+          "tableTo": "price_versions",
+          "columnsFrom": [
+            "price_version_id",
+            "model_id",
+            "endpoint"
+          ],
+          "columnsTo": [
+            "id",
+            "model_id",
+            "endpoint"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "requests_price_rule_id_price_version_id_price_rules_id_price_version_id_fk": {
+          "name": "requests_price_rule_id_price_version_id_price_rules_id_price_version_id_fk",
+          "tableFrom": "requests",
+          "tableTo": "price_rules",
+          "columnsFrom": [
+            "price_rule_id",
+            "price_version_id"
+          ],
+          "columnsTo": [
+            "id",
+            "price_version_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "requests_resolution_key_unique": {
+          "name": "requests_resolution_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "resolution_key"
+          ]
+        },
+        "requests_owner_unique": {
+          "name": "requests_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "user_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
+        "requests_price_scope": {
+          "name": "requests_price_scope",
+          "value": "(\"requests\".\"price_version_id\" is null or \"requests\".\"model_id\" is not null) and (\"requests\".\"price_rule_id\" is null or \"requests\".\"price_version_id\" is not null)"
+        },
+        "requests_billing_terminal_shape": {
+          "name": "requests_billing_terminal_shape",
+          "value": "not \"requests\".\"billing_enabled\" or (\"requests\".\"status\" = 'settled' and \"requests\".\"charged_micros\" is not null and \"requests\".\"held_micros\" = 0) or (\"requests\".\"status\" = 'released' and \"requests\".\"charged_micros\" = 0 and \"requests\".\"held_micros\" = 0) or (\"requests\".\"status\" in ('reserved', 'forwarding', 'settling', 'needs_review') and \"requests\".\"charged_micros\" is null)"
+        },
+        "requests_hold_range": {
+          "name": "requests_hold_range",
+          "value": "\"requests\".\"held_micros\" >= 0 and \"requests\".\"held_micros\" <= \"requests\".\"reserved_micros\""
+        },
         "requests_amounts_nonnegative": {
           "name": "requests_amounts_nonnegative",
           "value": "\"requests\".\"reserved_micros\" >= 0 and (\"requests\".\"charged_micros\" is null or \"requests\".\"charged_micros\" >= 0)"
@@ -1616,6 +1865,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1667,6 +1923,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "wallet_ledger_request_final_unique": {
+          "name": "wallet_ledger_request_final_unique",
+          "columns": [
+            {
+              "expression": "request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"wallet_ledger\".\"kind\" in ('settlement', 'release')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -1705,6 +1977,21 @@
           ],
           "columnsTo": [
             "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "wallet_ledger_request_id_user_id_requests_id_user_id_fk": {
+          "name": "wallet_ledger_request_id_user_id_requests_id_user_id_fk",
+          "tableFrom": "wallet_ledger",
+          "tableTo": "requests",
+          "columnsFrom": [
+            "request_id",
+            "user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "user_id"
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -1845,6 +2132,7 @@
       "name": "request_status",
       "schema": "public",
       "values": [
+        "completed",
         "received",
         "reserved",
         "forwarding",

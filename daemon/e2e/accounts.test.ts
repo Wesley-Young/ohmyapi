@@ -7,11 +7,9 @@ import { pricingScenario } from './pricing-scenario.js';
 
 import assert from 'node:assert/strict';
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { access, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { access, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -92,7 +90,6 @@ test('billing gateway through real CLI, PostgreSQL and HTTP: permissions, settle
   let backend: ChildProcess | undefined;
   let frontend: ChildProcess | undefined;
   let output = '';
-  let legacyDeployment: string | undefined;
   try {
     const databasePassword = randomBytes(24).toString('hex');
     await exec(
@@ -147,45 +144,7 @@ test('billing gateway through real CLI, PostgreSQL and HTTP: permissions, settle
       GATEWAY_MAX_BODY_BYTES: '4096',
       APP_ORIGIN: `http://127.0.0.1:${webPort}`,
     };
-    // Exercise the deployed CLI on a stage-2 database before upgrading the same database.
-    legacyDeployment = await mkdtemp(join(tmpdir(), 'ohmyapi-upgrade-'));
-    await cp(join(cwd, 'dist'), join(legacyDeployment, 'dist'), { recursive: true });
-    await cp(join(cwd, 'package.json'), join(legacyDeployment, 'package.json'));
-    await symlink(join(cwd, 'node_modules'), join(legacyDeployment, 'node_modules'), 'dir');
-    await mkdir(join(legacyDeployment, 'drizzle/meta'), { recursive: true });
-    const journal = JSON.parse(await readFile(join(cwd, 'drizzle/meta/_journal.json'), 'utf8'));
-    journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx <= 5);
-    for (const entry of journal.entries)
-      await cp(join(cwd, 'drizzle', `${entry.tag}.sql`), join(legacyDeployment, 'drizzle', `${entry.tag}.sql`));
-    await writeFile(join(legacyDeployment, 'drizzle/meta/_journal.json'), JSON.stringify(journal));
-    await exec(process.execPath, ['dist/cli/migrate.js'], { cwd: legacyDeployment, env });
-    await exec(process.execPath, ['dist/cli/init.js'], { cwd: legacyDeployment, env });
-    const legacyChannelId = randomUUID();
-    const legacyModelId = randomUUID();
-    const legacyKeyId = randomUUID();
-    const legacyRequestId = randomUUID();
-    const legacyToken = `oma_${randomBytes(32).toString('base64url')}`;
-    await exec('docker', [
-      'exec',
-      container,
-      'psql',
-      '-U',
-      'postgres',
-      '-d',
-      'ohmyapi',
-      '-v',
-      'ON_ERROR_STOP=1',
-      '-c',
-      `
-      insert into channels (id, name, base_url, credential_encrypted) values ('${legacyChannelId}', 'legacy migration channel', 'http://127.0.0.1:1', 'legacy-placeholder');
-      insert into models (id, name) values ('${legacyModelId}', 'migration-model');
-      insert into channel_endpoints (channel_id, endpoint) values ('${legacyChannelId}', '/v1/chat/completions');
-      insert into model_endpoints (model_id, endpoint) values ('${legacyModelId}', '/v1/chat/completions');
-      insert into channel_models (channel_id, model_id, endpoint, upstream_model) values ('${legacyChannelId}', '${legacyModelId}', '/v1/chat/completions', 'legacy-alias');
-      insert into api_keys (id, user_id, name, key_hash, key_prefix) select '${legacyKeyId}', bootstrap_admin_id, 'legacy key', '${createHash('sha256').update(legacyToken).digest('hex')}', 'legacy-prefix' from system_settings;
-      insert into requests (id, user_id, api_key_id, model_id, channel_id, requested_model, endpoint, status, finished_at) select '${legacyRequestId}', bootstrap_admin_id, '${legacyKeyId}', '${legacyModelId}', '${legacyChannelId}', 'migration-model', '/v1/chat/completions', 'completed', now() from system_settings;
-    `,
-    ]);
+    // Initialize an empty database through the deployed CLI; repeated runs are idempotent.
     await exec(process.execPath, ['dist/cli/migrate.js'], { cwd, env });
     await exec(process.execPath, ['dist/cli/migrate.js'], { cwd, env });
     await exec(process.execPath, ['dist/cli/init.js'], { cwd, env });
@@ -222,27 +181,6 @@ test('billing gateway through real CLI, PostgreSQL and HTTP: permissions, settle
     assert.match(admin.setCookie(), /HttpOnly/i);
     assert.match(admin.setCookie(), /SameSite=Strict/i);
     assert.ok(!('mustChangePassword' in adminUser));
-    const historical = await admin.client.requestDetail.query({ requestId: legacyRequestId });
-    assert.equal(historical.billingEnabled, false);
-    assert.equal(historical.charged, null);
-    assert.equal(historical.ledger.length, 0);
-    const upgraded = (await admin.client.admin.catalog.list.query()).channels.find((c) => c.id === legacyChannelId);
-    assert.ok(upgraded);
-    assert.deepEqual(upgraded.availableModels, [{ modelId: legacyModelId, multiplier: null }]);
-    assert.equal(upgraded.multiplier, '1.000000');
-    const unbound = await fetch(`${url}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${legacyToken}` },
-      body: JSON.stringify({ model: 'migration-model' }),
-    });
-    assert.equal(unbound.status, 403);
-    assert.equal(((await unbound.json()) as { error: { code: string } }).error.code, 'channel_unbound');
-    await admin.client.keys.bindChannel.mutate({ keyId: legacyKeyId, channelId: legacyChannelId });
-    await rejected(
-      () => admin.client.keys.bindChannel.mutate({ keyId: legacyKeyId, channelId: legacyChannelId }),
-      'CONFLICT',
-    );
-
     const alice = await admin.client.admin.users.create.mutate({ username: 'alice' });
     const bob = await admin.client.admin.users.create.mutate({ username: 'bob' });
     assert.equal(alice.password.length, 16);
@@ -253,10 +191,6 @@ test('billing gateway through real CLI, PostgreSQL and HTTP: permissions, settle
     const other = agent(url);
     await user.client.auth.login.mutate({ username: 'alice', password: alice.password });
     await other.client.auth.login.mutate({ username: 'bob', password: bob.password });
-    await rejected(
-      () => user.client.keys.bindChannel.mutate({ keyId: legacyKeyId, channelId: legacyChannelId }),
-      'NOT_FOUND',
-    );
     assert.equal((await user.client.wallet.get.query()).balance, '0.000000');
     await rejected(() => user.client.admin.users.list.query(), 'FORBIDDEN');
     await rejected(() => user.client.admin.wallet.get.query({ userId: bob.user.id }), 'FORBIDDEN');
@@ -450,6 +384,5 @@ test('billing gateway through real CLI, PostgreSQL and HTTP: permissions, settle
     await stop(frontend);
     await stop(backend);
     if (started) await exec('docker', ['rm', '-f', container]);
-    if (legacyDeployment) await rm(legacyDeployment, { recursive: true, force: true });
   }
 });
