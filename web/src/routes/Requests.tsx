@@ -169,7 +169,7 @@ export default function Requests() {
                               variant="outline"
                               onClick={() => setAction({ requestId: r.id, kind: 'correct' })}
                             >
-                              冲正
+                              修正
                             </Button>
                           )}
                         </HStack>

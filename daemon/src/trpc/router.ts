@@ -195,7 +195,7 @@ export const appRouter = t.router({
                 return false;
               }
             }, '请输入非零金额，最多六位小数'),
-            reason: z.string().trim().min(1, '请填写调整原因').max(300, '原因最多 300 个字符'),
+            reason: z.string().trim().max(300, '原因最多 300 个字符').default(''),
             idempotencyKey: z.uuid(),
           }),
         )

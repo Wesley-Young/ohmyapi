@@ -37,7 +37,7 @@ export function WalletSummary({ wallet }: { wallet: Output['wallet']['get'] }) {
     </Grid>
   );
 }
-const kinds = { adjustment: '余额调整', reserve: '预占', settlement: '消费', release: '释放', correction: '冲正' };
+const kinds = { adjustment: '余额调整', reserve: '预占', settlement: '消费', release: '释放', correction: '修正' };
 export function Ledger({ items }: { items: Output['wallet']['ledger']['items'] }) {
   if (!items.length)
     return (
@@ -75,7 +75,7 @@ export function Ledger({ items }: { items: Output['wallet']['ledger']['items'] }
                 {displayMoney(item.balanceAfter)}
               </Table.Cell>
               <Table.Cell minW="150px" maxW="340px" overflowWrap="anywhere">
-                {item.reason}
+                {item.reason || '—'}
               </Table.Cell>
               <Table.Cell whiteSpace="nowrap">{item.actorName ?? '系统'}</Table.Cell>
               <Table.Cell>

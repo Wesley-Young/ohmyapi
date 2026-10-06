@@ -21,7 +21,7 @@ export const requestStatuses: Record<string, string> = {
   needs_review: '待核对',
   completed: '历史未计费',
 };
-const ledgerKinds = { reserve: '预占', settlement: '消费', release: '释放', correction: '冲正', adjustment: '调账' };
+const ledgerKinds = { reserve: '预占', settlement: '消费', release: '释放', correction: '修正', adjustment: '调账' };
 const refreshRequests = (userId: string, requestId: string) =>
   Promise.all([
     invalidateUser(userId),
@@ -365,7 +365,7 @@ function CorrectionForm({ r, close }: { r: Detail; close: () => void }) {
   );
   const locked = task.isPending || Boolean(operation.current);
   return (
-    <FormDialog open title="追加费用冲正" busy={task.isPending} onClose={close}>
+    <FormDialog open title="追加费用修正" busy={task.isPending} onClose={close}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -379,7 +379,7 @@ function CorrectionForm({ r, close }: { r: Detail; close: () => void }) {
             当前累计扣费 {r.charged} {r.currency}。减少费用会退款，增加费用会补扣，原流水保留。
           </Text>
           <FormInput
-            label={`冲正后的累计费用（${r.currency}）`}
+            label={`修正后的累计费用（${r.currency}）`}
             value={amount}
             inputMode="decimal"
             required
@@ -387,7 +387,7 @@ function CorrectionForm({ r, close }: { r: Detail; close: () => void }) {
             onChange={(e) => setAmount(e.target.value)}
           />
           <FormInput
-            label="冲正依据"
+            label="修正依据"
             value={reason}
             required
             maxLength={500}
@@ -402,7 +402,7 @@ function CorrectionForm({ r, close }: { r: Detail; close: () => void }) {
           )}
           <HStack>
             <PrimaryButton type="submit" loading={task.isPending}>
-              {operation.current ? '重试冲正' : '确认冲正'}
+              {operation.current ? '重试修正' : '确认修正'}
             </PrimaryButton>
             <Button variant="ghost" disabled={task.isPending} onClick={close}>
               关闭

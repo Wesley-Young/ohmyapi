@@ -207,7 +207,7 @@ CREATE TABLE "wallet_ledger" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "wallet_ledger_idempotency_key_unique" UNIQUE("idempotency_key"),
 	CONSTRAINT "wallet_ledger_reserved_nonnegative" CHECK ("wallet_ledger"."reserved_after_micros" >= 0),
-	CONSTRAINT "wallet_ledger_reason_present" CHECK (length(trim("wallet_ledger"."reason")) > 0),
+	CONSTRAINT "wallet_ledger_reason_present" CHECK ("wallet_ledger"."kind" = 'adjustment' or length(trim("wallet_ledger"."reason")) > 0),
 	CONSTRAINT "wallet_ledger_event_shape" CHECK (
     ("wallet_ledger"."kind" in ('adjustment', 'correction') and "wallet_ledger"."actor_id" is not null and "wallet_ledger"."balance_delta_micros" <> 0 and "wallet_ledger"."reserved_delta_micros" = 0)
     or ("wallet_ledger"."kind" = 'reserve' and "wallet_ledger"."request_id" is not null and "wallet_ledger"."balance_delta_micros" = 0 and "wallet_ledger"."reserved_delta_micros" > 0)

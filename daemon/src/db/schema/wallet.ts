@@ -49,7 +49,7 @@ export const walletLedger = pgTable(
       .on(table.requestId)
       .where(sql`${table.kind} in ('settlement', 'release')`),
     check('wallet_ledger_reserved_nonnegative', sql`${table.reservedAfterMicros} >= 0`),
-    check('wallet_ledger_reason_present', sql`length(trim(${table.reason})) > 0`),
+    check('wallet_ledger_reason_present', sql`${table.kind} = 'adjustment' or length(trim(${table.reason})) > 0`),
     check(
       'wallet_ledger_event_shape',
       sql`

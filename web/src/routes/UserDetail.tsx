@@ -95,13 +95,12 @@ function Adjustment({ userId }: { userId: string }) {
               disabled={task.isPending || Boolean(operation.current)}
             />
             <FormInput
-              label="原因"
+              label="原因（选填）"
               value={reason}
               onChange={(event) => {
                 setReason(event.target.value);
                 task.reset();
               }}
-              required
               maxLength={300}
               error={error?.fields.reason?.[0]}
               disabled={task.isPending || Boolean(operation.current)}

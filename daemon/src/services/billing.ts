@@ -51,7 +51,7 @@ export const resolveBillInput = z.object({
 export const correctBillInput = z.object({
   requestId,
   amount: priceInput,
-  reason: z.string().trim().min(1, '请填写冲正依据').max(500),
+  reason: z.string().trim().min(1, '请填写修正依据').max(500),
   idempotencyKey: z.uuid(),
 });
 type RequestRow = typeof requests.$inferSelect;
@@ -755,11 +755,11 @@ export class BillingService {
           existing.reason !== input.reason ||
           existing.metadata.targetCharged !== formatMoney(target)
         )
-          throw new TRPCError({ code: 'CONFLICT', message: '冲正标识已用于不同内容' });
+          throw new TRPCError({ code: 'CONFLICT', message: '修正标识已用于不同内容' });
         return { success: true, userId: r.userId };
       }
       if (!r.billingEnabled || r.status !== 'settled' || r.chargedMicros === null)
-        throw new TRPCError({ code: 'CONFLICT', message: '仅对已结算计费请求追加冲正' });
+        throw new TRPCError({ code: 'CONFLICT', message: '仅对已结算计费请求追加修正' });
       const delta = r.chargedMicros - target;
       if (delta === 0n) throw new TRPCError({ code: 'BAD_REQUEST', message: '费用没有变化' });
       const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, r.userId)).for('update');

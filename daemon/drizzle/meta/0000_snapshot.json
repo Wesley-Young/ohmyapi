@@ -1726,7 +1726,7 @@
         },
         "wallet_ledger_reason_present": {
           "name": "wallet_ledger_reason_present",
-          "value": "length(trim(\"wallet_ledger\".\"reason\")) > 0"
+          "value": "\"wallet_ledger\".\"kind\" = 'adjustment' or length(trim(\"wallet_ledger\".\"reason\")) > 0"
         },
         "wallet_ledger_event_shape": {
           "name": "wallet_ledger_event_shape",
