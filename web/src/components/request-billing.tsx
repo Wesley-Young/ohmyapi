@@ -36,6 +36,13 @@ const definitive = (error: unknown) =>
 type Detail = RouterOutputs['requestDetail'];
 type Resolution = RouterInputs['admin']['billing']['resolve'];
 type Correction = RouterInputs['admin']['billing']['correct'];
+function estimatedTokens(reservation: Detail['reservation']) {
+  const value = reservation?.estimate;
+  if (!value || typeof value !== 'object') return;
+  const estimate = value as Record<string, unknown>;
+  if (typeof estimate.inputTokens !== 'number' || typeof estimate.outputTokens !== 'number') return;
+  return { input: estimate.inputTokens, output: estimate.outputTokens };
+}
 
 export function RequestDetail({ requestId, close }: { requestId: string; close: () => void }) {
   const data = useQuery(
@@ -50,6 +57,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
     ),
   );
   const r = data.data;
+  const estimate = estimatedTokens(r?.reservation ?? null);
   return (
     <FormDialog open title="请求账单" onClose={close}>
       <Stack gap="5">
@@ -84,6 +92,12 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                   </Box>
                 ))}
               </Grid>
+              {estimate && (
+                <Text fontSize="sm" color="gray.500">
+                  预占按输入 {estimate.input.toLocaleString()}、输出 {estimate.output.toLocaleString()} Token
+                  估算；实际费用按上游用量结算。
+                </Text>
+              )}
               {r.errorCode && (
                 <Text fontSize="sm" color="gray.500">
                   {r.errorCode}

@@ -1,11 +1,12 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { and, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import { Client } from 'pg';
 import { z } from 'zod';
 
 import { reservationAmount } from '../billing/admission.js';
 import { formatMoney, parseMoney } from '../billing/conventions.js';
+import { estimateReservation } from '../billing/estimation.js';
 import { priceInput, tokenInput } from '../billing/pricing.js';
 import type { DatabaseConfig } from '../config.js';
 import {
@@ -166,10 +167,33 @@ export class BillingService {
     price: LockedPrice;
     inputLimit: number;
     outputLimit: number;
+    body: Record<string, unknown>;
     endpoint: (typeof requests.$inferSelect)['endpoint'];
   }) {
     this.assertReady();
-    const amount = reservationAmount(input.price, input.inputLimit, input.outputLimit);
+    const history = await this.auth.db
+      .select({ outputTokens: requestUsage.outputTokens })
+      .from(requests)
+      .innerJoin(requestUsage, eq(requestUsage.requestId, requests.id))
+      .where(
+        and(
+          eq(requests.userId, input.userId),
+          eq(requests.channelId, input.channelId),
+          eq(requests.modelId, input.modelId),
+          eq(requests.endpoint, input.endpoint),
+          eq(requests.status, 'settled'),
+          eq(requests.usageFinal, true),
+        ),
+      )
+      .orderBy(desc(requests.receivedAt), desc(requests.id))
+      .limit(100);
+    const estimate = estimateReservation(
+      input.body,
+      input.inputLimit,
+      input.outputLimit,
+      history.map((r) => r.outputTokens),
+    );
+    const amount = reservationAmount(input.price, estimate.inputTokens, estimate.outputTokens);
     this.active.add(input.requestId);
     try {
       await this.auth.db.transaction(async (tx) => {
@@ -260,8 +284,9 @@ export class BillingService {
               pricing: this.pricing.snapshot(input.price),
               inputTokenLimit: input.inputLimit,
               outputTokenLimit: input.outputLimit,
+              estimate,
               amount: formatMoney(amount),
-              strategy: 'model_capacity_max_price',
+              strategy: 'request_content_recent_output',
             },
           })
           .where(eq(requests.id, r.id));
@@ -276,7 +301,12 @@ export class BillingService {
             balanceAfterMicros: wallet.balanceMicros,
             reservedAfterMicros: reserved,
             reason: '请求费用预占',
-            metadata: { pricing: snapshot, inputTokenLimit: input.inputLimit, outputTokenLimit: input.outputLimit },
+            metadata: {
+              pricing: snapshot,
+              estimate,
+              inputTokenLimit: input.inputLimit,
+              outputTokenLimit: input.outputLimit,
+            },
           });
       });
     } catch (error) {
@@ -463,7 +493,6 @@ export class BillingService {
         chargedMicros: amount,
         quotedMicros: typeof snapshot.totalMicros === 'string' ? BigInt(snapshot.totalMicros) : r.quotedMicros,
         pricingSnapshot: { ...snapshot, billed: true },
-        errorCode: amount > r.reservedMicros ? (r.errorCode ?? 'reservation_exceeded') : r.errorCode,
         finishedAt: r.finishedAt ?? new Date(),
       })
       .where(eq(requests.id, r.id));

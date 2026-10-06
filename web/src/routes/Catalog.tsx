@@ -270,7 +270,7 @@ function ModelForm({ initial, close }: { initial?: CatalogData['models'][number]
             helper="请求模型名会原样发送给上游"
           />
           <FormInput
-            label="输入 Token 预占上限"
+            label="输入 Token 容量"
             type="number"
             min={1}
             required

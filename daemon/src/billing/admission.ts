@@ -3,18 +3,19 @@ import type { Endpoint } from '../services/catalog.js';
 import type { LockedPrice } from '../services/pricing.js';
 import { ruleTimeMatcher } from './pricing.js';
 
-/** Freeze against declared model capacity, never a floating-point/local tokenizer estimate. */
-export function reservationAmount(price: LockedPrice, inputLimit: number, outputLimit: number) {
-  let inputPrice = 0n;
-  let outputPrice = 0n;
-  // Include every context tier, even above the declared capacity, to remain conservative.
+/** Reserve against estimated usage and the most expensive reachable rule at receipt. */
+export function reservationAmount(price: LockedPrice, inputTokens: number, outputTokens: number) {
+  let numerator = 0n;
   const matchesTime = ruleTimeMatcher(price.receivedAt);
   for (const r of price.rules.filter(matchesTime)) {
+    if (r.contextMin !== null && r.contextMin > BigInt(inputTokens)) continue;
+    let inputPrice = 0n;
     for (const p of [r.inputPriceMicros, r.cacheReadPriceMicros, r.cacheWritePriceMicros])
       if (p !== null && p > inputPrice) inputPrice = p;
-    if (r.outputPriceMicros > outputPrice) outputPrice = r.outputPriceMicros;
+    const candidate =
+      (BigInt(inputTokens) * inputPrice + BigInt(outputTokens) * r.outputPriceMicros) * price.multiplierMicros;
+    if (candidate > numerator) numerator = candidate;
   }
-  const numerator = (BigInt(inputLimit) * inputPrice + BigInt(outputLimit) * outputPrice) * price.multiplierMicros;
   const amount = (numerator + 999_999_999_999n) / 1_000_000_000_000n;
   if (amount > 9_223_372_036_854_775_807n)
     throw new GatewayError(400, 'reservation_overflow', 'The configured reservation exceeds the supported amount');
@@ -105,7 +106,7 @@ export function validateBillableRequest(
       );
     for (const value of Object.values(object)) stack.push(value);
   }
-  // This bounds local payload size; declared upstream model capacity is the financial bound.
+  // This bounds local payload size separately from the usage estimate used for reservation.
   if (bytes > inputLimit)
     throw new GatewayError(
       413,

@@ -355,6 +355,7 @@ export class GatewayService {
         price: lockedPrice,
         inputLimit: model.inputTokenLimit,
         outputLimit,
+        body: parsed,
         endpoint,
       });
       if (req.signal.aborted) disconnect();
