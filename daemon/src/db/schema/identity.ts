@@ -54,8 +54,7 @@ export const apiKeys = pgTable(
       .notNull()
       .references(() => users.id),
     name: text('name').notNull(),
-    keyHash: text('key_hash').notNull().unique(),
-    keyPrefix: text('key_prefix').notNull(),
+    key: text('key').notNull().unique(),
     restrictModels: boolean('restrict_models').default(false).notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),

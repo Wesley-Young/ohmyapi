@@ -13,7 +13,7 @@ import {
   models,
   userModelGrants,
 } from '../db/schema/index.js';
-import { type AuthService, digestToken, type Principal, type Transaction } from './auth.js';
+import type { AuthService, Principal, Transaction } from './auth.js';
 import { pageSize } from './users.js';
 
 import { randomBytes } from 'node:crypto';
@@ -91,7 +91,7 @@ export class KeyService {
       .select({
         id: apiKeys.id,
         name: apiKeys.name,
-        prefix: apiKeys.keyPrefix,
+        token: apiKeys.key,
         expiresAt: apiKeys.expiresAt,
         revokedAt: apiKeys.revokedAt,
         createdAt: apiKeys.createdAt,
@@ -155,14 +155,13 @@ export class KeyService {
       if (!offerings.length) throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用或没有授权模型' });
       if (modelIds.some((id) => !offerings.some((o) => o.modelId === id)))
         throw new TRPCError({ code: 'FORBIDDEN', message: '包含渠道不可用或未授权的模型' });
-      const token = `oma_${randomBytes(32).toString('base64url')}`;
+      const token = `sk-${randomBytes(32).toString('base64url')}`;
       const [key] = await tx
         .insert(apiKeys)
         .values({
           userId: user.id,
           name: input.name,
-          keyHash: digestToken(token),
-          keyPrefix: `${token.slice(0, 12)}…`,
+          key: token,
           expiresAt,
           restrictModels: input.modelIds !== undefined,
         })

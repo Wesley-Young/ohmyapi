@@ -1,16 +1,4 @@
-import {
-  Box,
-  Button,
-  Checkbox,
-  Code,
-  Field,
-  Heading,
-  HStack,
-  NativeSelect,
-  Stack,
-  Table,
-  Text,
-} from '@chakra-ui/react';
+import { Box, Button, Checkbox, Field, HStack, IconButton, NativeSelect, Stack, Table, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -21,7 +9,6 @@ import {
   FormInput,
   Loading,
   PageControls,
-  Panel,
   PrimaryButton,
   Title,
 } from '../components/ui';
@@ -39,7 +26,8 @@ export default function Keys() {
   const [expiresAt, setExpiresAt] = useState('');
   const [restricted, setRestricted] = useState(false);
   const [modelIds, setModelIds] = useState<string[]>([]);
-  const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState<string>();
+  const [copyError, setCopyError] = useState<string>();
   const [localError, setLocalError] = useState<string>();
   const [binding, setBinding] = useState<string>();
   const [bindChannelId, setBindChannelId] = useState('');
@@ -53,7 +41,8 @@ export default function Keys() {
         setExpiresAt('');
         setModelIds([]);
         setRestricted(false);
-        setCopied(false);
+        setCopiedId(undefined);
+        setCopyError(undefined);
         setLocalError(undefined);
         setPage(0);
         await refresh();
@@ -68,7 +57,6 @@ export default function Keys() {
       },
     }),
   );
-  const secret = task.data?.token;
   const models = channels.data?.find((c) => c.id === channelId)?.models ?? [];
   const close = () => {
     setCreating(false);
@@ -86,7 +74,6 @@ export default function Keys() {
         action={
           <PrimaryButton
             size="sm"
-            disabled={Boolean(secret)}
             onClick={() => {
               task.reset();
               setLocalError(undefined);
@@ -100,49 +87,7 @@ export default function Keys() {
         API Key
       </Title>
       <ErrorText>{formError(data.error ?? channels.error)?.message}</ErrorText>
-      {secret && (
-        <Panel>
-          <Stack gap="4">
-            <Heading as="h2" fontSize="lg">
-              保存你的 Key
-            </Heading>
-            <Text fontSize="sm" color="gray.500">
-              完整 Key 仅显示这一次。
-            </Text>
-            <Code p="4" fontSize="sm" whiteSpace="normal" overflowWrap="anywhere" userSelect="all">
-              {secret}
-            </Code>
-            <HStack>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(secret);
-                    setCopied(true);
-                  } catch {
-                    setLocalError('复制失败，请手动选择并复制 Key');
-                  }
-                }}
-              >
-                {copied ? '已复制' : '复制'}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  task.reset();
-                  setCopied(false);
-                  setLocalError(undefined);
-                }}
-              >
-                已保存
-              </Button>
-            </HStack>
-            <ErrorText>{localError}</ErrorText>
-          </Stack>
-        </Panel>
-      )}
+      <ErrorText>{copyError}</ErrorText>
       {creating && (
         <FormDialog open title="创建 Key" busy={task.isPending} onClose={close}>
           <form
@@ -275,8 +220,52 @@ export default function Keys() {
                     return (
                       <Table.Row key={key.id}>
                         <Table.Cell>{key.name}</Table.Cell>
-                        <Table.Cell whiteSpace="nowrap" fontFamily="mono">
-                          {key.prefix}
+                        <Table.Cell whiteSpace="nowrap">
+                          <HStack gap="2">
+                            <Text as="span" fontFamily="mono">
+                              {key.token.slice(0, 12)}…
+                            </Text>
+                            <IconButton
+                              variant="ghost"
+                              size="xs"
+                              aria-label={
+                                copiedId === key.id ? `已复制「${key.name}」的 Key` : `复制「${key.name}」的 Key`
+                              }
+                              title={copiedId === key.id ? '已复制' : '复制 Key'}
+                              onClick={async () => {
+                                setCopyError(undefined);
+                                setCopiedId(undefined);
+                                try {
+                                  await navigator.clipboard.writeText(key.token);
+                                  setCopiedId(key.id);
+                                } catch {
+                                  setCopyError('复制失败，请检查浏览器剪贴板权限后重试');
+                                }
+                              }}
+                            >
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.75"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                                focusable="false"
+                              >
+                                {copiedId === key.id ? (
+                                  <path d="m5 12 4 4L19 6" />
+                                ) : (
+                                  <>
+                                    <rect x="9" y="9" width="12" height="12" rx="2" />
+                                    <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+                                  </>
+                                )}
+                              </svg>
+                            </IconButton>
+                          </HStack>
                         </Table.Cell>
                         <Table.Cell whiteSpace="nowrap">{key.channelName ?? '未绑定'}</Table.Cell>
                         <Table.Cell minW="140px" maxW="280px" overflowWrap="anywhere">

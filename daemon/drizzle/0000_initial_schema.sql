@@ -74,13 +74,12 @@ CREATE TABLE "api_keys" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,
 	"name" text NOT NULL,
-	"key_hash" text NOT NULL,
-	"key_prefix" text NOT NULL,
+	"key" text NOT NULL,
 	"restrict_models" boolean DEFAULT false NOT NULL,
 	"expires_at" timestamp with time zone,
 	"revoked_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "api_keys_key_hash_unique" UNIQUE("key_hash"),
+	CONSTRAINT "api_keys_key_unique" UNIQUE("key"),
 	CONSTRAINT "api_keys_owner_unique" UNIQUE("id","user_id")
 );
 --> statement-breakpoint

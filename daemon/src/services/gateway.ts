@@ -20,7 +20,6 @@ import {
 } from '../db/schema/index.js';
 import { GatewayError } from '../gateway/errors.js';
 import { SseObserver, UsageCollector } from '../gateway/usage.js';
-import { digestToken } from './auth.js';
 import type { BillingService, BillingSummary } from './billing.js';
 import type { CredentialVault, Endpoint } from './catalog.js';
 import type { PricingService } from './pricing.js';
@@ -113,12 +112,12 @@ export class GatewayService {
   }
   private async identify(req: Request, endpoint: Endpoint) {
     const authorization = req.headers.get('authorization');
-    const bearer = authorization?.match(/^Bearer (oma_[A-Za-z0-9_-]{43})$/i)?.[1];
+    const bearer = authorization?.match(/^Bearer (sk-[A-Za-z0-9_-]{43})$/i)?.[1];
     const headerKey = endpoint === '/v1/messages' ? req.headers.get('x-api-key') : null;
     if ((authorization && !bearer) || (bearer && headerKey && bearer !== headerKey))
       throw new GatewayError(401, 'invalid_api_key', 'Invalid API Key');
     const token = bearer ?? headerKey;
-    if (!token || !/^oma_[A-Za-z0-9_-]{43}$/.test(token))
+    if (!token || !/^sk-[A-Za-z0-9_-]{43}$/.test(token))
       throw new GatewayError(401, 'invalid_api_key', 'An API Key is required');
     const [identity] = await this.db
       .select({ key: apiKeys, user: users, channelId: apiKeyChannels.channelId })
@@ -127,7 +126,7 @@ export class GatewayService {
       .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
       .where(
         and(
-          eq(apiKeys.keyHash, digestToken(token)),
+          eq(apiKeys.key, token),
           isNull(apiKeys.revokedAt),
           or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
           eq(users.status, 'active'),

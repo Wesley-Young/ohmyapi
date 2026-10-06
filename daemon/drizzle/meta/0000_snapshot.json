@@ -562,14 +562,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "key_hash": {
-          "name": "key_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "key_prefix": {
-          "name": "key_prefix",
+        "key": {
+          "name": "key",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -635,19 +629,19 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "api_keys_key_hash_unique": {
-          "name": "api_keys_key_hash_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "key_hash"
-          ]
-        },
         "api_keys_owner_unique": {
           "name": "api_keys_owner_unique",
           "nullsNotDistinct": false,
           "columns": [
             "id",
             "user_id"
+          ]
+        },
+        "api_keys_key_unique": {
+          "name": "api_keys_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "key"
           ]
         }
       },
