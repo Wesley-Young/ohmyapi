@@ -269,7 +269,7 @@ export default function Keys() {
                         </Table.Cell>
                         <Table.Cell whiteSpace="nowrap">{key.channelName ?? '未绑定'}</Table.Cell>
                         <Table.Cell minW="140px" maxW="280px" overflowWrap="anywhere">
-                          {key.restrictModels ? key.modelNames.join('、') || '无可用模型' : '渠道内已授权模型'}
+                          {key.restrictModels ? key.modelNames.join('、') || '无可用模型' : '所有'}
                         </Table.Cell>
                         <Table.Cell whiteSpace="nowrap">{key.expiresAt ? localDate(key.expiresAt) : '长期'}</Table.Cell>
                         <Table.Cell whiteSpace="nowrap">

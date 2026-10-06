@@ -1,4 +1,4 @@
-import { Box, Button, HStack, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, HStack, Stack, Table, Text } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
@@ -8,6 +8,42 @@ import { ErrorText, Loading, PageControls, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { formError, localDate } from '../lib/format';
 import { trpc } from '../lib/trpc';
+
+const usageKinds = {
+  input: { label: '输入', path: 'M3 12h12m-4-4 4 4-4 4M15 4h5v16h-5' },
+  output: { label: '输出', path: 'M9 4H4v16h5m0-8h12m-4-4 4 4-4 4' },
+  cacheRead: { label: '缓存读', path: 'M17 12v8m-3-3 3 3 3-3' },
+  cacheWrite: { label: '缓存写', path: 'M17 20v-8m-3 3 3-3 3 3' },
+} as const;
+
+function UsageBadge({ kind, value }: { kind: keyof typeof usageKinds; value: string }) {
+  const { label, path } = usageKinds[kind];
+  return (
+    <Badge colorPalette="gray" gap="1.5" fontVariantNumeric="tabular-nums">
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        {(kind === 'cacheRead' || kind === 'cacheWrite') && (
+          <>
+            <ellipse cx="7" cy="5" rx="4" ry="2" />
+            <path d="M3 5v12c0 1.1 1.8 2 4 2s4-.9 4-2V5M3 11c0 1.1 1.8 2 4 2s4-.9 4-2" />
+          </>
+        )}
+        <path d={path} />
+      </svg>
+      {label} {value}
+    </Badge>
+  );
+}
 
 export default function Requests() {
   const { data: user } = useAuth();
@@ -84,12 +120,12 @@ export default function Requests() {
                 <Table.Header>
                   <Table.Row>
                     {[
-                      '时间 / 请求 ID',
+                      '时间',
                       ...(admin ? ['用户'] : []),
-                      '模型 / 端点',
-                      '结果',
+                      '模型',
+                      '状态',
                       'Token 用量',
-                      `已扣 / 冻结（${data.data.currency}）`,
+                      `扣费/冻结（${data.data.currency}）`,
                       '操作',
                     ].map((h) => (
                       <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
@@ -99,56 +135,37 @@ export default function Requests() {
                 <Table.Body>
                   {data.data.items.map((r) => (
                     <Table.Row key={r.id}>
-                      <Table.Cell whiteSpace="nowrap">
-                        <Text>{localDate(r.receivedAt)}</Text>
-                        <Text fontSize="xs" color="gray.500" title={r.upstreamRequestId ?? undefined}>
-                          {r.id}
-                        </Text>
-                      </Table.Cell>
+                      <Table.Cell>{localDate(r.receivedAt)}</Table.Cell>
                       {admin && <Table.Cell>{r.username}</Table.Cell>}
-                      <Table.Cell>
-                        <Text>{r.model}</Text>
-                        <Text fontSize="xs" color="gray.500">
-                          {r.endpoint}
-                          {r.streaming && ' · SSE'}
-                        </Text>
-                      </Table.Cell>
+                      <Table.Cell>{r.model}</Table.Cell>
                       <Table.Cell whiteSpace="nowrap">
                         <Text>{requestStatuses[r.status]}</Text>
-                        <HStack fontSize="xs" color="gray.500">
-                          <Text>{r.httpStatus ?? '—'}</Text>
-                          <Text>{r.durationMs === null ? '' : `${r.durationMs}ms`}</Text>
-                        </HStack>
+                        <Text fontSize="xs" color="gray.500">
+                          {r.durationMs === null ? '' : `${r.durationMs}ms`}
+                        </Text>
                         {r.errorCode && (
-                          <Text fontSize="xs" color="gray.500">
+                          <Text fontSize="xs" color="orange.500">
                             {r.errorCode}
                           </Text>
                         )}
                       </Table.Cell>
-                      <Table.Cell whiteSpace="nowrap">
+                      <Table.Cell minW="220px" maxW="320px">
                         {r.usage ? (
-                          <>
-                            <Text>
-                              输入 {r.usage.input} · 输出 {r.usage.output}
-                            </Text>
-                            <Text fontSize="xs" color="gray.500">
-                              缓存读 {r.usage.cacheRead} · 写 {r.usage.cacheWrite} · 上下文 {r.usage.context}
-                            </Text>
-                          </>
+                          <Stack gap="2">
+                            <HStack gap="2" flexWrap="wrap">
+                              <UsageBadge kind="input" value={r.usage.input} />
+                              <UsageBadge kind="output" value={r.usage.output} />
+                            </HStack>
+                            <HStack gap="2" flexWrap="wrap">
+                              <UsageBadge kind="cacheRead" value={r.usage.cacheRead} />
+                              <UsageBadge kind="cacheWrite" value={r.usage.cacheWrite} />
+                            </HStack>
+                          </Stack>
                         ) : (
                           '—'
                         )}
                       </Table.Cell>
-                      <Table.Cell whiteSpace="nowrap">
-                        <Text>
-                          {r.chargedAmount ?? '—'} / {r.heldAmount}
-                        </Text>
-                        {typeof r.pricing?.ruleLabel === 'string' && (
-                          <Text fontSize="xs" color="gray.500">
-                            {r.pricing.ruleLabel} · ×{String(r.pricing.multiplier)}
-                          </Text>
-                        )}
-                      </Table.Cell>
+                      <Table.Cell>{r.chargedAmount || r.heldAmount}</Table.Cell>
                       <Table.Cell>
                         <HStack>
                           <Button size="sm" variant="ghost" onClick={() => setDetailId(r.id)}>

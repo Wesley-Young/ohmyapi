@@ -1,4 +1,4 @@
-import { Box, Button, Checkbox, Grid, Heading, HStack, Link, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Checkbox, Grid, Heading, HStack, Link, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -286,13 +286,20 @@ function Preview({ modelId }: { modelId: string }) {
         </form>
         {task.data && (
           <Stack gap="3">
-            <Text fontWeight="600">
-              {task.data.total} {task.data.currency} · 未扣费
-            </Text>
-            <Text fontSize="sm" color="gray.500">
-              {task.data.ruleLabel}（{kinds[task.data.ruleKind]}）· ×{Number(task.data.multiplier)} · 上下文{' '}
-              {task.data.contextTokens}
-            </Text>
+            <HStack gap="2" flexWrap="wrap">
+              <Text fontWeight="600">
+                {task.data.total} {task.data.currency}
+              </Text>
+              <Badge colorPalette="gray">未扣费</Badge>
+            </HStack>
+            <HStack gap="2" flexWrap="wrap">
+              <Text fontSize="sm" overflowWrap="anywhere">
+                {task.data.ruleLabel}
+              </Text>
+              <Badge colorPalette="gray">{kinds[task.data.ruleKind]}</Badge>
+              <Badge colorPalette="gray">{Number(task.data.multiplier)}×</Badge>
+              <Badge colorPalette="gray">上下文 {task.data.contextTokens} Token</Badge>
+            </HStack>
             <Box overflowX="auto">
               <Table.Root size="sm">
                 <Table.Header>
@@ -374,7 +381,7 @@ export default function Pricing() {
           </PrimaryButton>
         }
       >
-        {model?.name ?? '模型'} · 定价
+        {model?.name ?? '模型'} 定价
       </Title>
       <ErrorText>{formError(catalog.error ?? data.error)?.message}</ErrorText>
       {catalog.isPending || (model && data.isPending) ? (
@@ -383,15 +390,12 @@ export default function Pricing() {
         <Text>模型不存在</Text>
       ) : data.data ? (
         <>
-          <Text fontSize="sm" color="gray.500">
-            单位：{data.data.currency} / 百万 Token · Asia/Shanghai
-          </Text>
           <ErrorText>{formError(save.error)?.message}</ErrorText>
           <Box overflowX="auto">
             <Table.Root size="sm">
               <Table.Header>
                 <Table.Row>
-                  {['规则 / 条件', '输入', '输出', '缓存读', '缓存写', '操作'].map((h) => (
+                  {['规则名称', '条件', '输入', '输出', '缓存读', '缓存写', '操作'].map((h) => (
                     <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                   ))}
                 </Table.Row>
@@ -399,10 +403,9 @@ export default function Pricing() {
               <Table.Body>
                 {data.data.rules.map((r, index) => (
                   <Table.Row key={r.id}>
+                    <Table.Cell>{r.label}</Table.Cell>
                     <Table.Cell>
-                      <Text fontWeight="500">
-                        {r.label} · {kinds[r.kind]}
-                      </Text>
+                      <Text fontWeight="500">{kinds[r.kind]}</Text>
                       {r.contextMin !== null && (
                         <Text fontSize="xs" color="gray.500">
                           [{r.contextMin}, {r.contextMax ?? '∞'}) Token

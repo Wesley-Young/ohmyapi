@@ -1,4 +1,5 @@
 import {
+  Badge,
   Box,
   Button,
   Checkbox,
@@ -261,14 +262,7 @@ function ModelForm({ initial, close }: { initial?: CatalogData['models'][number]
         }}
       >
         <Stack gap="5">
-          <FormInput
-            label="模型名称"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            maxLength={128}
-            helper="请求模型名会原样发送给上游"
-          />
+          <FormInput label="模型名称" value={name} onChange={(e) => setName(e.target.value)} required maxLength={128} />
           <FormInput
             label="输入 Token 容量"
             type="number"
@@ -276,7 +270,7 @@ function ModelForm({ initial, close }: { initial?: CatalogData['models'][number]
             required
             value={inputTokenLimit}
             onChange={(e) => setInputTokenLimit(e.target.value)}
-            helper="按上游模型容量设置保守上限；JSON 正文的字节数也不能超过此值"
+            helper="JSON 正文的字节数也不能超过此值"
           />
           <FormInput
             label="输出 Token 上限"
@@ -285,7 +279,6 @@ function ModelForm({ initial, close }: { initial?: CatalogData['models'][number]
             required
             value={outputTokenLimit}
             onChange={(e) => setOutputTokenLimit(e.target.value)}
-            helper="调用方必须填写不超过此值的输出上限"
           />
           <Enabled value={enabled} onChange={setEnabled} />
           <ErrorText>{formError(task.error)?.message}</ErrorText>
@@ -356,23 +349,40 @@ export default function Catalog({ section }: { section: 'channels' | 'models' })
                           <Table.Cell>{c.name}</Table.Cell>
                           <Table.Cell>
                             <Text overflowWrap="anywhere">{c.baseUrl}</Text>
-                            {c.endpoints.map((e) => (
-                              <Text key={e} color="gray.500" fontSize="xs">
-                                {e}
-                              </Text>
-                            ))}
+                            <HStack gap="2" flexWrap="wrap" mt="2">
+                              {c.endpoints.map((e) => (
+                                <Badge
+                                  key={e}
+                                  colorPalette="gray"
+                                  fontFamily="mono"
+                                  whiteSpace="normal"
+                                  overflowWrap="anywhere"
+                                >
+                                  {e}
+                                </Badge>
+                              ))}
+                            </HStack>
                           </Table.Cell>
                           <Table.Cell>
-                            <Text fontSize="sm">整体 ×{Number(c.multiplier)}</Text>
-                            {c.availableModels.map((a) => (
-                              <Text key={a.modelId} fontSize="xs" color="gray.500">
-                                {data.data?.models.find((m) => m.id === a.modelId)?.name} · ×
-                                {Number(a.multiplier ?? c.multiplier)}
-                                {a.multiplier === null && '（继承）'}
-                              </Text>
-                            ))}
+                            <Stack gap="2">
+                              {c.availableModels.map((a) => (
+                                <HStack key={a.modelId} gap="2" flexWrap="wrap">
+                                  <Text overflowWrap="anywhere">
+                                    {data.data?.models.find((m) => m.id === a.modelId)?.name}
+                                  </Text>
+                                  <Badge colorPalette="gray">{Number(a.multiplier ?? c.multiplier)}×</Badge>
+                                  {a.multiplier === null && (
+                                    <Badge colorPalette="gray" fontSize="xs">
+                                      继承
+                                    </Badge>
+                                  )}
+                                </HStack>
+                              ))}
+                            </Stack>
                           </Table.Cell>
-                          <Table.Cell whiteSpace="nowrap">{c.enabled ? '启用' : '禁用'}</Table.Cell>
+                          <Table.Cell whiteSpace="nowrap">
+                            <Badge colorPalette={c.enabled ? 'green' : 'gray'}>{c.enabled ? '启用' : '禁用'}</Badge>
+                          </Table.Cell>
                           <Table.Cell>
                             <Button variant="ghost" size="sm" onClick={() => setEdit({ id: c.id })}>
                               编辑
@@ -400,11 +410,13 @@ export default function Catalog({ section }: { section: 'channels' | 'models' })
                     py="3"
                     flexWrap="wrap"
                   >
-                    <Box minW="0">
+                    <HStack minW="0" gap="2" flexWrap="wrap">
                       <Text fontWeight="500" overflowWrap="anywhere">
-                        {m.name} · {m.enabled ? '启用' : '禁用'} · {m.priced ? '已定价' : '未定价'}
+                        {m.name}
                       </Text>
-                    </Box>
+                      <Badge colorPalette={m.enabled ? 'green' : 'gray'}>{m.enabled ? '启用' : '禁用'}</Badge>
+                      <Badge colorPalette="gray">{m.priced ? '已定价' : '未定价'}</Badge>
+                    </HStack>
                     <HStack>
                       <Link asChild color="#635bff" fontSize="sm">
                         <RouterLink to={`/console/models/${m.id}/pricing`}>定价</RouterLink>

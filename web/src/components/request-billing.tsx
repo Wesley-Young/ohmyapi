@@ -1,4 +1,4 @@
-import { Box, Button, Grid, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Grid, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterInputs, RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { TRPCClientError } from '@trpc/client';
@@ -36,13 +36,6 @@ const definitive = (error: unknown) =>
 type Detail = RouterOutputs['requestDetail'];
 type Resolution = RouterInputs['admin']['billing']['resolve'];
 type Correction = RouterInputs['admin']['billing']['correct'];
-function estimatedTokens(reservation: Detail['reservation']) {
-  const value = reservation?.estimate;
-  if (!value || typeof value !== 'object') return;
-  const estimate = value as Record<string, unknown>;
-  if (typeof estimate.inputTokens !== 'number' || typeof estimate.outputTokens !== 'number') return;
-  return { input: estimate.inputTokens, output: estimate.outputTokens };
-}
 
 export function RequestDetail({ requestId, close }: { requestId: string; close: () => void }) {
   const data = useQuery(
@@ -57,9 +50,8 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
     ),
   );
   const r = data.data;
-  const estimate = estimatedTokens(r?.reservation ?? null);
   return (
-    <FormDialog open title="请求账单" onClose={close}>
+    <FormDialog open title={`请求账单${r?.id ? ` (${r.id})` : ''}`} onClose={close}>
       <Stack gap="5">
         <ErrorText>{formError(data.error)?.message}</ErrorText>
         {data.isPending ? (
@@ -67,15 +59,13 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
         ) : (
           r && (
             <>
-              <Text fontFamily="mono" fontSize="xs" overflowWrap="anywhere">
-                {r.id}
-              </Text>
-              <Text>
-                {r.model} · {requestStatuses[r.status]}
-              </Text>
+              <HStack gap="2" flexWrap="wrap">
+                <Text overflowWrap="anywhere">{r.model}</Text>
+                <Badge colorPalette="gray">{requestStatuses[r.status]}</Badge>
+              </HStack>
               {r.upstreamRequestId && (
                 <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
-                  上游请求：{r.upstreamRequestId}
+                  上游请求 ID：{r.upstreamRequestId}
                 </Text>
               )}
               <Grid templateColumns={{ base: '1fr', sm: 'repeat(3, 1fr)' }} gap="3">
@@ -92,12 +82,6 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                   </Box>
                 ))}
               </Grid>
-              {estimate && (
-                <Text fontSize="sm" color="gray.500">
-                  预占按输入 {estimate.input.toLocaleString()}、输出 {estimate.output.toLocaleString()} Token
-                  估算；实际费用按上游用量结算。
-                </Text>
-              )}
               {r.errorCode && (
                 <Text fontSize="sm" color="gray.500">
                   {r.errorCode}
@@ -108,9 +92,14 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                   <Heading as="h3" fontSize="sm">
                     保存用量的价格明细{!r.usageFinal && '（用量未最终确认）'}
                   </Heading>
-                  <Text fontSize="sm">
-                    {r.preview.ruleLabel} · ×{displayMoney(r.preview.multiplier)} · {r.preview.total} {r.currency}
-                  </Text>
+                  <HStack gap="2" flexWrap="wrap">
+                    <Text fontSize="sm" fontWeight="600">
+                      {r.preview.total} {r.currency}
+                    </Text>
+                    <Badge colorPalette="gray">
+                      {r.preview.ruleLabel} {displayMoney(r.preview.multiplier)}×
+                    </Badge>
+                  </HStack>
                   <Box overflowX="auto">
                     <Table.Root size="sm">
                       <Table.Header>
@@ -152,7 +141,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                 <Table.Root size="sm">
                   <Table.Header>
                     <Table.Row>
-                      {['类型', '余额变化', '冻结变化', '操作人 / 依据'].map((h) => (
+                      {['类型', '时间', '余额变化', '冻结变化'].map((h) => (
                         <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                       ))}
                     </Table.Row>
@@ -160,20 +149,10 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                   <Table.Body>
                     {r.ledger.map((e) => (
                       <Table.Row key={e.id}>
-                        <Table.Cell whiteSpace="nowrap">
-                          {ledgerKinds[e.kind]}
-                          <Text fontSize="xs" color="gray.500">
-                            {localDate(e.createdAt)}
-                          </Text>
-                        </Table.Cell>
+                        <Table.Cell>{ledgerKinds[e.kind]}</Table.Cell>
+                        <Table.Cell>{localDate(e.createdAt)}</Table.Cell>
                         <Table.Cell>{displayMoney(e.amount)}</Table.Cell>
                         <Table.Cell>{displayMoney(e.reservedAmount)}</Table.Cell>
-                        <Table.Cell minW="180px">
-                          <Text>{e.actor}</Text>
-                          <Text fontSize="xs" color="gray.500">
-                            {e.reason}
-                          </Text>
-                        </Table.Cell>
                       </Table.Row>
                     ))}
                   </Table.Body>

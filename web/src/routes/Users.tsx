@@ -1,4 +1,4 @@
-import { Box, Button, Code, HStack, Input, Link, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Code, HStack, Input, Link, Stack, Table, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
@@ -53,7 +53,12 @@ export default function Users() {
       {credentials && (
         <Panel>
           <Stack gap="4">
-            <Text fontWeight="600">用户已创建 · {credentials.user.username}</Text>
+            <HStack gap="2" flexWrap="wrap">
+              <Text fontWeight="600" overflowWrap="anywhere">
+                {credentials.user.username}
+              </Text>
+              <Badge colorPalette="green">已创建</Badge>
+            </HStack>
             <Text fontSize="sm" color="gray.500">
               请保存密码，关闭后无法再次查看。
             </Text>
@@ -75,9 +80,6 @@ export default function Users() {
               >
                 {copied ? '已复制' : '复制密码'}
               </Button>
-              <Link asChild color="#635bff" fontSize="sm">
-                <RouterLink to={`/console/users/${credentials.user.id}`}>管理用户</RouterLink>
-              </Link>
               <Button
                 variant="ghost"
                 size="sm"
@@ -86,7 +88,10 @@ export default function Users() {
                   task.reset();
                 }}
               >
-                已保存
+                关闭
+              </Button>
+              <Button variant="ghost" size="sm">
+                <RouterLink to={`/console/users/${credentials.user.id}`}>管理用户</RouterLink>
               </Button>
             </HStack>
             <ErrorText>{copyError ?? error?.message}</ErrorText>

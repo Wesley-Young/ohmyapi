@@ -300,7 +300,7 @@ export class BillingService {
             reservedDeltaMicros: amount,
             balanceAfterMicros: wallet.balanceMicros,
             reservedAfterMicros: reserved,
-            reason: '请求费用预占',
+            reason: '预占',
             metadata: {
               pricing: snapshot,
               estimate,
@@ -462,7 +462,7 @@ export class BillingService {
     amount: bigint,
     snapshot: Record<string, unknown>,
     actorId?: string,
-    reason = '按实际 Token 用量结算',
+    reason = '结算',
   ) {
     const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, r.userId)).for('update');
     if (!wallet || wallet.reservedMicros < r.heldMicros) throw new Error('Wallet reservation mismatch');
