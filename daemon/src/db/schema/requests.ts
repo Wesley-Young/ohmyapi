@@ -17,7 +17,6 @@ import {
 import { channels, models } from './catalog.js';
 import { createdAt, endpoint, id, micros, tokenCount } from './common.js';
 import { apiKeys, users } from './identity.js';
-import { priceRules, priceVersions } from './pricing.js';
 
 export const requestStatus = pgEnum('request_status', [
   'completed',
@@ -47,8 +46,6 @@ export const requests = pgTable(
     receivedAt: timestamp('received_at', { withTimezone: true }).defaultNow().notNull(),
     heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
-    priceVersionId: uuid('price_version_id').references(() => priceVersions.id),
-    priceRuleId: uuid('price_rule_id').references(() => priceRules.id),
     reservedMicros: micros('reserved_micros').default(sql`0`).notNull(),
     chargedMicros: micros('charged_micros'),
     quotedMicros: micros('quoted_micros'),
@@ -70,18 +67,6 @@ export const requests = pgTable(
   (table) => [
     unique('requests_owner_unique').on(table.id, table.userId),
     foreignKey({ columns: [table.apiKeyId, table.userId], foreignColumns: [apiKeys.id, apiKeys.userId] }),
-    foreignKey({
-      columns: [table.priceVersionId, table.modelId, table.endpoint],
-      foreignColumns: [priceVersions.id, priceVersions.modelId, priceVersions.endpoint],
-    }),
-    foreignKey({
-      columns: [table.priceRuleId, table.priceVersionId],
-      foreignColumns: [priceRules.id, priceRules.priceVersionId],
-    }),
-    check(
-      'requests_price_scope',
-      sql`(${table.priceVersionId} is null or ${table.modelId} is not null) and (${table.priceRuleId} is null or ${table.priceVersionId} is not null)`,
-    ),
     check(
       'requests_billing_terminal_shape',
       sql`not ${table.billingEnabled} or (${table.status} = 'settled' and ${table.chargedMicros} is not null and ${table.heldMicros} = 0) or (${table.status} = 'released' and ${table.chargedMicros} = 0 and ${table.heldMicros} = 0) or (${table.status} in ('reserved', 'forwarding', 'settling', 'needs_review') and ${table.chargedMicros} is null)`,

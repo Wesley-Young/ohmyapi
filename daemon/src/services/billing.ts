@@ -238,8 +238,6 @@ export class BillingService {
         const reserved = bounds(wallet.reservedMicros + amount);
         await tx.update(wallets).set({ reservedMicros: reserved }).where(eq(wallets.userId, user.id));
         const snapshot = {
-          versionId: input.price.versionId,
-          version: input.price.version,
           multiplier: formatMoney(input.price.multiplierMicros),
           multiplierSource: input.price.multiplierSource,
           receivedAt: input.price.receivedAt.toISOString(),
@@ -255,11 +253,11 @@ export class BillingService {
             heartbeatAt: new Date(),
             modelId: input.modelId,
             channelId: input.channelId,
-            priceVersionId: input.price.versionId,
             reservedMicros: amount,
             heldMicros: amount,
             pricingSnapshot: snapshot,
             reservationSnapshot: {
+              pricing: this.pricing.snapshot(input.price),
               inputTokenLimit: input.inputLimit,
               outputTokenLimit: input.outputLimit,
               amount: formatMoney(amount),
@@ -399,18 +397,9 @@ export class BillingService {
     });
     this.logError(`Billing requires manual review after financial processing failure: ${id}`);
   }
-  private async pinned(r: RequestRow, usage: Usage, tx?: Transaction) {
-    if (!r.priceVersionId || typeof r.pricingSnapshot?.multiplier !== 'string')
-      throw new Error('Price snapshot missing');
-    const locked = await this.pricing.restore(
-      r.priceVersionId,
-      r.receivedAt,
-      parseMoney(r.pricingSnapshot.multiplier),
-      r.pricingSnapshot.multiplierSource === 'model' ? 'model' : 'channel',
-      tx,
-    );
-    if (!locked || locked.modelId !== r.modelId || locked.endpoint !== r.endpoint)
-      throw new Error('Price snapshot scope mismatch');
+  private async pinned(r: RequestRow, usage: Usage) {
+    const locked = this.pricing.restore(r.reservationSnapshot?.pricing, r.receivedAt);
+    if (locked.modelId !== r.modelId) throw new Error('Price snapshot scope mismatch');
     return this.pricing.calculate(locked, usage);
   }
   private async release(tx: Transaction, r: RequestRow, actorId: string | undefined, reason: string) {
@@ -475,7 +464,6 @@ export class BillingService {
         quotedMicros: typeof snapshot.totalMicros === 'string' ? BigInt(snapshot.totalMicros) : r.quotedMicros,
         pricingSnapshot: { ...snapshot, billed: true },
         errorCode: amount > r.reservedMicros ? (r.errorCode ?? 'reservation_exceeded') : r.errorCode,
-        priceRuleId: typeof snapshot.ruleId === 'string' ? snapshot.ruleId : r.priceRuleId,
         finishedAt: r.finishedAt ?? new Date(),
       })
       .where(eq(requests.id, r.id));
@@ -495,7 +483,7 @@ export class BillingService {
       }
       let priced: Awaited<ReturnType<BillingService['pinned']>>;
       try {
-        priced = await this.pinned(r, usage, tx);
+        priced = await this.pinned(r, usage);
       } catch {
         await tx
           .update(requests)
@@ -688,7 +676,7 @@ export class BillingService {
           if (usage.contextTokens > 9_223_372_036_854_775_807n)
             throw new TRPCError({ code: 'BAD_REQUEST', message: '上下文用量超出范围' });
           try {
-            snapshot = { ...(await this.pinned(r, usage, tx)), source: 'administrator_usage', reason: input.reason };
+            snapshot = { ...(await this.pinned(r, usage)), source: 'administrator_usage', reason: input.reason };
           } catch {
             throw new TRPCError({ code: 'BAD_REQUEST', message: '保存的价格无法计算该用量，请核对价格或确认费用' });
           }

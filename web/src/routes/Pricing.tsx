@@ -7,9 +7,9 @@ import { Link as RouterLink, useParams } from 'react-router';
 import { ErrorText, FormDialog, FormInput, Loading, Panel, PrimaryButton, Title } from '../components/ui';
 import { formError } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
-import { type Endpoint, SelectField } from './Catalog';
+import { SelectField } from './Catalog';
 
-type Rule = Omit<RouterOutputs['admin']['pricing']['list']['versions'][number]['rules'][number], 'id'>;
+type Rule = Omit<RouterOutputs['admin']['pricing']['list']['rules'][number], 'id'>;
 const kinds = { default: '默认', context: '上下文', time: '时段', combined: '上下文与时段' };
 const defaultRule: Rule = {
   label: '默认价格',
@@ -200,7 +200,7 @@ function RuleForm({
     </FormDialog>
   );
 }
-function Preview({ modelId, endpoint, versionId }: { modelId: string; endpoint: Endpoint; versionId?: string }) {
+function Preview({ modelId }: { modelId: string }) {
   const [at, setAt] = useState(shanghaiNow);
   const [counts, setCounts] = useState({
     inputTokens: '0',
@@ -210,7 +210,6 @@ function Preview({ modelId, endpoint, versionId }: { modelId: string; endpoint: 
   });
   const [channelId, setChannelId] = useState('');
   const [multiplier, setMultiplier] = useState('1');
-  const [versionMode, setVersionMode] = useState('selected');
   const catalog = useQuery(trpc.admin.catalog.list.queryOptions());
   const task = useMutation(trpc.admin.pricing.preview.mutationOptions());
   return (
@@ -228,8 +227,6 @@ function Preview({ modelId, endpoint, versionId }: { modelId: string; endpoint: 
             if (!task.isPending)
               task.mutate({
                 modelId,
-                endpoint,
-                versionId: versionMode === 'selected' ? versionId : undefined,
                 at: isoShanghai(at),
                 ...counts,
                 channelId: channelId || undefined,
@@ -238,15 +235,6 @@ function Preview({ modelId, endpoint, versionId }: { modelId: string; endpoint: 
           }}
         >
           <Stack gap="4">
-            <SelectField
-              label="价格选择"
-              value={versionMode}
-              onChange={setVersionMode}
-              options={[
-                { id: 'selected', name: '当前查看的版本（含草稿）' },
-                { id: 'effective', name: '按请求时间选择已发布版本' },
-              ]}
-            />
             <FormInput
               label="请求时间（上海时区）"
               type="datetime-local"
@@ -302,8 +290,8 @@ function Preview({ modelId, endpoint, versionId }: { modelId: string; endpoint: 
               {task.data.total} {task.data.currency} · 未扣费
             </Text>
             <Text fontSize="sm" color="gray.500">
-              版本 {task.data.version} · {task.data.ruleLabel}（{kinds[task.data.ruleKind]}）· ×
-              {Number(task.data.multiplier)} · 上下文 {task.data.contextTokens}
+              {task.data.ruleLabel}（{kinds[task.data.ruleKind]}）· ×{Number(task.data.multiplier)} · 上下文{' '}
+              {task.data.contextTokens}
             </Text>
             <Box overflowX="auto">
               <Table.Root size="sm">
@@ -346,48 +334,21 @@ export default function Pricing() {
   const modelId = useParams().modelId ?? '';
   const catalog = useQuery(trpc.admin.catalog.list.queryOptions());
   const model = catalog.data?.models.find((m) => m.id === modelId);
-  const [chosenEndpoint, setEndpoint] = useState<Endpoint>();
-  const endpoint = chosenEndpoint ?? model?.endpoints[0] ?? '/v1/chat/completions';
-  const scope = { modelId, endpoint };
+  const scope = { modelId };
   const data = useQuery(trpc.admin.pricing.list.queryOptions(scope, { enabled: Boolean(model) }));
-  const [chosenVersion, setVersion] = useState<string>();
-  const version = data.data?.versions.find((v) => v.id === chosenVersion) ?? data.data?.versions[0];
   const [editingRule, setEditingRule] = useState<{ index?: number; rule: Rule }>();
-  const [creating, setCreating] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  const [effectiveAt, setEffectiveAt] = useState('');
-  const [copySource, setCopySource] = useState(true);
-  const refresh = () =>
-    Promise.all([
-      queryClient.invalidateQueries(trpc.admin.pricing.list.queryFilter(scope)),
-      queryClient.invalidateQueries(trpc.admin.catalog.list.queryFilter()),
-    ]);
-  const create = useMutation(
-    trpc.admin.pricing.createDraft.mutationOptions({
-      onSuccess: async (v) => {
-        setVersion(v.id);
-        setCreating(false);
-        await refresh();
-      },
-    }),
-  );
   const save = useMutation(
-    trpc.admin.pricing.saveDraft.mutationOptions({
+    trpc.admin.pricing.save.mutationOptions({
       onSuccess: async () => {
         setEditingRule(undefined);
-        await refresh();
+        await Promise.all([
+          queryClient.invalidateQueries(trpc.admin.pricing.list.queryFilter(scope)),
+          queryClient.invalidateQueries(trpc.admin.catalog.list.queryFilter()),
+        ]);
       },
     }),
   );
-  const publish = useMutation(
-    trpc.admin.pricing.publish.mutationOptions({
-      onSuccess: async () => {
-        setPublishing(false);
-        await refresh();
-      },
-    }),
-  );
-  const currentRules = version?.rules.map(({ id: _id, ...r }) => r) ?? [];
+  const currentRules = data.data?.rules.map(({ id: _id, ...r }) => r) ?? [];
   return (
     <Stack gap="7">
       <Link asChild color="gray.500" fontSize="sm" alignSelf="start">
@@ -397,241 +358,121 @@ export default function Pricing() {
         action={
           <PrimaryButton
             size="sm"
-            disabled={!model}
+            disabled={!model || !data.data || save.isPending}
             onClick={() => {
-              create.reset();
-              setCopySource(true);
-              setCreating(true);
+              save.reset();
+              setEditingRule({
+                rule: {
+                  ...defaultRule,
+                  kind: currentRules.length ? 'context' : 'default',
+                  contextMin: currentRules.length ? '0' : null,
+                },
+              });
             }}
           >
-            添加价格版本
+            添加规则
           </PrimaryButton>
         }
       >
         {model?.name ?? '模型'} · 定价
       </Title>
       <ErrorText>{formError(catalog.error ?? data.error)?.message}</ErrorText>
-      {catalog.isPending ? (
+      {catalog.isPending || (model && data.isPending) ? (
         <Loading />
       ) : !model ? (
         <Text>模型不存在</Text>
-      ) : (
+      ) : data.data ? (
         <>
-          <SelectField
-            label="端点"
-            value={endpoint}
-            options={model.endpoints.map((e) => ({ id: e, name: e }))}
-            onChange={(v) => {
-              if (v) {
-                setEndpoint(v as Endpoint);
-                setVersion(undefined);
-              }
-            }}
-          />
-          {creating && (
-            <FormDialog open title="添加价格版本" busy={create.isPending} onClose={() => setCreating(false)}>
-              <Stack gap="5">
-                <Text>{endpoint}</Text>
-                {version && (
-                  <Checkbox.Root checked={copySource} onCheckedChange={(e) => setCopySource(e.checked === true)}>
-                    <Checkbox.HiddenInput />
-                    <Checkbox.Control />
-                    <Checkbox.Label>复制版本 {version.version} 的规则</Checkbox.Label>
-                  </Checkbox.Root>
-                )}
-                <ErrorText>{formError(create.error)?.message}</ErrorText>
-                <PrimaryButton
-                  loading={create.isPending}
-                  onClick={() => create.mutate({ ...scope, sourceVersionId: copySource ? version?.id : undefined })}
-                >
-                  创建草稿
-                </PrimaryButton>
-              </Stack>
-            </FormDialog>
+          <Text fontSize="sm" color="gray.500">
+            单位：{data.data.currency} / 百万 Token · Asia/Shanghai
+          </Text>
+          <ErrorText>{formError(save.error)?.message}</ErrorText>
+          <Box overflowX="auto">
+            <Table.Root size="sm">
+              <Table.Header>
+                <Table.Row>
+                  {['规则 / 条件', '输入', '输出', '缓存读', '缓存写', '操作'].map((h) => (
+                    <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
+                  ))}
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {data.data.rules.map((r, index) => (
+                  <Table.Row key={r.id}>
+                    <Table.Cell>
+                      <Text fontWeight="500">
+                        {r.label} · {kinds[r.kind]}
+                      </Text>
+                      {r.contextMin !== null && (
+                        <Text fontSize="xs" color="gray.500">
+                          [{r.contextMin}, {r.contextMax ?? '∞'}) Token
+                        </Text>
+                      )}
+                      {r.weekdaysMask !== null && (
+                        <Text fontSize="xs" color="gray.500">
+                          {dayNames
+                            .filter((_, i) => (r.weekdaysMask as number) & (1 << i))
+                            .map((d) => `周${d}`)
+                            .join('、')}{' '}
+                          {minuteText(r.startMinute)}–{minuteText(r.endMinute)}
+                        </Text>
+                      )}
+                    </Table.Cell>
+                    <Table.Cell>{r.inputPrice}</Table.Cell>
+                    <Table.Cell>{r.outputPrice}</Table.Cell>
+                    <Table.Cell>{r.cacheReadPrice ?? '未配置'}</Table.Cell>
+                    <Table.Cell>{r.cacheWritePrice ?? '未配置'}</Table.Cell>
+                    <Table.Cell>
+                      <HStack>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={save.isPending}
+                          onClick={() => {
+                            save.reset();
+                            setEditingRule({ index, rule: currentRules[index] });
+                          }}
+                        >
+                          编辑
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={save.isPending || (r.kind === 'default' && currentRules.length > 1)}
+                          onClick={() => save.mutate({ modelId, rules: currentRules.filter((_, i) => i !== index) })}
+                        >
+                          删除
+                        </Button>
+                      </HStack>
+                    </Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table.Root>
+          </Box>
+          {!currentRules.length && (
+            <Text color="gray.500" fontSize="sm">
+              请添加默认价格及所需条件规则。
+            </Text>
           )}
-          {data.isPending ? (
-            <Loading />
-          ) : version ? (
-            <>
-              <SelectField
-                label="价格版本"
-                value={version.id}
-                options={
-                  data.data?.versions.map((v) => ({
-                    id: v.id,
-                    name: `v${v.version} · ${v.status === 'draft' ? '草稿' : '已发布'}${v.effectiveAt ? ` · ${new Date(v.effectiveAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}` : ''}`,
-                  })) ?? []
-                }
-                onChange={(id) => {
-                  setVersion(id);
-                  save.reset();
-                  publish.reset();
-                }}
-              />
-              <HStack justify="space-between" flexWrap="wrap">
-                <Text fontSize="sm" color="gray.500">
-                  单位：{data.data?.currency} / 百万 Token · Asia/Shanghai
-                </Text>
-                {version.status === 'draft' && (
-                  <HStack>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        save.reset();
-                        setEditingRule({
-                          rule: {
-                            ...defaultRule,
-                            kind: currentRules.some((r) => r.kind === 'default') ? 'context' : 'default',
-                            contextMin: currentRules.some((r) => r.kind === 'default') ? '0' : null,
-                          },
-                        });
-                      }}
-                    >
-                      添加规则
-                    </Button>
-                    <PrimaryButton
-                      size="sm"
-                      onClick={() => {
-                        publish.reset();
-                        setEffectiveAt('');
-                        setPublishing(true);
-                      }}
-                    >
-                      发布版本
-                    </PrimaryButton>
-                  </HStack>
-                )}
-              </HStack>
-              <ErrorText>{formError(save.error)?.message}</ErrorText>
-              <Box overflowX="auto">
-                <Table.Root size="sm">
-                  <Table.Header>
-                    <Table.Row>
-                      {['规则 / 条件', '输入', '输出', '缓存读', '缓存写', '操作'].map((h) => (
-                        <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
-                      ))}
-                    </Table.Row>
-                  </Table.Header>
-                  <Table.Body>
-                    {version.rules.map((r, index) => (
-                      <Table.Row key={r.id}>
-                        <Table.Cell>
-                          <Text fontWeight="500">
-                            {r.label} · {kinds[r.kind]}
-                          </Text>
-                          {r.contextMin !== null && (
-                            <Text fontSize="xs" color="gray.500">
-                              [{r.contextMin}, {r.contextMax ?? '∞'}) Token
-                            </Text>
-                          )}
-                          {r.weekdaysMask !== null && (
-                            <Text fontSize="xs" color="gray.500">
-                              {dayNames
-                                .filter((_, i) => (r.weekdaysMask as number) & (1 << i))
-                                .map((d) => `周${d}`)
-                                .join('、')}{' '}
-                              {minuteText(r.startMinute)}–{minuteText(r.endMinute)}
-                            </Text>
-                          )}
-                        </Table.Cell>
-                        <Table.Cell>{r.inputPrice}</Table.Cell>
-                        <Table.Cell>{r.outputPrice}</Table.Cell>
-                        <Table.Cell>{r.cacheReadPrice ?? '未配置'}</Table.Cell>
-                        <Table.Cell>{r.cacheWritePrice ?? '未配置'}</Table.Cell>
-                        <Table.Cell>
-                          {version.status === 'draft' && (
-                            <HStack>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={save.isPending}
-                                onClick={() => {
-                                  save.reset();
-                                  setEditingRule({ index, rule: currentRules[index] });
-                                }}
-                              >
-                                编辑
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={save.isPending}
-                                onClick={() =>
-                                  save.mutate({
-                                    versionId: version.id,
-                                    rules: currentRules.filter((_, i) => i !== index),
-                                  })
-                                }
-                              >
-                                删除
-                              </Button>
-                            </HStack>
-                          )}
-                        </Table.Cell>
-                      </Table.Row>
-                    ))}
-                  </Table.Body>
-                </Table.Root>
-              </Box>
-              {!version.rules.length && (
-                <Text color="gray.500" fontSize="sm">
-                  请添加默认价格及所需条件规则。
-                </Text>
-              )}
-              {editingRule && (
-                <RuleForm
-                  key={editingRule.index ?? 'new'}
-                  initial={editingRule.rule}
-                  busy={save.isPending}
-                  error={formError(save.error)?.message}
-                  close={() => setEditingRule(undefined)}
-                  save={(rule) =>
-                    save.mutate({
-                      versionId: version.id,
-                      rules:
-                        editingRule.index === undefined
-                          ? [...currentRules, rule]
-                          : currentRules.map((r, i) => (i === editingRule.index ? rule : r)),
-                    })
-                  }
-                />
-              )}
-              {publishing && (
-                <FormDialog open title="发布价格版本" busy={publish.isPending} onClose={() => setPublishing(false)}>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      publish.mutate({
-                        versionId: version.id,
-                        effectiveAt: effectiveAt ? isoShanghai(effectiveAt) : undefined,
-                      });
-                    }}
-                  >
-                    <Stack gap="5">
-                      <Text fontSize="sm">发布后规则不可修改。调价请添加新版本。</Text>
-                      <FormInput
-                        label="生效时间（上海时区）"
-                        type="datetime-local"
-                        value={effectiveAt}
-                        onChange={(e) => setEffectiveAt(e.target.value)}
-                        helper="留空立即生效，也可设置未来时间"
-                      />
-                      <ErrorText>{formError(publish.error)?.message}</ErrorText>
-                      <PrimaryButton type="submit" loading={publish.isPending}>
-                        确认发布
-                      </PrimaryButton>
-                    </Stack>
-                  </form>
-                </FormDialog>
-              )}
-              <Preview key={`${endpoint}:${version.id}`} {...scope} versionId={version.id} />
-            </>
-          ) : (
-            <Text color="gray.500">暂无价格版本，请添加草稿。</Text>
+          {editingRule && (
+            <RuleForm
+              initial={editingRule.rule}
+              busy={save.isPending}
+              error={formError(save.error)?.message}
+              close={() => setEditingRule(undefined)}
+              save={(rule) => {
+                if (save.isPending) return;
+                const rules = [...currentRules];
+                if (editingRule.index === undefined) rules.push(rule);
+                else rules[editingRule.index] = rule;
+                save.mutate({ modelId, rules });
+              }}
+            />
           )}
+          {currentRules.length > 0 && <Preview key={data.data.rules.map((r) => r.id).join(':')} modelId={modelId} />}
         </>
-      )}
+      ) : null}
     </Stack>
   );
 }

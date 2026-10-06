@@ -1,6 +1,6 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { and, asc, eq, inArray, lte, notInArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { formatMoney, parseMoney } from '../billing/conventions.js';
@@ -10,9 +10,8 @@ import {
   channelAvailableModels,
   channelEndpoints,
   channels,
-  modelEndpoints,
   models,
-  priceVersions,
+  priceRules,
   userModelGrants,
   users,
 } from '../db/schema/index.js';
@@ -53,13 +52,8 @@ export const modelInput = z.object({
   id: z.uuid().optional(),
   name: name.regex(/^[A-Za-z0-9][A-Za-z0-9_./:-]*$/, '模型名称格式无效'),
   enabled: z.boolean(),
-  inputTokenLimit: z.number().int().min(1).max(2_000_000).default(32768),
-  outputTokenLimit: z.number().int().min(1).max(100_000).default(4096),
-  endpoints: z
-    .array(z.enum(endpoints))
-    .min(1)
-    .max(3)
-    .refine((v) => new Set(v).size === v.length),
+  inputTokenLimit: z.number().int().min(1).default(1_000_000),
+  outputTokenLimit: z.number().int().min(1).default(128_000),
 });
 export class CredentialVault {
   private readonly key?: Buffer;
@@ -103,7 +97,7 @@ export class CatalogService {
     this.vault = vault;
   }
   async list() {
-    const [channelRows, modelRows, channelScopes, modelScopes, available, activePrices] = await Promise.all([
+    const [channelRows, modelRows, channelScopes, available, activePrices] = await Promise.all([
       this.auth.db
         .select({
           id: channels.id,
@@ -117,18 +111,8 @@ export class CatalogService {
         .orderBy(asc(channels.name)),
       this.auth.db.select().from(models).orderBy(asc(models.name)),
       this.auth.db.select().from(channelEndpoints),
-      this.auth.db.select().from(modelEndpoints),
       this.auth.db.select().from(channelAvailableModels),
-      this.auth.db
-        .select({ modelId: priceVersions.modelId, endpoint: priceVersions.endpoint })
-        .from(priceVersions)
-        .where(
-          and(
-            eq(priceVersions.status, 'published'),
-            lte(priceVersions.effectiveAt, new Date()),
-            lte(priceVersions.publishedAt, new Date()),
-          ),
-        ),
+      this.auth.db.select({ modelId: priceRules.modelId }).from(priceRules).where(eq(priceRules.kind, 'default')),
     ]);
     return {
       channels: channelRows.map(({ multiplierMicros, ...c }) => ({
@@ -148,8 +132,7 @@ export class CatalogService {
         enabled: m.enabled,
         inputTokenLimit: m.inputTokenLimit,
         outputTokenLimit: m.outputTokenLimit,
-        pricedEndpoints: [...new Set(activePrices.filter((p) => p.modelId === m.id).map((p) => p.endpoint))],
-        endpoints: modelScopes.filter((s) => s.modelId === m.id).map((s) => s.endpoint),
+        priced: activePrices.some((p) => p.modelId === m.id),
       })),
     };
   }
@@ -179,11 +162,6 @@ export class CatalogService {
         (await tx.select({ id: models.id }).from(models).where(inArray(models.id, modelIds))).length !== modelIds.length
       )
         throw new TRPCError({ code: 'BAD_REQUEST', message: '包含不存在的模型' });
-      if (modelIds.length) {
-        const scopes = await tx.select().from(modelEndpoints).where(inArray(modelEndpoints.modelId, modelIds));
-        if (modelIds.some((id) => !scopes.some((s) => s.modelId === id && input.endpoints.includes(s.endpoint))))
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '可用模型需至少有一个端点与渠道共同支持' });
-      }
       const values = {
         name: input.name,
         baseUrl: input.baseUrl.replace(/\/+$/, ''),
@@ -226,21 +204,10 @@ export class CatalogService {
   }
   async saveModel(principal: Principal, input: z.infer<typeof modelInput>) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
-      if (input.endpoints.includes('/v1/responses') && input.outputTokenLimit < 16)
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Responses 的输出上限至少为 16 Token' });
       const [existing] = input.id ? await tx.select().from(models).where(eq(models.id, input.id)).for('update') : [];
       if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '模型不存在' });
       const [duplicate] = await tx.select({ id: models.id }).from(models).where(eq(models.name, input.name));
       if (duplicate && duplicate.id !== input.id) throw new TRPCError({ code: 'CONFLICT', message: '模型名称已存在' });
-      // Keep existing endpoint rows because historical pricing references them.
-      if (existing) {
-        const scopes = await tx.select().from(modelEndpoints).where(eq(modelEndpoints.modelId, existing.id));
-        if (scopes.some((s) => !input.endpoints.includes(s.endpoint)))
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: '已声明的模型端点不能删除，可禁用模型或移除渠道的可用模型',
-          });
-      }
       const [row] = existing
         ? await tx
             .update(models)
@@ -261,14 +228,9 @@ export class CatalogService {
               outputTokenLimit: input.outputTokenLimit,
             })
             .returning({ id: models.id });
-      await tx
-        .insert(modelEndpoints)
-        .values(input.endpoints.map((endpoint) => ({ modelId: row.id, endpoint })))
-        .onConflictDoNothing();
       await this.audit(tx, actor.id, 'model.save', row.id, {
         name: input.name,
         enabled: input.enabled,
-        endpoints: input.endpoints,
         inputTokenLimit: input.inputTokenLimit,
         outputTokenLimit: input.outputTokenLimit,
       });

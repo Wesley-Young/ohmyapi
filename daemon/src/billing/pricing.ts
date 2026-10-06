@@ -100,8 +100,8 @@ export function expandRules(inputs: RuleInput[]) {
     return [rule];
   });
 }
-export function validatePublication(rules: Rule[]) {
-  if (rules.filter((r) => r.kind === 'default').length !== 1) throw new Error('价格版本必须恰好有一条默认规则');
+export function validateRules(rules: Omit<Rule, 'id'>[]) {
+  if (rules.filter((r) => r.kind === 'default').length !== 1) throw new Error('模型定价必须恰好有一条默认规则');
   for (let i = 0; i < rules.length; i++)
     for (let j = i + 1; j < rules.length; j++) {
       const a = rules[i];

@@ -10,27 +10,11 @@ export const models = pgTable(
     id: id(),
     name: text('name').notNull().unique(),
     enabled: boolean('enabled').default(true).notNull(),
-    inputTokenLimit: integer('input_token_limit').default(32768).notNull(),
-    outputTokenLimit: integer('output_token_limit').default(4096).notNull(),
+    inputTokenLimit: bigint('input_token_limit', { mode: 'number' }).default(1_000_000).notNull(),
+    outputTokenLimit: bigint('output_token_limit', { mode: 'number' }).default(128_000).notNull(),
     createdAt: createdAt(),
   },
-  (table) => [
-    check(
-      'models_token_limits',
-      sql`${table.inputTokenLimit} between 1 and 2000000 and ${table.outputTokenLimit} between 1 and 100000`,
-    ),
-  ],
-);
-
-export const modelEndpoints = pgTable(
-  'model_endpoints',
-  {
-    modelId: uuid('model_id')
-      .notNull()
-      .references(() => models.id),
-    endpoint: endpoint('endpoint').notNull(),
-  },
-  (table) => [primaryKey({ columns: [table.modelId, table.endpoint] })],
+  (table) => [check('models_token_limits', sql`${table.inputTokenLimit} >= 1 and ${table.outputTokenLimit} >= 1`)],
 );
 
 export const channels = pgTable(

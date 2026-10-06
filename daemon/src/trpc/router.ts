@@ -141,15 +141,7 @@ export const appRouter = t.router({
     }),
     pricing: t.router({
       list: adminProcedure.input(priceScope).query(({ ctx, input }) => ctx.pricing.list(input)),
-      createDraft: adminProcedure
-        .input(priceScope.extend({ sourceVersionId: z.uuid().optional() }))
-        .mutation(({ ctx, input }) => ctx.pricing.createDraft(ctx.principal, input)),
-      saveDraft: adminProcedure
-        .input(savePriceInput)
-        .mutation(({ ctx, input }) => ctx.pricing.saveDraft(ctx.principal, input)),
-      publish: adminProcedure
-        .input(z.object({ versionId: z.uuid(), effectiveAt: z.iso.datetime({ offset: true }).optional() }))
-        .mutation(({ ctx, input }) => ctx.pricing.publish(ctx.principal, input.versionId, input.effectiveAt)),
+      save: adminProcedure.input(savePriceInput).mutation(({ ctx, input }) => ctx.pricing.save(ctx.principal, input)),
       preview: adminProcedure.input(previewInput).mutation(({ ctx, input }) => ctx.pricing.preview(input)),
     }),
     catalog: t.router({

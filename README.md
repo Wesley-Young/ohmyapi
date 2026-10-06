@@ -6,7 +6,7 @@
 
 ## 启动
 
-需要 Node.js 24.13+、pnpm v12、PostgreSQL 17；本地数据库和 e2e 测试需要 Docker。
+需要 Node.js 24.13+、pnpm v12、PostgreSQL 17；使用内置本地数据库需要 Docker。
 
 ```sh
 pnpm install
@@ -26,9 +26,9 @@ pnpm dev
 
 ## 网关
 
-按 [.env.example](.env.example) 生成并保存稳定的 `CHANNEL_ENCRYPTION_KEY`，设置 `GATEWAY_ENABLED=true` 后重启。后台配置渠道、可用模型、模型价格及倍率，为用户授权模型并入账；用户创建 API Key 时绑定渠道。
+按 [.env.example](.env.example) 生成并保存稳定的 `CHANNEL_ENCRYPTION_KEY`，设置 `GATEWAY_ENABLED=true` 后重启。后台配置渠道支持的端点及可用模型、模型价格及倍率，为用户授权模型并入账；用户创建 API Key 时绑定渠道。
 
-开启网关即启用预占和实际扣费。当前支持文本与自定义函数工具；调用必须提供输出上限：Chat 的 `max_completion_tokens` 或 `max_tokens`、Responses 的 `max_output_tokens`（至少 16）、Messages 的 `max_tokens`，均不得超过模型配置。模型输入容量同时限制 JSON 正文字节数。
+开启网关即启用预占和实际扣费。当前支持文本与自定义函数工具；调用必须提供输出上限：Chat 的 `max_completion_tokens` 或 `max_tokens`、Responses 的 `max_output_tokens`（至少 16）、Messages 的 `max_tokens`，均不得超过模型配置。模型输入容量同时限制 JSON 正文字节数。模型的所有端点共用一套价格规则，保存后立即生效；在途请求按开始时保存的价格快照结算。
 
 生产部署采用单实例，将前端、`/api` 和 `/v1` 放在同一 origin 下，设置 `APP_ORIGIN` 和安全 Cookie，并关闭 SSE 代理缓冲。
 
@@ -41,5 +41,4 @@ pnpm typecheck    # 类型检查
 pnpm lint         # Biome 检查
 pnpm format       # 格式化
 pnpm db:generate  # 生成数据库迁移
-pnpm test:e2e     # 临时数据库中的完整流程验证
 ```

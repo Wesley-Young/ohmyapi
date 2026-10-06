@@ -95,8 +95,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                     保存用量的价格明细{!r.usageFinal && '（用量未最终确认）'}
                   </Heading>
                   <Text fontSize="sm">
-                    v{r.preview.version} · {r.preview.ruleLabel} · ×{displayMoney(r.preview.multiplier)} ·{' '}
-                    {r.preview.total} {r.currency}
+                    {r.preview.ruleLabel} · ×{displayMoney(r.preview.multiplier)} · {r.preview.total} {r.currency}
                   </Text>
                   <Box overflowX="auto">
                     <Table.Root size="sm">

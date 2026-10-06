@@ -12,7 +12,6 @@ import {
   channelAvailableModels,
   channelEndpoints,
   channels,
-  modelEndpoints,
   models,
   requests,
   requestUsage,
@@ -281,11 +280,8 @@ export class GatewayService {
       const [model] = await this.db
         .select({ id: models.id, inputTokenLimit: models.inputTokenLimit, outputTokenLimit: models.outputTokenLimit })
         .from(models)
-        .innerJoin(modelEndpoints, eq(models.id, modelEndpoints.modelId))
-        .where(
-          and(eq(models.name, parsed.model as string), eq(models.enabled, true), eq(modelEndpoints.endpoint, endpoint)),
-        );
-      if (!model) throw new GatewayError(404, 'model_not_found', 'Model does not support this endpoint');
+        .where(and(eq(models.name, parsed.model as string), eq(models.enabled, true)));
+      if (!model) throw new GatewayError(404, 'model_not_found', 'Unknown or disabled model');
       const [grant] =
         identity.user.role === 'admin'
           ? [{ modelId: model.id }]
@@ -324,13 +320,11 @@ export class GatewayService {
         );
       const lockedPrice = await this.pricing.lock(
         model.id,
-        endpoint,
         receivedAt,
         route.override ?? route.channel.multiplierMicros,
         route.override === null ? 'channel' : 'model',
       );
-      if (!lockedPrice)
-        throw new GatewayError(503, 'price_missing', 'No published price is effective for this model and endpoint');
+      if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
       const outputLimit = validateBillableRequest(
         parsed,
         bytes.byteLength,

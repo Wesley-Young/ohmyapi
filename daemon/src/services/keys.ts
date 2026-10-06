@@ -10,7 +10,6 @@ import {
   channelAvailableModels,
   channelEndpoints,
   channels,
-  modelEndpoints,
   models,
   userModelGrants,
 } from '../db/schema/index.js';
@@ -55,10 +54,6 @@ export class KeyService {
       .innerJoin(channelAvailableModels, eq(channels.id, channelAvailableModels.channelId))
       .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
       .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
-      .innerJoin(
-        modelEndpoints,
-        and(eq(modelEndpoints.modelId, models.id), eq(modelEndpoints.endpoint, channelEndpoints.endpoint)),
-      )
       .leftJoin(userModelGrants, and(eq(userModelGrants.modelId, models.id), eq(userModelGrants.userId, userId)))
       .where(and(eq(channels.enabled, true), eq(models.enabled, true), allowed))
       .orderBy(channels.name, models.name);

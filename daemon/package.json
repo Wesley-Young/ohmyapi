@@ -15,8 +15,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.tools.json",
     "db:generate": "node --env-file-if-exists=../.env node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "tsx --env-file-if-exists=../.env src/cli/migrate.ts",
-    "db:init": "tsx --env-file-if-exists=../.env src/cli/init.ts",
-    "test:e2e": "tsx --test e2e/accounts.test.ts"
+    "db:init": "tsx --env-file-if-exists=../.env src/cli/init.ts"
   },
   "dependencies": {
     "@fraqjs/kernel": "^1.1.1",
@@ -28,7 +27,6 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@trpc/client": "^11.19.0",
     "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.11"
   }

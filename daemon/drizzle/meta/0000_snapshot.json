@@ -1,5 +1,5 @@
 {
-  "id": "a4d0b898-2a59-400e-9d41-ee744c1880c3",
+  "id": "5368802a-0117-46dc-ac28-9120fc874dd8",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -318,54 +318,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.model_endpoints": {
-      "name": "model_endpoints",
-      "schema": "",
-      "columns": {
-        "model_id": {
-          "name": "model_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "endpoint": {
-          "name": "endpoint",
-          "type": "endpoint",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "model_endpoints_model_id_models_id_fk": {
-          "name": "model_endpoints_model_id_models_id_fk",
-          "tableFrom": "model_endpoints",
-          "tableTo": "models",
-          "columnsFrom": [
-            "model_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "model_endpoints_model_id_endpoint_pk": {
-          "name": "model_endpoints_model_id_endpoint_pk",
-          "columns": [
-            "model_id",
-            "endpoint"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.models": {
       "name": "models",
       "schema": "",
@@ -392,17 +344,17 @@
         },
         "input_token_limit": {
           "name": "input_token_limit",
-          "type": "integer",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true,
-          "default": 32768
+          "default": 1000000
         },
         "output_token_limit": {
           "name": "output_token_limit",
-          "type": "integer",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true,
-          "default": 4096
+          "default": 128000
         },
         "created_at": {
           "name": "created_at",
@@ -428,7 +380,7 @@
       "checkConstraints": {
         "models_token_limits": {
           "name": "models_token_limits",
-          "value": "\"models\".\"input_token_limit\" between 1 and 2000000 and \"models\".\"output_token_limit\" between 1 and 100000"
+          "value": "\"models\".\"input_token_limit\" >= 1 and \"models\".\"output_token_limit\" >= 1"
         }
       },
       "isRLSEnabled": false
@@ -994,8 +946,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "price_version_id": {
-          "name": "price_version_id",
+        "model_id": {
+          "name": "model_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -1088,7 +1040,7 @@
           "name": "price_rules_default_unique",
           "columns": [
             {
-              "expression": "price_version_id",
+              "expression": "model_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1102,12 +1054,12 @@
         }
       },
       "foreignKeys": {
-        "price_rules_price_version_id_price_versions_id_fk": {
-          "name": "price_rules_price_version_id_price_versions_id_fk",
+        "price_rules_model_id_models_id_fk": {
+          "name": "price_rules_model_id_models_id_fk",
           "tableFrom": "price_rules",
-          "tableTo": "price_versions",
+          "tableTo": "models",
           "columnsFrom": [
-            "price_version_id"
+            "model_id"
           ],
           "columnsTo": [
             "id"
@@ -1117,16 +1069,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "price_rules_version_unique": {
-          "name": "price_rules_version_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "id",
-            "price_version_id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
         "price_rules_context_shape": {
@@ -1144,164 +1087,6 @@
         "price_rules_prices_nonnegative": {
           "name": "price_rules_prices_nonnegative",
           "value": "\"price_rules\".\"input_price_micros\" >= 0 and \"price_rules\".\"output_price_micros\" >= 0 and (\"price_rules\".\"cache_read_price_micros\" is null or \"price_rules\".\"cache_read_price_micros\" >= 0) and (\"price_rules\".\"cache_write_price_micros\" is null or \"price_rules\".\"cache_write_price_micros\" >= 0)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.price_versions": {
-      "name": "price_versions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "model_id": {
-          "name": "model_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "endpoint": {
-          "name": "endpoint",
-          "type": "endpoint",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "version": {
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "price_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'draft'"
-        },
-        "effective_at": {
-          "name": "effective_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "published_at": {
-          "name": "published_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "price_versions_effective_unique": {
-          "name": "price_versions_effective_unique",
-          "columns": [
-            {
-              "expression": "model_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "endpoint",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "effective_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"price_versions\".\"status\" = 'published'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "price_versions_created_by_users_id_fk": {
-          "name": "price_versions_created_by_users_id_fk",
-          "tableFrom": "price_versions",
-          "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "price_versions_model_id_endpoint_model_endpoints_model_id_endpoint_fk": {
-          "name": "price_versions_model_id_endpoint_model_endpoints_model_id_endpoint_fk",
-          "tableFrom": "price_versions",
-          "tableTo": "model_endpoints",
-          "columnsFrom": [
-            "model_id",
-            "endpoint"
-          ],
-          "columnsTo": [
-            "model_id",
-            "endpoint"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "price_versions_number_unique": {
-          "name": "price_versions_number_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "model_id",
-            "endpoint",
-            "version"
-          ]
-        },
-        "price_versions_scope_unique": {
-          "name": "price_versions_scope_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "id",
-            "model_id",
-            "endpoint"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "price_versions_number_positive": {
-          "name": "price_versions_number_positive",
-          "value": "\"price_versions\".\"version\" > 0"
-        },
-        "price_versions_publication": {
-          "name": "price_versions_publication",
-          "value": "(\"price_versions\".\"status\" = 'draft' and \"price_versions\".\"published_at\" is null) or (\"price_versions\".\"status\" = 'published' and \"price_versions\".\"published_at\" is not null and \"price_versions\".\"effective_at\" is not null)"
         }
       },
       "isRLSEnabled": false
@@ -1465,18 +1250,6 @@
         "finished_at": {
           "name": "finished_at",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "price_version_id": {
-          "name": "price_version_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "price_rule_id": {
-          "name": "price_rule_id",
-          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -1680,32 +1453,6 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "requests_price_version_id_price_versions_id_fk": {
-          "name": "requests_price_version_id_price_versions_id_fk",
-          "tableFrom": "requests",
-          "tableTo": "price_versions",
-          "columnsFrom": [
-            "price_version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "requests_price_rule_id_price_rules_id_fk": {
-          "name": "requests_price_rule_id_price_rules_id_fk",
-          "tableFrom": "requests",
-          "tableTo": "price_rules",
-          "columnsFrom": [
-            "price_rule_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "requests_api_key_id_user_id_api_keys_id_user_id_fk": {
           "name": "requests_api_key_id_user_id_api_keys_id_user_id_fk",
           "tableFrom": "requests",
@@ -1717,38 +1464,6 @@
           "columnsTo": [
             "id",
             "user_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "requests_price_version_id_model_id_endpoint_price_versions_id_model_id_endpoint_fk": {
-          "name": "requests_price_version_id_model_id_endpoint_price_versions_id_model_id_endpoint_fk",
-          "tableFrom": "requests",
-          "tableTo": "price_versions",
-          "columnsFrom": [
-            "price_version_id",
-            "model_id",
-            "endpoint"
-          ],
-          "columnsTo": [
-            "id",
-            "model_id",
-            "endpoint"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "requests_price_rule_id_price_version_id_price_rules_id_price_version_id_fk": {
-          "name": "requests_price_rule_id_price_version_id_price_rules_id_price_version_id_fk",
-          "tableFrom": "requests",
-          "tableTo": "price_rules",
-          "columnsFrom": [
-            "price_rule_id",
-            "price_version_id"
-          ],
-          "columnsTo": [
-            "id",
-            "price_version_id"
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -1774,10 +1489,6 @@
       },
       "policies": {},
       "checkConstraints": {
-        "requests_price_scope": {
-          "name": "requests_price_scope",
-          "value": "(\"requests\".\"price_version_id\" is null or \"requests\".\"model_id\" is not null) and (\"requests\".\"price_rule_id\" is null or \"requests\".\"price_version_id\" is not null)"
-        },
         "requests_billing_terminal_shape": {
           "name": "requests_billing_terminal_shape",
           "value": "not \"requests\".\"billing_enabled\" or (\"requests\".\"status\" = 'settled' and \"requests\".\"charged_micros\" is not null and \"requests\".\"held_micros\" = 0) or (\"requests\".\"status\" = 'released' and \"requests\".\"charged_micros\" = 0 and \"requests\".\"held_micros\" = 0) or (\"requests\".\"status\" in ('reserved', 'forwarding', 'settling', 'needs_review') and \"requests\".\"charged_micros\" is null)"
@@ -2118,14 +1829,6 @@
         "context",
         "time",
         "combined"
-      ]
-    },
-    "public.price_status": {
-      "name": "price_status",
-      "schema": "public",
-      "values": [
-        "draft",
-        "published"
       ]
     },
     "public.request_status": {

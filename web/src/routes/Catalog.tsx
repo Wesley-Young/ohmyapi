@@ -234,10 +234,9 @@ function ChannelForm({
 }
 function ModelForm({ initial, close }: { initial?: CatalogData['models'][number]; close: () => void }) {
   const [name, setName] = useState(initial?.name ?? '');
-  const [inputTokenLimit, setInputTokenLimit] = useState(String(initial?.inputTokenLimit ?? 32768));
-  const [outputTokenLimit, setOutputTokenLimit] = useState(String(initial?.outputTokenLimit ?? 4096));
+  const [inputTokenLimit, setInputTokenLimit] = useState(String(initial?.inputTokenLimit ?? 1_000_000));
+  const [outputTokenLimit, setOutputTokenLimit] = useState(String(initial?.outputTokenLimit ?? 128_000));
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
-  const [scopes, setScopes] = useState<Endpoint[]>(initial?.endpoints ?? []);
   const task = useMutation(
     trpc.admin.catalog.saveModel.mutationOptions({
       onSuccess: async () => {
@@ -256,7 +255,6 @@ function ModelForm({ initial, close }: { initial?: CatalogData['models'][number]
               id: initial?.id,
               name,
               enabled,
-              endpoints: scopes,
               inputTokenLimit: Number(inputTokenLimit),
               outputTokenLimit: Number(outputTokenLimit),
             });
@@ -271,12 +269,10 @@ function ModelForm({ initial, close }: { initial?: CatalogData['models'][number]
             maxLength={128}
             helper="请求模型名会原样发送给上游"
           />
-          <EndpointFields value={scopes} onChange={setScopes} />
           <FormInput
             label="输入 Token 预占上限"
             type="number"
             min={1}
-            max={2000000}
             required
             value={inputTokenLimit}
             onChange={(e) => setInputTokenLimit(e.target.value)}
@@ -286,7 +282,6 @@ function ModelForm({ initial, close }: { initial?: CatalogData['models'][number]
             label="输出 Token 上限"
             type="number"
             min={1}
-            max={100000}
             required
             value={outputTokenLimit}
             onChange={(e) => setOutputTokenLimit(e.target.value)}
@@ -407,13 +402,8 @@ export default function Catalog({ section }: { section: 'channels' | 'models' })
                   >
                     <Box minW="0">
                       <Text fontWeight="500" overflowWrap="anywhere">
-                        {m.name} · {m.enabled ? '启用' : '禁用'}
+                        {m.name} · {m.enabled ? '启用' : '禁用'} · {m.priced ? '已定价' : '未定价'}
                       </Text>
-                      {m.endpoints.map((e) => (
-                        <Text key={e} fontSize="xs" color="gray.500">
-                          {e} · {m.pricedEndpoints.includes(e) ? '已定价' : '无生效价格'}
-                        </Text>
-                      ))}
                     </Box>
                     <HStack>
                       <Link asChild color="#635bff" fontSize="sm">
