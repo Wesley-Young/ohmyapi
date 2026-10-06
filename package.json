@@ -1,0 +1,25 @@
+{
+  "name": "ohmyapi",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=24.13.0",
+    "pnpm": ">=12 <13"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @ohmyapi/daemon --filter @ohmyapi/web dev",
+    "build": "pnpm -r build",
+    "start": "pnpm --filter @ohmyapi/daemon start",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "format": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@types/node": "^24.13.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

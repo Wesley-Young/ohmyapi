@@ -1,0 +1,10 @@
+packages:
+  - daemon
+  - web
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@fraqjs/*'
+  - '@react-router/*'
+  - react-router
+  - vite@8.3.3
