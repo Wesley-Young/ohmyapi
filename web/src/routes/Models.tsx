@@ -111,7 +111,7 @@ export default function Models() {
                   </Stack>
                   <HStack gap="2" flexWrap="wrap">
                     <Button variant="outline" size="sm" onClick={() => setEdit({ id: selected.id })}>
-                      编辑模型
+                      编辑模型元数据
                     </Button>
                     <ConfirmAction
                       key={selected.id}
@@ -149,9 +149,7 @@ export default function Models() {
           existingNames={models.map((model) => model.name)}
           close={() => setImporting(false)}
           onImported={(result) => {
-            setImportNotice(
-              `已导入 ${result.imported.length} 个模型${result.skipped.length ? `，跳过 ${result.skipped.length} 个已有模型` : ''}`,
-            );
+            setImportNotice(`已导入 ${result.imported.length} 个模型`);
             if (result.imported[0]) navigate(`/console/models/${result.imported[0].id}/pricing`);
           }}
         />

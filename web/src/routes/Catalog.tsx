@@ -270,7 +270,7 @@ export function ModelForm({
     }),
   );
   return (
-    <FormDialog open title={initial ? '编辑模型' : '添加模型'} onClose={close} busy={task.isPending}>
+    <FormDialog open title={initial ? '编辑模型元数据' : '添加模型'} onClose={close} busy={task.isPending}>
       <form
         onSubmit={(e) => {
           e.preventDefault();

@@ -1,6 +1,6 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { and, asc, eq, inArray, isNull, notInArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { formatMoney, parseMoney } from '../billing/conventions.js';
@@ -278,21 +278,37 @@ export class CatalogService {
     });
   }
   async importModels(principal: Principal, input: z.infer<typeof importModelsInput>) {
-    const prepared = input.models.map((entry) => {
-      const rules = expandRules(entry.rules);
-      try {
-        validateRules(rules);
-      } catch (error) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: `${entry.model.name}：${(error as Error).message}` });
-      }
-      return { ...entry, rules };
-    });
+    const prepared = input.models
+      .map((entry) => {
+        const rules = expandRules(entry.rules);
+        try {
+          validateRules(rules);
+        } catch (error) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: `${entry.model.name}：${(error as Error).message}` });
+        }
+        return { ...entry, rules };
+      })
+      .sort((a, b) => a.model.name.localeCompare(b.model.name));
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const imported = await tx
         .insert(models)
         .values(prepared.map((entry) => entry.model))
-        .onConflictDoNothing({ target: models.name, where: isNull(models.deletedAt) })
+        .onConflictDoUpdate({
+          target: models.name,
+          targetWhere: isNull(models.deletedAt),
+          set: {
+            enabled: sql`excluded.enabled`,
+            inputTokenLimit: sql`excluded.input_token_limit`,
+            outputTokenLimit: sql`excluded.output_token_limit`,
+          },
+        })
         .returning({ id: models.id, name: models.name });
+      await tx.delete(priceRules).where(
+        inArray(
+          priceRules.modelId,
+          imported.map((model) => model.id),
+        ),
+      );
       for (const model of imported) {
         const entry = prepared.find((item) => item.model.name === model.name) as (typeof prepared)[number];
         await tx.insert(priceRules).values(entry.rules.map((rule) => ({ ...rule, modelId: model.id })));
@@ -304,12 +320,7 @@ export class CatalogService {
           rules: input.models.find((item) => item.model.name === model.name)?.rules,
         });
       }
-      return {
-        imported,
-        skipped: prepared
-          .filter((entry) => !imported.some((model) => model.name === entry.model.name))
-          .map((entry) => entry.model.name),
-      };
+      return { imported };
     });
   }
   async grants(userId: string) {

@@ -158,7 +158,7 @@ export function ModelImport({
               </Grid>
               <HStack justify="space-between" flexWrap="wrap" gap="2">
                 <Text fontSize="xs" color="gray.500">
-                  同名模型只能选择一个供应商；不能覆盖已有模型。
+                  同名模型只能选择一个供应商；已有模型将覆盖配置与定价。
                 </Text>
                 <HStack>
                   <Button
@@ -208,7 +208,7 @@ export function ModelImport({
                               <Table.Cell>
                                 <Checkbox.Root
                                   checked={checked}
-                                  disabled={alreadyExists || otherSource || (!checked && selected.length >= 100)}
+                                  disabled={otherSource || (!checked && selected.length >= 100)}
                                   onCheckedChange={(event) => {
                                     setSelected((items) =>
                                       event.checked
@@ -233,7 +233,7 @@ export function ModelImport({
                                   )}
                                   {alreadyExists && (
                                     <Badge colorPalette="gray" alignSelf="start">
-                                      已存在
+                                      将覆盖
                                     </Badge>
                                   )}
                                   {otherSource && (
@@ -275,9 +275,12 @@ export function ModelImport({
             <>
               <Stack gap="2" fontSize="sm" color="gray.500">
                 <Text>基础价格来自 models.dev，单位为 USD / 百万 Token。下方规则就是将要保存的价格。</Text>
-                <Text>GPT：上下文超过 272k 时，输出 1.5×，输入、缓存读和缓存写 2×。</Text>
+                {selected.some((item) => existing.has(item.source.name)) && (
+                  <Text>已有模型将覆盖启用状态、Token 上限和全部定价规则。</Text>
+                )}
+                <Text>GPT 预设：上下文超过 272k 时，输出 1.5×，输入、缓存读和缓存写 2×。</Text>
                 <Text>
-                  DeepSeek：上海时区周一至周五 09:00–12:00、14:00–18:00，四项价格均为 2×；其余时段使用基础价。
+                  DeepSeek 预设：上海时区周一至周五 09:00–12:00、14:00–18:00，四项价格均为 2×；其余时段使用基础价。
                 </Text>
                 <Text>缺失的缓存价格保留为未配置；金额最多六位小数，超出精度时向上舍入。</Text>
               </Stack>
@@ -313,6 +316,7 @@ export function ModelImport({
                         </Heading>
                         <HStack gap="2" flexWrap="wrap">
                           <Badge colorPalette="gray">{selection.source.providerName}</Badge>
+                          {existing.has(selection.source.name) && <Badge colorPalette="gray">将覆盖</Badge>}
                           <Badge colorPalette="gray">
                             输入容量 {selection.source.inputTokenLimit.toLocaleString()}
                           </Badge>
@@ -323,7 +327,7 @@ export function ModelImport({
                       </Stack>
                       <Box>
                         <SelectField
-                          label={`${selection.source.name} 定价预设`}
+                          label={`${selection.source.name} 规则定价预设`}
                           value={selection.preset}
                           disabled={task.isPending}
                           options={Object.entries(importPresets).map(([id, name]) => ({ id, name }))}
