@@ -2,7 +2,8 @@ import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 
-import type { Database } from '../db/client.js';
+import type { AuthService, Principal, Transaction } from '../auth/service.js';
+import type { Database } from '../database/client.js';
 import {
   adminAuditLogs,
   apiKeyChannels,
@@ -13,9 +14,8 @@ import {
   channels,
   models,
   userModelGrants,
-} from '../db/schema/index.js';
-import type { AuthService, Principal, Transaction } from './auth.js';
-import { pageSize } from './users.js';
+} from '../database/schema/index.js';
+import { pageSize } from '../users/service.js';
 
 import { randomBytes } from 'node:crypto';
 

@@ -1,7 +1,7 @@
+import type { Endpoint } from '../catalog/service.js';
 import { GatewayError } from '../gateway/errors.js';
-import type { Endpoint } from '../services/catalog.js';
-import type { LockedPrice } from '../services/pricing.js';
-import { ruleTimeMatcher } from './pricing.js';
+import { ruleTimeMatcher } from '../pricing/rules.js';
+import type { LockedPrice } from '../pricing/service.js';
 
 /** Reserve against estimated usage and the most expensive reachable rule at receipt. */
 export function reservationAmount(price: LockedPrice, inputTokens: number, outputTokens: number) {

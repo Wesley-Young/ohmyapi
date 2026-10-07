@@ -1,14 +1,11 @@
-import { serviceToken } from '@fraqjs/kernel';
+import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import { Client } from 'pg';
 import { z } from 'zod';
 
-import { reservationAmount } from '../billing/admission.js';
-import { formatMoney, parseMoney } from '../billing/conventions.js';
-import { estimateReservation } from '../billing/estimation.js';
-import { priceInput, tokenInput } from '../billing/pricing.js';
-import type { DatabaseConfig } from '../config.js';
+import type { DatabaseConfig } from '../../config.js';
+import type { AuthService, Principal, Transaction } from '../auth/service.js';
 import {
   adminAuditLogs,
   apiKeyChannels,
@@ -24,11 +21,14 @@ import {
   users,
   walletLedger,
   wallets,
-} from '../db/schema/index.js';
+} from '../database/schema/index.js';
 import { GatewayError } from '../gateway/errors.js';
 import type { Usage } from '../gateway/usage.js';
-import type { AuthService, Principal, Transaction } from './auth.js';
-import type { LockedPrice, PricingService } from './pricing.js';
+import { priceInput, tokenInput } from '../pricing/rules.js';
+import type { LockedPrice, PricingService } from '../pricing/service.js';
+import { reservationAmount } from './admission.js';
+import { formatMoney, parseMoney } from './conventions.js';
+import { estimateReservation } from './estimation.js';
 
 import { randomUUID } from 'node:crypto';
 
@@ -90,7 +90,7 @@ function canonical(value: unknown): string {
         : v;
   return JSON.stringify(normalize(value));
 }
-export class BillingService {
+export class BillingService implements Disposable {
   static readonly token = serviceToken<BillingService>('ohmyapi/billing');
   readonly ownerId = randomUUID();
   private readonly auth: AuthService;

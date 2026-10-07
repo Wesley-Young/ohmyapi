@@ -1,4 +1,4 @@
-import type { Endpoint } from '../services/catalog.js';
+import type { Endpoint } from '../catalog/service.js';
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue | undefined =>

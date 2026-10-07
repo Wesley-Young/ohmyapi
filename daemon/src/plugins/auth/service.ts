@@ -2,9 +2,9 @@ import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
 import { and, eq, gt, isNull, lt, or } from 'drizzle-orm';
 
-import { hashPassword, verifyPassword } from '../auth/password.js';
-import type { Database } from '../db/client.js';
-import { sessions, users } from '../db/schema/index.js';
+import type { Database } from '../database/client.js';
+import { sessions, users } from '../database/schema/index.js';
+import { hashPassword, verifyPassword } from './password.js';
 
 import { createHash, randomBytes } from 'node:crypto';
 

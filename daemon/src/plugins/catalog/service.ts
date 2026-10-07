@@ -3,8 +3,8 @@ import { TRPCError } from '@trpc/server';
 import { and, asc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import type { AuthService, Principal, Transaction } from '../auth/service.js';
 import { formatMoney, parseMoney } from '../billing/conventions.js';
-import { expandRules, multiplierInput, ruleInput, validateRules } from '../billing/pricing.js';
 import {
   adminAuditLogs,
   channelAvailableModels,
@@ -14,8 +14,8 @@ import {
   priceRules,
   userModelGrants,
   users,
-} from '../db/schema/index.js';
-import type { AuthService, Principal, Transaction } from './auth.js';
+} from '../database/schema/index.js';
+import { expandRules, multiplierInput, ruleInput, validateRules } from '../pricing/rules.js';
 
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 

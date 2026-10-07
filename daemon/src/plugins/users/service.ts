@@ -3,9 +3,9 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
 
 import { generatePassword, hashPassword } from '../auth/password.js';
+import { type AuthService, type Principal, publicUser } from '../auth/service.js';
 import { formatMoney } from '../billing/conventions.js';
-import { adminAuditLogs, apiKeys, sessions, systemSettings, users, wallets } from '../db/schema/index.js';
-import { type AuthService, type Principal, publicUser } from './auth.js';
+import { adminAuditLogs, apiKeys, sessions, systemSettings, users, wallets } from '../database/schema/index.js';
 
 export const pageSize = 20;
 

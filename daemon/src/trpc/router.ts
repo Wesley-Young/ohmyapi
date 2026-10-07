@@ -1,21 +1,21 @@
 import { type inferRouterInputs, type inferRouterOutputs, initTRPC, TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { parseMoney } from '../billing/conventions.js';
-import type { AuthService, Principal } from '../services/auth.js';
-import { type BillingService, correctBillInput, resolveBillInput } from '../services/billing.js';
+import type { AuthService, Principal } from '../plugins/auth/service.js';
+import { parseMoney } from '../plugins/billing/conventions.js';
+import { type BillingService, correctBillInput, resolveBillInput } from '../plugins/billing/service.js';
 import {
   type CatalogService,
   channelInput,
   fetchChannelModelsInput,
   importModelsInput,
   modelInput,
-} from '../services/catalog.js';
-import type { GatewayService } from '../services/gateway.js';
-import type { KeyService } from '../services/keys.js';
-import { type PricingService, previewInput, priceScope, savePriceInput } from '../services/pricing.js';
-import type { UserService } from '../services/users.js';
-import type { WalletService } from '../services/wallet.js';
+} from '../plugins/catalog/service.js';
+import type { GatewayService } from '../plugins/gateway/service.js';
+import type { KeyService } from '../plugins/keys/service.js';
+import { type PricingService, previewInput, priceScope, savePriceInput } from '../plugins/pricing/service.js';
+import type { UserService } from '../plugins/users/service.js';
+import type { WalletService } from '../plugins/wallet/service.js';
 
 export interface RpcContext {
   startedAt: string;

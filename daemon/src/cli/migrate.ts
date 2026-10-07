@@ -1,6 +1,6 @@
 import { readDatabaseConfig } from '../config.js';
-import { createDatabase } from '../db/client.js';
-import { migrateDatabase } from '../db/migrate.js';
+import { createDatabase } from '../plugins/database/client.js';
+import { migrateDatabase } from '../plugins/database/migrate.js';
 
 async function main() {
   const { pool } = createDatabase(readDatabaseConfig());

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { billingConventions, formatMoney, parseMoney } from './conventions.js';
+import { billingConventions, formatMoney, parseMoney } from '../billing/conventions.js';
 
 const maxInteger = 9_223_372_036_854_775_807n;
 export const tokenInput = z

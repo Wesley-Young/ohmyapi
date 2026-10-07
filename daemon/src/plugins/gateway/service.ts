@@ -1,10 +1,12 @@
-import { serviceToken } from '@fraqjs/kernel';
+import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { and, desc, eq, gt, isNull, or } from 'drizzle-orm';
 
+import type { readGatewayConfig } from '../../config.js';
 import { validateBillableRequest } from '../billing/admission.js';
 import { formatMoney } from '../billing/conventions.js';
-import type { readGatewayConfig } from '../config.js';
-import type { Database } from '../db/client.js';
+import type { BillingService, BillingSummary } from '../billing/service.js';
+import type { CredentialVault, Endpoint } from '../catalog/service.js';
+import type { Database } from '../database/client.js';
 import {
   apiKeyChannels,
   apiKeyModelGrants,
@@ -17,18 +19,16 @@ import {
   requestUsage,
   userModelGrants,
   users,
-} from '../db/schema/index.js';
-import { GatewayError } from '../gateway/errors.js';
-import { SseObserver, UsageCollector } from '../gateway/usage.js';
-import type { BillingService, BillingSummary } from './billing.js';
-import type { CredentialVault, Endpoint } from './catalog.js';
-import type { PricingService } from './pricing.js';
-import { pageSize } from './users.js';
+} from '../database/schema/index.js';
+import type { PricingService } from '../pricing/service.js';
+import { pageSize } from '../users/service.js';
+import { GatewayError } from './errors.js';
+import { SseObserver, UsageCollector } from './usage.js';
 
 import { randomUUID } from 'node:crypto';
 
 type Config = ReturnType<typeof readGatewayConfig>;
-export class GatewayService {
+export class GatewayService implements Disposable {
   static readonly token = serviceToken<GatewayService>('ohmyapi/gateway');
   private readonly limits = new Map<string, { active: number; count: number; reset: number }>();
   private readonly db: Database;

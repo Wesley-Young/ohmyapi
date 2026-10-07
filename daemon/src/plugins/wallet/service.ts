@@ -2,6 +2,7 @@ import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 
+import type { AuthService, Principal } from '../auth/service.js';
 import { formatMoney, parseMoney } from '../billing/conventions.js';
 import {
   adminAuditLogs,
@@ -11,9 +12,8 @@ import {
   users,
   walletLedger,
   wallets,
-} from '../db/schema/index.js';
-import type { AuthService, Principal } from './auth.js';
-import { pageSize } from './users.js';
+} from '../database/schema/index.js';
+import { pageSize } from '../users/service.js';
 
 const ledgerDto = (entry: typeof walletLedger.$inferSelect) => ({
   id: entry.id,

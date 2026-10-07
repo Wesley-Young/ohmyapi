@@ -8,7 +8,7 @@ import type { Database } from './client.js';
 
 import { fileURLToPath } from 'node:url';
 
-const migrationsFolder = fileURLToPath(new URL('../../drizzle/', import.meta.url));
+const migrationsFolder = fileURLToPath(new URL('../../../drizzle/', import.meta.url));
 
 export async function assertMigrationsCurrent(db: Database) {
   const latest = readMigrationFiles({ migrationsFolder }).at(-1);

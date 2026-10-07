@@ -1,6 +1,6 @@
 import { readBillingCurrency, readDatabaseConfig } from '../config.js';
-import { initializeDatabase } from '../db/bootstrap.js';
-import { createDatabase } from '../db/client.js';
+import { initializeDatabase } from '../plugins/database/bootstrap.js';
+import { createDatabase } from '../plugins/database/client.js';
 
 async function main() {
   const options = {

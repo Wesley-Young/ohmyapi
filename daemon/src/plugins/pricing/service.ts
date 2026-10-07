@@ -3,7 +3,9 @@ import { TRPCError } from '@trpc/server';
 import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
+import type { AuthService, Principal } from '../auth/service.js';
 import { formatMoney, parseMoney } from '../billing/conventions.js';
+import { adminAuditLogs, channelAvailableModels, channels, models, priceRules } from '../database/schema/index.js';
 import {
   expandRules,
   multiplierInput,
@@ -13,9 +15,7 @@ import {
   ruleInput,
   tokenInput,
   validateRules,
-} from '../billing/pricing.js';
-import { adminAuditLogs, channelAvailableModels, channels, models, priceRules } from '../db/schema/index.js';
-import type { AuthService, Principal } from './auth.js';
+} from './rules.js';
 
 export const priceScope = z.object({ modelId: z.uuid() });
 export const savePriceInput = priceScope.extend({ rules: z.array(ruleInput).max(200) });

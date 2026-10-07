@@ -6,16 +6,16 @@ import { serialize } from 'hono/utils/cookie';
 
 import { readSessionConfig } from '../../config.js';
 import { definePlugin } from '../../kernel.js';
-import { AuthService } from '../../services/auth.js';
-import { BillingService } from '../../services/billing.js';
-import { CatalogService, endpoints } from '../../services/catalog.js';
-import { GatewayService } from '../../services/gateway.js';
-import { KeyService } from '../../services/keys.js';
-import { PricingService } from '../../services/pricing.js';
-import { UserService } from '../../services/users.js';
-import { WalletService } from '../../services/wallet.js';
 import { appRouter } from '../../trpc/router.js';
+import { AuthService } from '../auth/service.js';
+import { BillingService } from '../billing/service.js';
+import { CatalogService, endpoints } from '../catalog/service.js';
 import { DatabaseService } from '../database/index.js';
+import { GatewayService } from '../gateway/service.js';
+import { KeyService } from '../keys/service.js';
+import { PricingService } from '../pricing/service.js';
+import { UserService } from '../users/service.js';
+import { WalletService } from '../wallet/service.js';
 
 export const HttpPlugin = definePlugin({
   name: 'ohmyapi-http',
