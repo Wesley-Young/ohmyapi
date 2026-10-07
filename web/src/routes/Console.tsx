@@ -1,5 +1,6 @@
-import { Box, Button, Container, Flex, HStack, Link, Stack, Text } from '@chakra-ui/react';
+import { Box, Button, Flex, HStack, Link, Stack, Text } from '@chakra-ui/react';
 import { useMutation } from '@tanstack/react-query';
+import { KeyRound, Layers, Network, ScrollText, Users, Wallet } from 'lucide-react';
 import { Navigate, NavLink, Outlet, Link as RouterLink } from 'react-router';
 
 import { ErrorText } from '../components/ui';
@@ -7,82 +8,118 @@ import { useAuth } from '../lib/auth';
 import { formError } from '../lib/format';
 import { setSession, trpc } from '../lib/trpc';
 
+const navigationIcons = {
+  balance: Wallet,
+  keys: KeyRound,
+  requests: ScrollText,
+  users: Users,
+  channels: Network,
+  models: Layers,
+};
+
+function NavigationIcon({ name }: { name: keyof typeof navigationIcons }) {
+  const Icon = navigationIcons[name];
+  return <Icon size={20} strokeWidth={1.6} aria-hidden="true" focusable="false" style={{ flexShrink: 0 }} />;
+}
+
 export default function Console() {
   const auth = useAuth();
   const task = useMutation(trpc.auth.logout.mutationOptions({ onSuccess: () => setSession(null) }));
   if (!auth.data) return null;
-  const links = [
-    { to: '/console', label: '余额', end: true },
-    { to: '/console/keys', label: 'API Key', end: false },
-    { to: '/console/requests', label: '请求', end: false },
+  const links: { to: string; label: string; end: boolean; icon: keyof typeof navigationIcons }[] = [
+    { to: '/console', label: '余额', end: true, icon: 'balance' },
+    { to: '/console/keys', label: 'API Key', end: false, icon: 'keys' },
+    { to: '/console/requests', label: '请求', end: false, icon: 'requests' },
     ...(auth.data.role === 'admin'
       ? [
-          { to: '/console/users', label: '用户', end: false },
-          { to: '/console/channels', label: '渠道', end: false },
-          { to: '/console/models', label: '模型', end: false },
+          { to: '/console/users', label: '用户', end: false, icon: 'users' as const },
+          { to: '/console/channels', label: '渠道', end: false, icon: 'channels' as const },
+          { to: '/console/models', label: '模型', end: false, icon: 'models' as const },
         ]
       : []),
   ];
   return (
-    <Box key={auth.data.id}>
-      <Box as="header" borderBottomWidth="1px" borderColor="gray.200">
-        <Container maxW="1100px" px={{ base: 5, md: 8 }}>
-          <Flex py="5" justify="space-between" align="center" gap="4" flexWrap="wrap">
-            <Link asChild fontSize="xl" fontWeight="800" letterSpacing="-0.06em" textDecoration="none">
-              <RouterLink to="/">ohmyapi</RouterLink>
+    <Box key={auth.data.id} minH="100dvh">
+      <Box as="header" position="sticky" top="0" zIndex="10" bg="white" borderBottomWidth="1px" borderColor="gray.200">
+        <Flex h="64px" px={{ base: 4, md: 6 }} justify="space-between" align="center" gap="4">
+          <Link asChild fontSize="xl" fontWeight="800" letterSpacing="-0.06em" textDecoration="none">
+            <RouterLink to="/">ohmyapi</RouterLink>
+          </Link>
+          <HStack gap={{ base: 2, md: 4 }} minW="0">
+            <Text
+              fontSize="sm"
+              color="gray.500"
+              truncate
+              display={{ base: 'none', sm: 'block' }}
+              maxW={{ base: '100px', md: '240px' }}
+              title={auth.data.username}
+            >
+              {auth.data.username}
+            </Text>
+            <Link asChild fontSize="sm">
+              <RouterLink to="/change-password">修改密码</RouterLink>
             </Link>
-            <HStack gap="4" flexWrap="wrap">
-              <Text
-                fontSize="sm"
-                color="gray.500"
-                truncate
-                maxW={{ base: '140px', md: '240px' }}
-                title={auth.data.username}
-              >
-                {auth.data.username}
-              </Text>
-              <Link asChild fontSize="sm">
-                <RouterLink to="/change-password">修改密码</RouterLink>
-              </Link>
-              <Button size="sm" variant="ghost" loading={task.isPending} onClick={() => task.mutate()}>
-                退出
-              </Button>
-            </HStack>
-          </Flex>
-          <HStack as="nav" aria-label="控制台导航" gap="6" overflowX="auto">
+            <Button size="sm" variant="ghost" loading={task.isPending} onClick={() => task.mutate()}>
+              退出
+            </Button>
+          </HStack>
+        </Flex>
+      </Box>
+      <Flex align="start" minH="calc(100dvh - 64px)">
+        <Box
+          as="aside"
+          w={{ base: '64px', md: '208px', lg: '228px' }}
+          flexShrink="0"
+          position="sticky"
+          top="64px"
+          h="calc(100dvh - 64px)"
+          overflowY="auto"
+          borderRightWidth="1px"
+          borderColor="gray.200"
+          bg="white"
+          px={{ base: 2, md: 3 }}
+          py="5"
+        >
+          <Stack as="nav" aria-label="控制台导航" gap="1">
             {links.map((link) => (
               <NavLink
                 key={link.to}
                 to={link.to}
                 end={link.end}
-                style={({ isActive }) => ({
-                  display: 'inline-grid',
-                  flexShrink: 0,
-                  color: isActive ? '#171717' : '#737373',
-                  borderBottom: `2px solid ${isActive ? '#635bff' : 'transparent'}`,
-                  padding: '0 0 14px',
-                  fontSize: '14px',
-                  whiteSpace: 'nowrap',
-                  fontWeight: isActive ? 600 : 400,
-                })}
+                aria-label={link.label}
+                title={link.label}
+                style={{ display: 'block', borderRadius: '8px' }}
               >
-                <Box as="span" gridArea="1 / 1" fontWeight="600" visibility="hidden" aria-hidden="true">
-                  {link.label}
-                </Box>
-                <Box as="span" gridArea="1 / 1" textAlign="center">
-                  {link.label}
-                </Box>
+                {({ isActive }) => (
+                  <HStack
+                    gap="3"
+                    h="44px"
+                    px={{ base: 0, md: 3 }}
+                    justify={{ base: 'center', md: 'start' }}
+                    borderRadius="lg"
+                    bg={isActive ? 'gray.100' : 'transparent'}
+                    color={isActive ? '#171717' : 'gray.500'}
+                    _hover={{ bg: isActive ? 'gray.100' : 'gray.50', color: '#171717' }}
+                    fontSize="sm"
+                    fontWeight={isActive ? '600' : '400'}
+                  >
+                    <NavigationIcon name={link.icon} />
+                    <Text display={{ base: 'none', md: 'block' }} whiteSpace="nowrap">
+                      {link.label}
+                    </Text>
+                  </HStack>
+                )}
               </NavLink>
             ))}
-          </HStack>
-        </Container>
-      </Box>
-      <Container maxW="1100px" px={{ base: 5, md: 8 }} py={{ base: 7, md: 10 }}>
-        <Stack gap="7">
-          <ErrorText>{formError(task.error)?.message}</ErrorText>
-          <Outlet />
-        </Stack>
-      </Container>
+          </Stack>
+        </Box>
+        <Box flex="1" minW="0" px={{ base: 4, md: 8, lg: 10 }} py={{ base: 7, md: 10 }}>
+          <Stack gap="7" maxW="1280px" mx="auto">
+            <ErrorText>{formError(task.error)?.message}</ErrorText>
+            <Outlet />
+          </Stack>
+        </Box>
+      </Flex>
     </Box>
   );
 }

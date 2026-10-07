@@ -12,6 +12,7 @@ import {
   Text,
 } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Check, Copy } from 'lucide-react';
 import { useState } from 'react';
 
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton, Title } from '../components/ui';
@@ -256,27 +257,11 @@ export default function Keys() {
                                 }
                               }}
                             >
-                              <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.75"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                                focusable="false"
-                              >
-                                {copiedId === key.id ? (
-                                  <path d="m5 12 4 4L19 6" />
-                                ) : (
-                                  <>
-                                    <rect x="9" y="9" width="12" height="12" rx="2" />
-                                    <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
-                                  </>
-                                )}
-                              </svg>
+                              {copiedId === key.id ? (
+                                <Check size={16} strokeWidth={1.75} aria-hidden="true" focusable="false" />
+                              ) : (
+                                <Copy size={16} strokeWidth={1.75} aria-hidden="true" focusable="false" />
+                              )}
                             </IconButton>
                           </HStack>
                         </Table.Cell>

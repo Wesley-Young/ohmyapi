@@ -1,5 +1,6 @@
 import { Badge, Box, Button, HStack, Stack, Table, Text } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
+import { DatabaseBackup, DatabaseZap, LogIn, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 
@@ -10,36 +11,17 @@ import { formError, localDate } from '../lib/format';
 import { trpc } from '../lib/trpc';
 
 const usageKinds = {
-  input: { label: '输入', path: 'M3 12h12m-4-4 4 4-4 4M15 4h5v16h-5' },
-  output: { label: '输出', path: 'M9 4H4v16h5m0-8h12m-4-4 4 4-4 4' },
-  cacheRead: { label: '缓存读', path: 'M17 12v8m-3-3 3 3 3-3' },
-  cacheWrite: { label: '缓存写', path: 'M17 20v-8m-3 3 3-3 3 3' },
+  input: { label: '输入', icon: LogIn },
+  output: { label: '输出', icon: LogOut },
+  cacheRead: { label: '缓存读', icon: DatabaseZap },
+  cacheWrite: { label: '缓存写', icon: DatabaseBackup },
 } as const;
 
 function UsageBadge({ kind, value }: { kind: keyof typeof usageKinds; value: string }) {
-  const { label, path } = usageKinds[kind];
+  const { label, icon: Icon } = usageKinds[kind];
   return (
     <Badge colorPalette="gray" gap="1.5" fontVariantNumeric="tabular-nums">
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-        focusable="false"
-      >
-        {(kind === 'cacheRead' || kind === 'cacheWrite') && (
-          <>
-            <ellipse cx="7" cy="5" rx="4" ry="2" />
-            <path d="M3 5v12c0 1.1 1.8 2 4 2s4-.9 4-2V5M3 11c0 1.1 1.8 2 4 2s4-.9 4-2" />
-          </>
-        )}
-        <path d={path} />
-      </svg>
+      <Icon size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
       {label} {value}
     </Badge>
   );

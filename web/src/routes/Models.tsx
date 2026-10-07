@@ -53,12 +53,12 @@ export default function Models() {
         <Loading />
       ) : catalog.data ? (
         <Grid
-          templateColumns={{ base: 'minmax(0, 1fr)', md: '240px minmax(0, 1fr)' }}
+          templateColumns={{ base: 'minmax(0, 1fr)', lg: '240px minmax(0, 1fr)' }}
           gap={{ base: '5', md: '7' }}
           alignItems="start"
         >
           <Box as="nav" aria-label="选择模型" borderWidth="1px" borderColor="gray.200" borderRadius="xl" p="2" minW="0">
-            <Stack gap="1" maxH={{ base: '280px', md: 'calc(100dvh - 240px)' }} overflowY="auto">
+            <Stack gap="1" maxH={{ base: '280px', lg: 'calc(100dvh - 240px)' }} overflowY="auto">
               {models.map((model) => {
                 const active = model.id === selected?.id;
                 return (
