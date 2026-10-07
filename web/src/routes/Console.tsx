@@ -1,12 +1,8 @@
-import { Box, Button, Flex, HStack, Link, Stack, Text } from '@chakra-ui/react';
-import { useMutation } from '@tanstack/react-query';
-import { KeyRound, Layers, Network, ScrollText, Users, Wallet } from 'lucide-react';
+import { Box, Flex, HStack, Link, Stack, Text } from '@chakra-ui/react';
+import { KeyRound, Layers, Network, ScrollText, UserRound, Users, Wallet } from 'lucide-react';
 import { Navigate, NavLink, Outlet, Link as RouterLink } from 'react-router';
 
-import { ErrorText } from '../components/ui';
 import { useAuth } from '../lib/auth';
-import { formError } from '../lib/format';
-import { setSession, trpc } from '../lib/trpc';
 
 const navigationIcons = {
   balance: Wallet,
@@ -24,7 +20,6 @@ function NavigationIcon({ name }: { name: keyof typeof navigationIcons }) {
 
 export default function Console() {
   const auth = useAuth();
-  const task = useMutation(trpc.auth.logout.mutationOptions({ onSuccess: () => setSession(null) }));
   if (!auth.data) return null;
   const links: { to: string; label: string; end: boolean; icon: keyof typeof navigationIcons }[] = [
     { to: '/console', label: '余额', end: true, icon: 'balance' },
@@ -46,22 +41,12 @@ export default function Console() {
             <RouterLink to="/">ohmyapi</RouterLink>
           </Link>
           <HStack gap={{ base: 2, md: 4 }} minW="0">
-            <Text
-              fontSize="sm"
-              color="gray.500"
-              truncate
-              display={{ base: 'none', sm: 'block' }}
-              maxW={{ base: '100px', md: '240px' }}
-              title={auth.data.username}
-            >
-              {auth.data.username}
-            </Text>
-            <Link asChild fontSize="sm">
-              <RouterLink to="/change-password">修改密码</RouterLink>
+            <Link asChild fontSize="sm" fontWeight="500" textDecoration="none" _hover={{ color: '#635bff' }}>
+              <RouterLink to="/console/profile">
+                <UserRound size={18} strokeWidth={1.6} aria-hidden="true" />
+                {auth.data.username}
+              </RouterLink>
             </Link>
-            <Button size="sm" variant="ghost" loading={task.isPending} onClick={() => task.mutate()}>
-              退出
-            </Button>
           </HStack>
         </Flex>
       </Box>
@@ -115,7 +100,6 @@ export default function Console() {
         </Box>
         <Box flex="1" minW="0" px={{ base: 4, md: 8, lg: 10 }} py={{ base: 7, md: 10 }}>
           <Stack gap="7" maxW="1280px" mx="auto">
-            <ErrorText>{formError(task.error)?.message}</ErrorText>
             <Outlet />
           </Stack>
         </Box>

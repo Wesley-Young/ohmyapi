@@ -16,6 +16,7 @@ import Landing from './routes/Landing';
 import Login from './routes/Login';
 import Models from './routes/Models';
 import NotFound from './routes/NotFound';
+import Profile from './routes/Profile';
 import Requests from './routes/Requests';
 import UserDetail from './routes/UserDetail';
 import Users from './routes/Users';
@@ -38,6 +39,7 @@ createRoot(root).render(
                   <Route index element={<Balance />} />
                   <Route path="requests" element={<Requests />} />
                   <Route path="keys" element={<Keys />} />
+                  <Route path="profile" element={<Profile />} />
                   <Route element={<AdminOnly />}>
                     <Route path="channels" element={<Catalog />} />
                     <Route path="models" element={<Models />} />
