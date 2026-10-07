@@ -36,6 +36,7 @@ export const channelInput = z.object({
     .regex(/^[\x21-\x7e]+$/, '凭据不能包含空格或控制字符')
     .optional(),
   enabled: z.boolean(),
+  isPublic: z.boolean().default(true),
   timeoutMs: z.number().int().min(100).max(600_000),
   multiplier: multiplierInput.default('1'),
   availableModels: z
@@ -118,6 +119,7 @@ export class CatalogService {
           name: channels.name,
           baseUrl: channels.baseUrl,
           enabled: channels.enabled,
+          isPublic: channels.isPublic,
           timeoutMs: channels.timeoutMs,
           multiplierMicros: channels.multiplierMicros,
         })
@@ -193,6 +195,7 @@ export class CatalogService {
         name: input.name,
         baseUrl: input.baseUrl.replace(/\/+$/, ''),
         enabled: input.enabled,
+        isPublic: input.isPublic,
         timeoutMs: input.timeoutMs,
         multiplierMicros: parseMoney(input.multiplier),
         credentialEncrypted: input.credential
@@ -222,6 +225,7 @@ export class CatalogService {
         name: input.name,
         endpoints: input.endpoints,
         enabled: input.enabled,
+        isPublic: input.isPublic,
         multiplier: input.multiplier,
         availableModels: input.availableModels,
         credentialChanged: Boolean(input.credential),

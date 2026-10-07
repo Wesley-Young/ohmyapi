@@ -105,6 +105,7 @@ function ChannelForm({
   const [credential, setCredential] = useState('');
   const [timeout, setTimeout] = useState(String(initial?.timeoutMs ?? 120000));
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
+  const [isPublic, setIsPublic] = useState(initial?.isPublic ?? true);
   const [scopes, setScopes] = useState<Endpoint[]>(initial?.endpoints ?? []);
   const [multiplier, setMultiplier] = useState(initial?.multiplier ?? '1');
   const [available, setAvailable] = useState(initial?.availableModels ?? []);
@@ -130,6 +131,7 @@ function ChannelForm({
               credential: credential || undefined,
               timeoutMs: Number(timeout),
               enabled,
+              isPublic,
               endpoints: scopes,
               multiplier,
               availableModels: available,
@@ -219,6 +221,16 @@ function ChannelForm({
                 请先添加模型
               </Text>
             )}
+          </Stack>
+          <Stack gap="2">
+            <Checkbox.Root checked={!isPublic} onCheckedChange={(e) => setIsPublic(!e.checked)}>
+              <Checkbox.HiddenInput />
+              <Checkbox.Control />
+              <Checkbox.Label>非公开渠道</Checkbox.Label>
+            </Checkbox.Root>
+            <Text fontSize="sm" color="gray.500">
+              默认对所有用户开放；非公开渠道需管理员授权模型。
+            </Text>
           </Stack>
           <Enabled value={enabled} onChange={setEnabled} />
           <ErrorText>{formError(task.error)?.message}</ErrorText>
@@ -382,7 +394,10 @@ export default function Catalog() {
                         </Stack>
                       </Table.Cell>
                       <Table.Cell whiteSpace="nowrap">
-                        <Badge colorPalette={c.enabled ? 'green' : 'gray'}>{c.enabled ? '启用' : '禁用'}</Badge>
+                        <Stack gap="2" align="start">
+                          <Badge colorPalette={c.enabled ? 'green' : 'gray'}>{c.enabled ? '启用' : '禁用'}</Badge>
+                          <Badge colorPalette="gray">{c.isPublic ? '公开' : '非公开'}</Badge>
+                        </Stack>
                       </Table.Cell>
                       <Table.Cell>
                         <HStack gap="1">

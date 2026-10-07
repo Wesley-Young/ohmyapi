@@ -41,6 +41,7 @@ export const channels = pgTable(
     // An authenticated encrypted envelope, never the upstream key in plaintext.
     credentialEncrypted: text('credential_encrypted').notNull(),
     enabled: boolean('enabled').default(true).notNull(),
+    isPublic: boolean('is_public').default(true).notNull(),
     timeoutMs: integer('timeout_ms').default(120_000).notNull(),
     multiplierMicros: bigint('multiplier_micros', { mode: 'bigint' }).default(sql`1000000`).notNull(),
     createdAt: createdAt(),

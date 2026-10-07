@@ -35,6 +35,7 @@ CREATE TABLE "channels" (
 	"base_url" text NOT NULL,
 	"credential_encrypted" text NOT NULL,
 	"enabled" boolean DEFAULT true NOT NULL,
+	"is_public" boolean DEFAULT true NOT NULL,
 	"timeout_ms" integer DEFAULT 120000 NOT NULL,
 	"multiplier_micros" bigint DEFAULT 1000000 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,

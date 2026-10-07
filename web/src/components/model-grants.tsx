@@ -27,8 +27,11 @@ export function ModelGrants({ userId }: { userId: string }) {
     <Panel>
       <Stack gap="5">
         <Heading as="h2" fontSize="lg">
-          模型授权
+          非公开渠道模型授权
         </Heading>
+        <Text fontSize="sm" color="gray.500">
+          公开渠道对所有用户开放，以下授权仅用于非公开渠道。
+        </Text>
         <ErrorText>{formError(catalog.error ?? grants.error ?? task.error)?.message}</ErrorText>
         {catalog.isPending || grants.isPending ? (
           <Loading />

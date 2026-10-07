@@ -283,21 +283,13 @@ export class GatewayService {
         .from(models)
         .where(and(eq(models.name, parsed.model as string), eq(models.enabled, true), isNull(models.deletedAt)));
       if (!model) throw new GatewayError(404, 'model_not_found', 'Unknown or disabled model');
-      const [grant] =
-        identity.user.role === 'admin'
-          ? [{ modelId: model.id }]
-          : await this.db
-              .select()
-              .from(userModelGrants)
-              .where(and(eq(userModelGrants.userId, identity.user.id), eq(userModelGrants.modelId, model.id)));
       const [keyGrant] = !identity.key.restrictModels
         ? [{ modelId: model.id }]
         : await this.db
             .select()
             .from(apiKeyModelGrants)
             .where(and(eq(apiKeyModelGrants.apiKeyId, identity.key.id), eq(apiKeyModelGrants.modelId, model.id)));
-      if (!grant || !keyGrant)
-        throw new GatewayError(403, 'model_forbidden', 'Model is not authorized for this user and API Key');
+      if (!keyGrant) throw new GatewayError(403, 'model_forbidden', 'API Key does not authorize this model');
       if (!identity.channelId)
         throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
       const [route] = await this.db
@@ -320,6 +312,14 @@ export class GatewayService {
           'channel_unavailable',
           'The API Key channel does not provide this model and endpoint',
         );
+      if (identity.user.role !== 'admin' && !route.channel.isPublic) {
+        const [grant] = await this.db
+          .select({ modelId: userModelGrants.modelId })
+          .from(userModelGrants)
+          .where(and(eq(userModelGrants.userId, identity.user.id), eq(userModelGrants.modelId, model.id)));
+        if (!grant)
+          throw new GatewayError(403, 'model_forbidden', 'Model is not authorized for this user on a private channel');
+      }
       const lockedPrice = await this.pricing.lock(
         model.id,
         receivedAt,

@@ -215,7 +215,7 @@ export class BillingService {
         if (user?.status !== 'active' || user.deletedAt || !key)
           throw new GatewayError(401, 'invalid_api_key', 'Invalid or expired API Key');
         const [channel] = await tx
-          .select({ id: channels.id })
+          .select({ id: channels.id, isPublic: channels.isPublic })
           .from(channels)
           .innerJoin(channelAvailableModels, eq(channelAvailableModels.channelId, channels.id))
           .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
@@ -235,6 +235,7 @@ export class BillingService {
         if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
         if (
           user.role !== 'admin' &&
+          !channel.isPublic &&
           !(
             await tx
               .select()

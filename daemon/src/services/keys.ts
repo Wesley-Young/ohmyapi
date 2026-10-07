@@ -33,16 +33,14 @@ export class KeyService {
         .from(models)
         .where(and(eq(models.enabled, true), isNull(models.deletedAt)))
         .orderBy(models.name);
-    return this.auth.db
-      .select({ id: models.id, name: models.name })
-      .from(models)
-      .innerJoin(userModelGrants, eq(models.id, userModelGrants.modelId))
-      .where(and(eq(userModelGrants.userId, principal.user.id), eq(models.enabled, true), isNull(models.deletedAt)))
-      .orderBy(models.name);
+    const offerings = await this.offerings(this.auth.db, principal.user.id, principal.user.role);
+    return [...new Map(offerings.map((row) => [row.modelId, { id: row.modelId, name: row.modelName }])).values()].sort(
+      (a, b) => a.name.localeCompare(b.name),
+    );
   }
 
   private async offerings(db: Database | Transaction, userId: string, role: string) {
-    const allowed = role === 'admin' ? undefined : eq(userModelGrants.userId, userId);
+    const allowed = role === 'admin' ? undefined : or(eq(channels.isPublic, true), eq(userModelGrants.userId, userId));
     const base = db
       .selectDistinct({
         channelId: channels.id,
