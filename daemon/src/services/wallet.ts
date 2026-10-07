@@ -1,9 +1,17 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 
 import { formatMoney, parseMoney } from '../billing/conventions.js';
-import { adminAuditLogs, systemSettings, users, walletLedger, wallets } from '../db/schema/index.js';
+import {
+  adminAuditLogs,
+  requests,
+  requestUsage,
+  systemSettings,
+  users,
+  walletLedger,
+  wallets,
+} from '../db/schema/index.js';
 import type { AuthService, Principal } from './auth.js';
 import { pageSize } from './users.js';
 
@@ -18,6 +26,18 @@ const ledgerDto = (entry: typeof walletLedger.$inferSelect) => ({
   actorId: entry.actorId,
   requestId: entry.requestId,
   createdAt: entry.createdAt.toISOString(),
+});
+
+const usageStats = () => ({
+  requestCount: sql<string>`count(*)::text`,
+  tokens: sql<string>`coalesce(sum(${requestUsage.inputTokens} + ${requestUsage.outputTokens} + ${requestUsage.cacheReadTokens} + ${requestUsage.cacheWriteTokens}), 0)::text`,
+  chargedMicros: sql<string>`coalesce(sum(${requests.chargedMicros}) filter (where ${requests.status} = 'settled'), 0)::text`,
+});
+
+const statsDto = (stats: { requestCount: string; tokens: string; chargedMicros: string }) => ({
+  requestCount: stats.requestCount,
+  tokens: stats.tokens,
+  chargedAmount: formatMoney(BigInt(stats.chargedMicros)),
 });
 
 export class WalletService {
@@ -37,6 +57,57 @@ export class WalletService {
       reserved: formatMoney(wallet.reservedMicros),
       available: formatMoney(wallet.balanceMicros - wallet.reservedMicros),
     };
+  }
+
+  async stats(userId: string) {
+    return this.aggregateStats(userId);
+  }
+
+  private async aggregateStats(userId?: string) {
+    const [stats] = await this.auth.db
+      .select(usageStats())
+      .from(requests)
+      .leftJoin(requestUsage, eq(requestUsage.requestId, requests.id))
+      .where(
+        and(
+          userId ? eq(requests.userId, userId) : undefined,
+          sql`${requests.receivedAt} >= now() - interval '24 hours' and ${requests.receivedAt} <= now()`,
+        ),
+      );
+    return statsDto(stats);
+  }
+
+  async trend(userId: string) {
+    const now = new Date();
+    // Seven calendar days in Asia/Shanghai, including the current partial day.
+    const dayMs = 86_400_000;
+    const offsetMs = 8 * 3_600_000;
+    const today = new Date(now.getTime() + offsetMs).toISOString().slice(0, 10);
+    const start = new Date(`${today}T00:00:00+08:00`).getTime() - 6 * dayMs;
+    const date = sql<string>`to_char(${requests.receivedAt} at time zone 'Asia/Shanghai', 'YYYY-MM-DD')`;
+    const rows = await this.auth.db
+      .select({ date, ...usageStats() })
+      .from(requests)
+      .leftJoin(requestUsage, eq(requestUsage.requestId, requests.id))
+      .where(and(eq(requests.userId, userId), gte(requests.receivedAt, new Date(start)), lte(requests.receivedAt, now)))
+      .groupBy(date);
+    const byDate = new Map(rows.map((row) => [row.date, statsDto(row)]));
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(start + index * dayMs + offsetMs).toISOString().slice(0, 10);
+      return { date, ...(byDate.get(date) ?? { requestCount: '0', tokens: '0', chargedAmount: '0.000000' }) };
+    });
+  }
+
+  async platformStats() {
+    const [stats, [review], [settings]] = await Promise.all([
+      this.aggregateStats(),
+      this.auth.db
+        .select({ count: sql<string>`count(*)::text` })
+        .from(requests)
+        .where(eq(requests.status, 'needs_review')),
+      this.auth.db.select({ currency: systemSettings.currency }).from(systemSettings),
+    ]);
+    return { ...stats, reviewCount: review.count, currency: settings.currency };
   }
 
   async ledger(userId: string, page: number) {

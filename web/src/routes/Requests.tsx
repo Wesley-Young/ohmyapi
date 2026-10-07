@@ -32,7 +32,7 @@ export default function Requests() {
   const [params] = useSearchParams();
   const [detailId, setDetailId] = useState<string | undefined>(params.get('request') ?? undefined);
   const [action, setAction] = useState<{ requestId: string; kind: 'resolve' | 'correct' }>();
-  const [reviewOnly, setReviewOnly] = useState(false);
+  const [reviewOnly, setReviewOnly] = useState(params.get('reviewOnly') === 'true');
   const [page, setPage] = useState(0);
   const admin = user?.role === 'admin';
   const own = useQuery(

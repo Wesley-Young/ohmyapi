@@ -125,6 +125,8 @@ export const appRouter = t.router({
   }),
   wallet: t.router({
     get: protectedProcedure.query(({ ctx }) => ctx.wallet.get(ctx.principal.user.id)),
+    stats: protectedProcedure.query(({ ctx }) => ctx.wallet.stats(ctx.principal.user.id)),
+    trend: protectedProcedure.query(({ ctx }) => ctx.wallet.trend(ctx.principal.user.id)),
     ledger: protectedProcedure
       .input(pagination)
       .query(({ ctx, input }) => ctx.wallet.ledger(ctx.principal.user.id, input.page)),
@@ -136,6 +138,7 @@ export const appRouter = t.router({
     .input(z.object({ requestId: z.uuid() }))
     .query(({ ctx, input }) => ctx.billing.detail(ctx.principal, input.requestId)),
   admin: t.router({
+    stats: adminProcedure.query(({ ctx }) => ctx.wallet.platformStats()),
     billing: t.router({
       resolve: adminProcedure
         .input(resolveBillInput)

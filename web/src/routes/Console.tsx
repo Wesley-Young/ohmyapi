@@ -1,11 +1,11 @@
 import { Box, Flex, HStack, Link, Stack, Text } from '@chakra-ui/react';
-import { KeyRound, Layers, Network, ScrollText, UserRound, Users, Wallet } from 'lucide-react';
+import { KeyRound, Layers, LayoutDashboard, Network, ScrollText, UserRound, Users } from 'lucide-react';
 import { Navigate, NavLink, Outlet, Link as RouterLink } from 'react-router';
 
 import { useAuth } from '../lib/auth';
 
 const navigationIcons = {
-  balance: Wallet,
+  overview: LayoutDashboard,
   keys: KeyRound,
   requests: ScrollText,
   users: Users,
@@ -22,7 +22,7 @@ export default function Console() {
   const auth = useAuth();
   if (!auth.data) return null;
   const links: { to: string; label: string; end: boolean; icon: keyof typeof navigationIcons }[] = [
-    { to: '/console', label: '余额', end: true, icon: 'balance' },
+    { to: '/console', label: '总览', end: true, icon: 'overview' },
     { to: '/console/keys', label: 'API Key', end: false, icon: 'keys' },
     { to: '/console/requests', label: '请求', end: false, icon: 'requests' },
     ...(auth.data.role === 'admin'

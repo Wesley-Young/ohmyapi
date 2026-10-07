@@ -7,7 +7,6 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 import App from './App';
 import { Authenticated } from './lib/auth';
 import { queryClient } from './lib/trpc';
-import Balance from './routes/Balance';
 import Catalog from './routes/Catalog';
 import ChangePassword from './routes/ChangePassword';
 import Console, { AdminOnly } from './routes/Console';
@@ -16,6 +15,7 @@ import Landing from './routes/Landing';
 import Login from './routes/Login';
 import Models from './routes/Models';
 import NotFound from './routes/NotFound';
+import Overview from './routes/Overview';
 import Profile from './routes/Profile';
 import Requests from './routes/Requests';
 import UserDetail from './routes/UserDetail';
@@ -36,7 +36,7 @@ createRoot(root).render(
               <Route element={<Authenticated />}>
                 <Route path="change-password" element={<ChangePassword />} />
                 <Route path="console" element={<Console />}>
-                  <Route index element={<Balance />} />
+                  <Route index element={<Overview />} />
                   <Route path="requests" element={<Requests />} />
                   <Route path="keys" element={<Keys />} />
                   <Route path="profile" element={<Profile />} />
