@@ -13,6 +13,7 @@ import Console, { AdminOnly } from './routes/Console';
 import Keys from './routes/Keys';
 import Landing from './routes/Landing';
 import Login from './routes/Login';
+import ModelPlaza from './routes/ModelPlaza';
 import Models from './routes/Models';
 import NotFound from './routes/NotFound';
 import Overview from './routes/Overview';
@@ -38,6 +39,7 @@ createRoot(root).render(
                 <Route path="console" element={<Console />}>
                   <Route index element={<Overview />} />
                   <Route path="requests" element={<Requests />} />
+                  <Route path="model-plaza" element={<ModelPlaza />} />
                   <Route path="keys" element={<Keys />} />
                   <Route path="profile" element={<Profile />} />
                   <Route element={<AdminOnly />}>

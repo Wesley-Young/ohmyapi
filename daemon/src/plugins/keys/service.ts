@@ -39,13 +39,19 @@ export class KeyService {
     );
   }
 
-  private async offerings(db: Database | Transaction, userId: string, role: string) {
+  async offerings(db: Database | Transaction, userId: string, role: string) {
     const allowed = role === 'admin' ? undefined : or(eq(channels.isPublic, true), eq(userModelGrants.userId, userId));
     const base = db
       .selectDistinct({
         channelId: channels.id,
         channelName: channels.name,
-        multiplierMicros: channels.multiplierMicros,
+        multiplierMicros:
+          sql<bigint>`coalesce(${channelAvailableModels.multiplierMicros}, ${channels.multiplierMicros})`.mapWith(
+            BigInt,
+          ),
+        endpoint: channelEndpoints.endpoint,
+        inputTokenLimit: models.inputTokenLimit,
+        outputTokenLimit: models.outputTokenLimit,
         modelId: models.id,
         modelName: models.name,
       })
@@ -72,7 +78,11 @@ export class KeyService {
     return [...new Set(rows.map((r) => r.channelId))].map((id) => ({
       id,
       name: rows.find((r) => r.channelId === id)?.channelName as string,
-      models: rows.filter((r) => r.channelId === id).map((r) => ({ id: r.modelId, name: r.modelName })),
+      models: [
+        ...new Map(
+          rows.filter((r) => r.channelId === id).map((r) => [r.modelId, { id: r.modelId, name: r.modelName }]),
+        ).values(),
+      ],
     }));
   }
 

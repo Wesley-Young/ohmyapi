@@ -11,6 +11,7 @@ const navigationIcons = {
   users: Users,
   channels: Network,
   models: Layers,
+  plaza: Layers,
 };
 
 function NavigationIcon({ name }: { name: keyof typeof navigationIcons }) {
@@ -23,6 +24,7 @@ export default function Console() {
   if (!auth.data) return null;
   const links: { to: string; label: string; end: boolean; icon: keyof typeof navigationIcons }[] = [
     { to: '/console', label: '总览', end: true, icon: 'overview' },
+    { to: '/console/model-plaza', label: '模型广场', end: false, icon: 'plaza' },
     { to: '/console/keys', label: 'API Key', end: false, icon: 'keys' },
     { to: '/console/requests', label: '请求', end: false, icon: 'requests' },
     ...(auth.data.role === 'admin'

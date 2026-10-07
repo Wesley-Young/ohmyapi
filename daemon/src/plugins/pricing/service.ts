@@ -1,11 +1,12 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AuthService, Principal } from '../auth/service.js';
 import { formatMoney, parseMoney } from '../billing/conventions.js';
 import { adminAuditLogs, channelAvailableModels, channels, models, priceRules } from '../database/schema/index.js';
+import type { KeyService } from '../keys/service.js';
 import {
   expandRules,
   multiplierInput,
@@ -67,6 +68,64 @@ export class PricingService {
   constructor(auth: AuthService, currency: string) {
     this.auth = auth;
     this.currency = currency;
+  }
+
+  async plaza(offerings: Awaited<ReturnType<KeyService['offerings']>>) {
+    const modelIds = [...new Set(offerings.map((row) => row.modelId))];
+    const rules = modelIds.length
+      ? await this.auth.db
+          .select()
+          .from(priceRules)
+          .where(inArray(priceRules.modelId, modelIds))
+          .orderBy(priceRules.createdAt, priceRules.id)
+      : [];
+    const scaledPrice = (price: bigint | null, multiplier: bigint) => {
+      if (price === null) return null;
+      const product = price * multiplier;
+      const fraction = (product % 1_000_000_000_000n).toString().padStart(12, '0').replace(/0+$/, '');
+      return `${product / 1_000_000_000_000n}${fraction ? `.${fraction}` : ''}`;
+    };
+    return {
+      currency: this.currency,
+      models: modelIds
+        .filter((id) => rules.some((rule) => rule.modelId === id && rule.kind === 'default'))
+        .map((id) => {
+          const rows = offerings.filter((row) => row.modelId === id);
+          const model = rows[0];
+          const channelPrices = [...new Map(rows.map((row) => [row.channelId, row])).values()]
+            .sort((a, b) =>
+              a.multiplierMicros < b.multiplierMicros
+                ? -1
+                : a.multiplierMicros > b.multiplierMicros
+                  ? 1
+                  : a.channelName.localeCompare(b.channelName),
+            )
+            .map((row) => ({
+              id: row.channelId,
+              name: row.channelName,
+              multiplier: formatMoney(row.multiplierMicros),
+              endpoints: rows.filter((r) => r.channelId === row.channelId).map((r) => r.endpoint),
+              rules: rules
+                .filter((rule) => rule.modelId === id)
+                .map((rule) => ({
+                  ...serializeRule(rule),
+                  inputPrice: scaledPrice(rule.inputPriceMicros, row.multiplierMicros) as string,
+                  outputPrice: scaledPrice(rule.outputPriceMicros, row.multiplierMicros) as string,
+                  cacheReadPrice: scaledPrice(rule.cacheReadPriceMicros, row.multiplierMicros),
+                  cacheWritePrice: scaledPrice(rule.cacheWritePriceMicros, row.multiplierMicros),
+                })),
+            }));
+          return {
+            id,
+            name: model.modelName,
+            inputTokenLimit: model.inputTokenLimit,
+            outputTokenLimit: model.outputTokenLimit,
+            lowestPrice: channelPrices[0].rules.find((rule) => rule.kind === 'default') ?? null,
+            channels: channelPrices,
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
   }
 
   async list(scope: z.infer<typeof priceScope>) {

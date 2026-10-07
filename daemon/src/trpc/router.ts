@@ -123,6 +123,9 @@ export const appRouter = t.router({
       .input(z.object({ keyId: z.uuid() }))
       .mutation(({ ctx, input }) => ctx.keys.delete(ctx.principal, input.keyId)),
   }),
+  modelPlaza: protectedProcedure.query(async ({ ctx }) =>
+    ctx.pricing.plaza(await ctx.keys.offerings(ctx.auth.db, ctx.principal.user.id, ctx.principal.user.role)),
+  ),
   wallet: t.router({
     get: protectedProcedure.query(({ ctx }) => ctx.wallet.get(ctx.principal.user.id)),
     stats: protectedProcedure.query(({ ctx }) => ctx.wallet.stats(ctx.principal.user.id)),
