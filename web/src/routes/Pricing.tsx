@@ -320,7 +320,7 @@ function Preview({ modelId }: { modelId: string }) {
                         }
                       </Table.Cell>
                       <Table.Cell>{item.tokens}</Table.Cell>
-                      <Table.Cell>{item.price ?? '未配置'}</Table.Cell>
+                      <Table.Cell>{item.price ?? '—'}</Table.Cell>
                       <Table.Cell title={item.amount}>{item.amount.replace(/0+$/, '').replace(/\.$/, '')}</Table.Cell>
                     </Table.Row>
                   ))}
@@ -418,8 +418,8 @@ export default function Pricing({ modelId }: { modelId: string }) {
                     </Table.Cell>
                     <Table.Cell>{r.inputPrice}</Table.Cell>
                     <Table.Cell>{r.outputPrice}</Table.Cell>
-                    <Table.Cell>{r.cacheReadPrice ?? '未配置'}</Table.Cell>
-                    <Table.Cell>{r.cacheWritePrice ?? '未配置'}</Table.Cell>
+                    <Table.Cell>{r.cacheReadPrice ?? '—'}</Table.Cell>
+                    <Table.Cell>{r.cacheWritePrice ?? '—'}</Table.Cell>
                     <Table.Cell>
                       <HStack>
                         <Button

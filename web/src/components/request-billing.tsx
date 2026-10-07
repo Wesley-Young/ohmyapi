@@ -121,7 +121,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                               }
                             </Table.Cell>
                             <Table.Cell>{i.tokens}</Table.Cell>
-                            <Table.Cell>{i.price ?? '未配置'}</Table.Cell>
+                            <Table.Cell>{i.price ?? '—'}</Table.Cell>
                             <Table.Cell>{displayMoney(i.amount)}</Table.Cell>
                           </Table.Row>
                         ))}

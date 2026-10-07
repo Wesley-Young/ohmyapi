@@ -29,7 +29,7 @@ const priceColumns = [
 const minuteText = (minute: number) =>
   `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
 const priceText = (price: string | null) =>
-  price === null ? '未配置' : price.includes('.') ? price.replace(/0+$/, '').replace(/\.$/, '') : price;
+  price === null ? '—' : price.includes('.') ? price.replace(/0+$/, '').replace(/\.$/, '') : price;
 
 export function ModelImport({
   existingNames,
