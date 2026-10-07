@@ -1,5 +1,16 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, check, integer, pgTable, primaryKey, text, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  boolean,
+  check,
+  integer,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 import { createdAt, endpoint, id } from './common.js';
 import { apiKeys, users } from './identity.js';
@@ -8,20 +19,24 @@ export const models = pgTable(
   'models',
   {
     id: id(),
-    name: text('name').notNull().unique(),
+    name: text('name').notNull(),
     enabled: boolean('enabled').default(true).notNull(),
     inputTokenLimit: bigint('input_token_limit', { mode: 'number' }).default(1_000_000).notNull(),
     outputTokenLimit: bigint('output_token_limit', { mode: 'number' }).default(128_000).notNull(),
     createdAt: createdAt(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
-  (table) => [check('models_token_limits', sql`${table.inputTokenLimit} >= 1 and ${table.outputTokenLimit} >= 1`)],
+  (table) => [
+    uniqueIndex('models_name_unique').on(table.name).where(sql`${table.deletedAt} is null`),
+    check('models_token_limits', sql`${table.inputTokenLimit} >= 1 and ${table.outputTokenLimit} >= 1`),
+  ],
 );
 
 export const channels = pgTable(
   'channels',
   {
     id: id(),
-    name: text('name').notNull().unique(),
+    name: text('name').notNull(),
     baseUrl: text('base_url').notNull(),
     // An authenticated encrypted envelope, never the upstream key in plaintext.
     credentialEncrypted: text('credential_encrypted').notNull(),
@@ -29,8 +44,10 @@ export const channels = pgTable(
     timeoutMs: integer('timeout_ms').default(120_000).notNull(),
     multiplierMicros: bigint('multiplier_micros', { mode: 'bigint' }).default(sql`1000000`).notNull(),
     createdAt: createdAt(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => [
+    uniqueIndex('channels_name_unique').on(table.name).where(sql`${table.deletedAt} is null`),
     check('channels_timeout_positive', sql`${table.timeoutMs} > 0`),
     check('channels_multiplier_range', sql`${table.multiplierMicros} between 0 and 1000000000`),
   ],

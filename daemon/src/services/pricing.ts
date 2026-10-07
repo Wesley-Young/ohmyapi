@@ -1,6 +1,6 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { formatMoney, parseMoney } from '../billing/conventions.js';
@@ -69,6 +69,11 @@ export class PricingService {
     this.currency = currency;
   }
   async list(scope: z.infer<typeof priceScope>) {
+    const [model] = await this.auth.db
+      .select({ id: models.id })
+      .from(models)
+      .where(and(eq(models.id, scope.modelId), isNull(models.deletedAt)));
+    if (!model) throw new TRPCError({ code: 'NOT_FOUND', message: '模型不存在或已删除' });
     const rules = await this.auth.db
       .select()
       .from(priceRules)
@@ -95,7 +100,11 @@ export class PricingService {
       }
     }
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
-      const [model] = await tx.select({ id: models.id }).from(models).where(eq(models.id, input.modelId)).for('update');
+      const [model] = await tx
+        .select({ id: models.id })
+        .from(models)
+        .where(and(eq(models.id, input.modelId), isNull(models.deletedAt)))
+        .for('update');
       if (!model) throw new TRPCError({ code: 'NOT_FOUND', message: '模型不存在' });
       // Replace the complete set atomically; requests read either the old or the new set.
       await tx.delete(priceRules).where(eq(priceRules.modelId, input.modelId));
@@ -116,7 +125,12 @@ export class PricingService {
     multiplierMicros: bigint,
     multiplierSource: 'model' | 'channel',
   ): Promise<LockedPrice | null> {
-    const rules = await this.auth.db.select().from(priceRules).where(eq(priceRules.modelId, modelId));
+    const rows = await this.auth.db
+      .select({ rule: priceRules })
+      .from(priceRules)
+      .innerJoin(models, eq(models.id, priceRules.modelId))
+      .where(and(eq(priceRules.modelId, modelId), isNull(models.deletedAt)));
+    const rules = rows.map((row) => row.rule);
     if (!rules.length) return null;
     validateRules(rules);
     return { modelId, rules, multiplierMicros, multiplierSource, receivedAt: at };
@@ -161,7 +175,13 @@ export class PricingService {
         .select({ multiplier: channels.multiplierMicros, override: channelAvailableModels.multiplierMicros })
         .from(channels)
         .innerJoin(channelAvailableModels, eq(channels.id, channelAvailableModels.channelId))
-        .where(and(eq(channels.id, input.channelId), eq(channelAvailableModels.modelId, input.modelId)));
+        .where(
+          and(
+            eq(channels.id, input.channelId),
+            eq(channelAvailableModels.modelId, input.modelId),
+            isNull(channels.deletedAt),
+          ),
+        );
       if (!channel) throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道未提供此模型' });
       multiplierMicros = channel.override ?? channel.multiplier;
       multiplierSource = channel.override === null ? 'channel' : 'model';

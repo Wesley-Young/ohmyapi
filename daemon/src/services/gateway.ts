@@ -279,7 +279,7 @@ export class GatewayService {
       const [model] = await this.db
         .select({ id: models.id, inputTokenLimit: models.inputTokenLimit, outputTokenLimit: models.outputTokenLimit })
         .from(models)
-        .where(and(eq(models.name, parsed.model as string), eq(models.enabled, true)));
+        .where(and(eq(models.name, parsed.model as string), eq(models.enabled, true), isNull(models.deletedAt)));
       if (!model) throw new GatewayError(404, 'model_not_found', 'Unknown or disabled model');
       const [grant] =
         identity.user.role === 'admin'
@@ -307,6 +307,7 @@ export class GatewayService {
           and(
             eq(channels.id, identity.channelId),
             eq(channels.enabled, true),
+            isNull(channels.deletedAt),
             eq(channelAvailableModels.modelId, model.id),
             eq(channelEndpoints.endpoint, endpoint),
           ),

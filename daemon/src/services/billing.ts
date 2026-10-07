@@ -225,9 +225,12 @@ export class BillingService {
               eq(models.id, input.modelId),
               eq(channels.enabled, true),
               eq(models.enabled, true),
+              isNull(channels.deletedAt),
+              isNull(models.deletedAt),
               eq(channelEndpoints.endpoint, input.endpoint),
             ),
-          );
+          )
+          .for('share', { of: [channels, models] });
         if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
         if (
           user.role !== 'admin' &&

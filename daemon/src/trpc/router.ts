@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { parseMoney } from '../billing/conventions.js';
 import type { AuthService, Principal } from '../services/auth.js';
 import { type BillingService, correctBillInput, resolveBillInput } from '../services/billing.js';
-import { type CatalogService, channelInput, modelInput } from '../services/catalog.js';
+import { type CatalogService, channelInput, importModelsInput, modelInput } from '../services/catalog.js';
 import type { GatewayService } from '../services/gateway.js';
 import type { KeyService } from '../services/keys.js';
 import { type PricingService, previewInput, priceScope, savePriceInput } from '../services/pricing.js';
@@ -149,9 +149,18 @@ export const appRouter = t.router({
       saveChannel: adminProcedure
         .input(channelInput)
         .mutation(({ ctx, input }) => ctx.catalog.saveChannel(ctx.principal, input)),
+      deleteChannel: adminProcedure
+        .input(z.object({ channelId: z.uuid() }))
+        .mutation(({ ctx, input }) => ctx.catalog.deleteChannel(ctx.principal, input.channelId)),
       saveModel: adminProcedure
         .input(modelInput)
         .mutation(({ ctx, input }) => ctx.catalog.saveModel(ctx.principal, input)),
+      deleteModel: adminProcedure
+        .input(z.object({ modelId: z.uuid() }))
+        .mutation(({ ctx, input }) => ctx.catalog.deleteModel(ctx.principal, input.modelId)),
+      importModels: adminProcedure
+        .input(importModelsInput)
+        .mutation(({ ctx, input }) => ctx.catalog.importModels(ctx.principal, input)),
       grants: adminProcedure.input(userId).query(({ ctx, input }) => ctx.catalog.grants(input.userId)),
       setGrants: adminProcedure
         .input(userId.extend({ modelIds: z.array(z.uuid()).max(100) }))

@@ -38,7 +38,11 @@ export const HttpPlugin = definePlugin({
     const cookieName: string = sessionConfig.secure ? '__Host-ohmyapi_session' : 'ohmyapi_session';
     const cookieOptions = { path: '/', httpOnly: true, sameSite: 'Strict' as const, secure: sessionConfig.secure };
 
-    app.use('/api/trpc/*', bodyLimit({ maxSize: 64 * 1024 }));
+    const rpcBodyLimit = bodyLimit({ maxSize: 64 * 1024 });
+    const importBodyLimit = bodyLimit({ maxSize: 256 * 1024 });
+    app.use('/api/trpc/*', (c, next) =>
+      (c.req.path === '/api/trpc/admin.catalog.importModels' ? importBodyLimit : rpcBodyLimit)(c, next),
+    );
     app.use('/api/trpc/*', async (c, next) => {
       c.header('Cache-Control', 'no-store');
       if (c.req.method === 'POST') {

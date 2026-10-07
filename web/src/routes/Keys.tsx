@@ -1,4 +1,16 @@
-import { Box, Button, Checkbox, Field, HStack, IconButton, NativeSelect, Stack, Table, Text } from '@chakra-ui/react';
+import {
+  Badge,
+  Box,
+  Button,
+  Checkbox,
+  Field,
+  HStack,
+  IconButton,
+  NativeSelect,
+  Stack,
+  Table,
+  Text,
+} from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -267,13 +279,26 @@ export default function Keys() {
                             </IconButton>
                           </HStack>
                         </Table.Cell>
-                        <Table.Cell whiteSpace="nowrap">{key.channelName ?? '未绑定'}</Table.Cell>
+                        <Table.Cell whiteSpace="nowrap">
+                          <HStack gap="2" flexWrap="wrap">
+                            <Text>{key.channelName ?? '未绑定'}</Text>
+                            {key.channelDeleted && <Badge colorPalette="gray">已删除</Badge>}
+                          </HStack>
+                        </Table.Cell>
                         <Table.Cell minW="140px" maxW="280px" overflowWrap="anywhere">
                           {key.restrictModels ? key.modelNames.join('、') || '无可用模型' : '所有'}
                         </Table.Cell>
                         <Table.Cell whiteSpace="nowrap">{key.expiresAt ? localDate(key.expiresAt) : '长期'}</Table.Cell>
                         <Table.Cell whiteSpace="nowrap">
-                          {key.revokedAt ? '已撤销' : expired ? '已过期' : !key.channelId ? '待绑定' : '有效'}
+                          {key.revokedAt
+                            ? '已撤销'
+                            : expired
+                              ? '已过期'
+                              : key.channelDeleted
+                                ? '渠道已删除'
+                                : !key.channelId
+                                  ? '待绑定'
+                                  : '有效'}
                         </Table.Cell>
                         <Table.Cell>
                           <HStack>

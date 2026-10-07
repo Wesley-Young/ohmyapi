@@ -30,13 +30,13 @@ export class KeyService {
       return this.auth.db
         .select({ id: models.id, name: models.name })
         .from(models)
-        .where(eq(models.enabled, true))
+        .where(and(eq(models.enabled, true), isNull(models.deletedAt)))
         .orderBy(models.name);
     return this.auth.db
       .select({ id: models.id, name: models.name })
       .from(models)
       .innerJoin(userModelGrants, eq(models.id, userModelGrants.modelId))
-      .where(and(eq(userModelGrants.userId, principal.user.id), eq(models.enabled, true)))
+      .where(and(eq(userModelGrants.userId, principal.user.id), eq(models.enabled, true), isNull(models.deletedAt)))
       .orderBy(models.name);
   }
 
@@ -55,7 +55,15 @@ export class KeyService {
       .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
       .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
       .leftJoin(userModelGrants, and(eq(userModelGrants.modelId, models.id), eq(userModelGrants.userId, userId)))
-      .where(and(eq(channels.enabled, true), eq(models.enabled, true), allowed))
+      .where(
+        and(
+          eq(channels.enabled, true),
+          eq(models.enabled, true),
+          isNull(channels.deletedAt),
+          isNull(models.deletedAt),
+          allowed,
+        ),
+      )
       .orderBy(channels.name, models.name);
     return base;
   }
@@ -98,6 +106,7 @@ export class KeyService {
         restrictModels: apiKeys.restrictModels,
         channelId: apiKeyChannels.channelId,
         channelName: channels.name,
+        channelDeleted: sql<boolean>`${channels.deletedAt} is not null`,
       })
       .from(apiKeys)
       .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
@@ -113,9 +122,12 @@ export class KeyService {
           .from(apiKeyModelGrants)
           .innerJoin(models, eq(models.id, apiKeyModelGrants.modelId))
           .where(
-            inArray(
-              apiKeyModelGrants.apiKeyId,
-              items.map((key) => key.id),
+            and(
+              isNull(models.deletedAt),
+              inArray(
+                apiKeyModelGrants.apiKeyId,
+                items.map((key) => key.id),
+              ),
             ),
           )
       : [];

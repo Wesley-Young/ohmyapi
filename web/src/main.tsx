@@ -14,8 +14,8 @@ import Console, { AdminOnly } from './routes/Console';
 import Keys from './routes/Keys';
 import Landing from './routes/Landing';
 import Login from './routes/Login';
+import Models from './routes/Models';
 import NotFound from './routes/NotFound';
-import Pricing from './routes/Pricing';
 import Requests from './routes/Requests';
 import UserDetail from './routes/UserDetail';
 import Users from './routes/Users';
@@ -39,9 +39,9 @@ createRoot(root).render(
                   <Route path="requests" element={<Requests />} />
                   <Route path="keys" element={<Keys />} />
                   <Route element={<AdminOnly />}>
-                    <Route path="channels" element={<Catalog key="channels" section="channels" />} />
-                    <Route path="models" element={<Catalog key="models" section="models" />} />
-                    <Route path="models/:modelId/pricing" element={<Pricing />} />
+                    <Route path="channels" element={<Catalog />} />
+                    <Route path="models" element={<Models />} />
+                    <Route path="models/:modelId/pricing" element={<Models />} />
                     <Route path="users" element={<Users />} />
                     <Route path="users/:userId" element={<UserDetail />} />
                   </Route>

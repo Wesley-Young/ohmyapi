@@ -102,13 +102,19 @@ export function PageControls({
 }) {
   return (
     <HStack justify="end" gap="3">
-      <Button variant="outline" size="sm" disabled={pending || page === 0} onClick={() => onPage(page - 1)}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={pending || page === 0}
+        onClick={() => onPage(page - 1)}
+      >
         上一页
       </Button>
       <Text fontSize="sm" color="gray.500">
         第 {page + 1} 页
       </Text>
-      <Button variant="outline" size="sm" disabled={pending || !hasMore} onClick={() => onPage(page + 1)}>
+      <Button type="button" variant="outline" size="sm" disabled={pending || !hasMore} onClick={() => onPage(page + 1)}>
         下一页
       </Button>
     </HStack>
@@ -120,12 +126,14 @@ export function ConfirmAction({
   action,
   onSuccess,
   disabled,
+  danger,
 }: {
   label: string;
   description: string;
   action: () => Promise<unknown>;
   onSuccess?: () => Promise<unknown>;
   disabled?: boolean;
+  danger?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const task = useMutation({
@@ -146,7 +154,12 @@ export function ConfirmAction({
       }}
     >
       <Dialog.Trigger asChild>
-        <Button variant="outline" size="sm" disabled={disabled}>
+        <Button
+          variant={danger ? 'ghost' : 'outline'}
+          color={danger ? 'red.600' : undefined}
+          size="sm"
+          disabled={disabled}
+        >
           {label}
         </Button>
       </Dialog.Trigger>
@@ -169,7 +182,11 @@ export function ConfirmAction({
                   关闭
                 </Button>
               </Dialog.CloseTrigger>
-              <PrimaryButton loading={task.isPending} onClick={() => task.mutate()}>
+              <PrimaryButton
+                loading={task.isPending}
+                onClick={() => task.mutate()}
+                {...(danger ? { bg: 'red.600', _hover: { bg: 'red.700' } } : {})}
+              >
                 确认{label}
               </PrimaryButton>
             </Dialog.Footer>
@@ -186,12 +203,14 @@ export function FormDialog({
   onClose,
   title,
   busy,
+  size = 'lg',
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   busy?: boolean;
+  size?: 'lg' | 'xl';
   children: ReactNode;
 }) {
   return (
@@ -204,7 +223,7 @@ export function FormDialog({
       closeOnInteractOutside={!busy}
       placement="center"
       scrollBehavior="inside"
-      size="lg"
+      size={size}
     >
       <Portal>
         <Dialog.Backdrop />

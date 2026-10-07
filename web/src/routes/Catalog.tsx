@@ -6,7 +6,6 @@ import {
   Field,
   Heading,
   HStack,
-  Link,
   NativeSelect,
   Stack,
   Table,
@@ -15,11 +14,10 @@ import {
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Link as RouterLink } from 'react-router';
 
-import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton, Title } from '../components/ui';
+import { ConfirmAction, ErrorText, FormDialog, FormInput, Loading, PrimaryButton, Title } from '../components/ui';
 import { formError } from '../lib/format';
-import { queryClient, trpc } from '../lib/trpc';
+import { queryClient, trpc, trpcClient } from '../lib/trpc';
 
 export const endpoints = ['/v1/chat/completions', '/v1/responses', '/v1/messages'] as const;
 export type Endpoint = (typeof endpoints)[number];
@@ -29,6 +27,8 @@ export const refreshCatalog = () =>
     queryClient.invalidateQueries(trpc.admin.catalog.list.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.models.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.channels.queryFilter()),
+    queryClient.invalidateQueries(trpc.keys.list.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
   ]);
 export function EndpointFields({ value, onChange }: { value: Endpoint[]; onChange: (value: Endpoint[]) => void }) {
   return (
@@ -66,16 +66,18 @@ export function SelectField({
   value,
   onChange,
   options,
+  disabled,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: { id: string; name: string }[];
+  disabled?: boolean;
 }) {
   return (
     <Field.Root>
       <Field.Label>{label}</Field.Label>
-      <NativeSelect.Root>
+      <NativeSelect.Root disabled={disabled}>
         <NativeSelect.Field aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
           <option value="">请选择</option>
           {options.map((o) => (
@@ -233,16 +235,25 @@ function ChannelForm({
     </FormDialog>
   );
 }
-function ModelForm({ initial, close }: { initial?: CatalogData['models'][number]; close: () => void }) {
+export function ModelForm({
+  initial,
+  close,
+  onSaved,
+}: {
+  initial?: CatalogData['models'][number];
+  close: () => void;
+  onSaved: (id: string) => void;
+}) {
   const [name, setName] = useState(initial?.name ?? '');
   const [inputTokenLimit, setInputTokenLimit] = useState(String(initial?.inputTokenLimit ?? 1_000_000));
   const [outputTokenLimit, setOutputTokenLimit] = useState(String(initial?.outputTokenLimit ?? 128_000));
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
   const task = useMutation(
     trpc.admin.catalog.saveModel.mutationOptions({
-      onSuccess: async () => {
+      onSuccess: async (model) => {
         await refreshCatalog();
         close();
+        onSaved(model.id);
       },
     }),
   );
@@ -295,21 +306,20 @@ function ModelForm({ initial, close }: { initial?: CatalogData['models'][number]
     </FormDialog>
   );
 }
-export default function Catalog({ section }: { section: 'channels' | 'models' }) {
+export default function Catalog() {
   const data = useQuery(trpc.admin.catalog.list.queryOptions());
   const [edit, setEdit] = useState<{ id?: string }>();
   const close = () => setEdit(undefined);
-  const channels = section === 'channels';
   return (
     <Stack gap="7">
       <Title
         action={
           <PrimaryButton size="sm" onClick={() => setEdit({})}>
-            {channels ? '添加渠道' : '添加模型'}
+            添加渠道
           </PrimaryButton>
         }
       >
-        {channels ? '渠道' : '模型'}
+        渠道
       </Title>
       <ErrorText>{formError(data.error)?.message}</ErrorText>
       {data.isPending ? (
@@ -317,122 +327,86 @@ export default function Catalog({ section }: { section: 'channels' | 'models' })
       ) : (
         data.data && (
           <>
-            {edit &&
-              (channels ? (
-                <ChannelForm
-                  key={edit.id ?? 'new'}
-                  initial={data.data.channels.find((c) => c.id === edit.id)}
-                  data={data.data}
-                  close={close}
-                />
-              ) : (
-                <ModelForm
-                  key={edit.id ?? 'new'}
-                  initial={data.data.models.find((m) => m.id === edit.id)}
-                  close={close}
-                />
-              ))}
-            {channels ? (
-              <>
-                <Box overflowX="auto">
-                  <Table.Root size="sm">
-                    <Table.Header>
-                      <Table.Row>
-                        {['名称', 'Base URL / 端点', '可用模型 / 倍率', '状态', '操作'].map((h) => (
-                          <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
-                        ))}
-                      </Table.Row>
-                    </Table.Header>
-                    <Table.Body>
-                      {data.data.channels.map((c) => (
-                        <Table.Row key={c.id}>
-                          <Table.Cell>{c.name}</Table.Cell>
-                          <Table.Cell>
-                            <Text overflowWrap="anywhere">{c.baseUrl}</Text>
-                            <HStack gap="2" flexWrap="wrap" mt="2">
-                              {c.endpoints.map((e) => (
-                                <Badge
-                                  key={e}
-                                  colorPalette="gray"
-                                  fontFamily="mono"
-                                  whiteSpace="normal"
-                                  overflowWrap="anywhere"
-                                >
-                                  {e}
+            {edit && (
+              <ChannelForm
+                key={edit.id ?? 'new'}
+                initial={data.data.channels.find((c) => c.id === edit.id)}
+                data={data.data}
+                close={close}
+              />
+            )}
+            <Box overflowX="auto">
+              <Table.Root size="sm">
+                <Table.Header>
+                  <Table.Row>
+                    {['名称', 'Base URL / 端点', '可用模型 / 倍率', '状态', '操作'].map((h) => (
+                      <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
+                    ))}
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {data.data.channels.map((c) => (
+                    <Table.Row key={c.id}>
+                      <Table.Cell>{c.name}</Table.Cell>
+                      <Table.Cell>
+                        <Text overflowWrap="anywhere">{c.baseUrl}</Text>
+                        <HStack gap="2" flexWrap="wrap" mt="2">
+                          {c.endpoints.map((e) => (
+                            <Badge
+                              key={e}
+                              colorPalette="gray"
+                              fontFamily="mono"
+                              whiteSpace="normal"
+                              overflowWrap="anywhere"
+                            >
+                              {e}
+                            </Badge>
+                          ))}
+                        </HStack>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <Stack gap="2">
+                          {c.availableModels.map((a) => (
+                            <HStack key={a.modelId} gap="2" flexWrap="wrap">
+                              <Text overflowWrap="anywhere">
+                                {data.data?.models.find((m) => m.id === a.modelId)?.name}
+                              </Text>
+                              <Badge colorPalette="gray">{Number(a.multiplier ?? c.multiplier)}×</Badge>
+                              {a.multiplier === null && (
+                                <Badge colorPalette="gray" fontSize="xs">
+                                  继承
                                 </Badge>
-                              ))}
+                              )}
                             </HStack>
-                          </Table.Cell>
-                          <Table.Cell>
-                            <Stack gap="2">
-                              {c.availableModels.map((a) => (
-                                <HStack key={a.modelId} gap="2" flexWrap="wrap">
-                                  <Text overflowWrap="anywhere">
-                                    {data.data?.models.find((m) => m.id === a.modelId)?.name}
-                                  </Text>
-                                  <Badge colorPalette="gray">{Number(a.multiplier ?? c.multiplier)}×</Badge>
-                                  {a.multiplier === null && (
-                                    <Badge colorPalette="gray" fontSize="xs">
-                                      继承
-                                    </Badge>
-                                  )}
-                                </HStack>
-                              ))}
-                            </Stack>
-                          </Table.Cell>
-                          <Table.Cell whiteSpace="nowrap">
-                            <Badge colorPalette={c.enabled ? 'green' : 'gray'}>{c.enabled ? '启用' : '禁用'}</Badge>
-                          </Table.Cell>
-                          <Table.Cell>
-                            <Button variant="ghost" size="sm" onClick={() => setEdit({ id: c.id })}>
-                              编辑
-                            </Button>
-                          </Table.Cell>
-                        </Table.Row>
-                      ))}
-                    </Table.Body>
-                  </Table.Root>
-                </Box>
-                {!data.data.channels.length && (
-                  <Text fontSize="sm" color="gray.500">
-                    暂无渠道
-                  </Text>
-                )}
-              </>
-            ) : (
-              <>
-                {data.data.models.map((m) => (
-                  <HStack
-                    key={m.id}
-                    justify="space-between"
-                    borderBottomWidth="1px"
-                    borderColor="gray.100"
-                    py="3"
-                    flexWrap="wrap"
-                  >
-                    <HStack minW="0" gap="2" flexWrap="wrap">
-                      <Text fontWeight="500" overflowWrap="anywhere">
-                        {m.name}
-                      </Text>
-                      <Badge colorPalette={m.enabled ? 'green' : 'gray'}>{m.enabled ? '启用' : '禁用'}</Badge>
-                      <Badge colorPalette="gray">{m.priced ? '已定价' : '未定价'}</Badge>
-                    </HStack>
-                    <HStack>
-                      <Link asChild color="#635bff" fontSize="sm">
-                        <RouterLink to={`/console/models/${m.id}/pricing`}>定价</RouterLink>
-                      </Link>
-                      <Button variant="ghost" size="sm" onClick={() => setEdit({ id: m.id })}>
-                        编辑
-                      </Button>
-                    </HStack>
-                  </HStack>
-                ))}
-                {!data.data.models.length && (
-                  <Text color="gray.500" fontSize="sm">
-                    暂无模型
-                  </Text>
-                )}
-              </>
+                          ))}
+                        </Stack>
+                      </Table.Cell>
+                      <Table.Cell whiteSpace="nowrap">
+                        <Badge colorPalette={c.enabled ? 'green' : 'gray'}>{c.enabled ? '启用' : '禁用'}</Badge>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <HStack gap="1">
+                          <Button variant="ghost" size="sm" onClick={() => setEdit({ id: c.id })}>
+                            编辑
+                          </Button>
+                          <ConfirmAction
+                            label="删除"
+                            danger
+                            description={`删除渠道「${c.name}」后，绑定它的 Key 将无法发起新请求。历史请求与账单仍然保留。`}
+                            action={() => trpcClient.admin.catalog.deleteChannel.mutate({ channelId: c.id })}
+                            onSuccess={refreshCatalog}
+                          />
+                        </HStack>
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table.Root>
+            </Box>
+            {!data.data.channels.length && (
+              <Text fontSize="sm" color="gray.500">
+                暂无渠道
+              </Text>
             )}
           </>
         )

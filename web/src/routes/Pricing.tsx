@@ -1,10 +1,9 @@
-import { Badge, Box, Button, Checkbox, Grid, Heading, HStack, Link, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Checkbox, Grid, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Link as RouterLink, useParams } from 'react-router';
 
-import { ErrorText, FormDialog, FormInput, Loading, Panel, PrimaryButton, Title } from '../components/ui';
+import { ErrorText, FormDialog, FormInput, Loading, Panel, PrimaryButton } from '../components/ui';
 import { formError } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './Catalog';
@@ -337,12 +336,9 @@ function Preview({ modelId }: { modelId: string }) {
     </Panel>
   );
 }
-export default function Pricing() {
-  const modelId = useParams().modelId ?? '';
-  const catalog = useQuery(trpc.admin.catalog.list.queryOptions());
-  const model = catalog.data?.models.find((m) => m.id === modelId);
+export default function Pricing({ modelId }: { modelId: string }) {
   const scope = { modelId };
-  const data = useQuery(trpc.admin.pricing.list.queryOptions(scope, { enabled: Boolean(model) }));
+  const data = useQuery(trpc.admin.pricing.list.queryOptions(scope));
   const [editingRule, setEditingRule] = useState<{ index?: number; rule: Rule }>();
   const save = useMutation(
     trpc.admin.pricing.save.mutationOptions({
@@ -358,36 +354,35 @@ export default function Pricing() {
   const currentRules = data.data?.rules.map(({ id: _id, ...r }) => r) ?? [];
   return (
     <Stack gap="7">
-      <Link asChild color="gray.500" fontSize="sm" alignSelf="start">
-        <RouterLink to="/console/models">← 模型</RouterLink>
-      </Link>
-      <Title
-        action={
-          <PrimaryButton
-            size="sm"
-            disabled={!model || !data.data || save.isPending}
-            onClick={() => {
-              save.reset();
-              setEditingRule({
-                rule: {
-                  ...defaultRule,
-                  kind: currentRules.length ? 'context' : 'default',
-                  contextMin: currentRules.length ? '0' : null,
-                },
-              });
-            }}
-          >
-            添加规则
-          </PrimaryButton>
-        }
-      >
-        {model?.name ?? '模型'} 定价
-      </Title>
-      <ErrorText>{formError(catalog.error ?? data.error)?.message}</ErrorText>
-      {catalog.isPending || (model && data.isPending) ? (
+      <HStack justify="space-between" gap="4" flexWrap="wrap">
+        <Stack gap="1">
+          <Heading as="h3" fontSize="lg">
+            定价规则
+          </Heading>
+          <Text fontSize="sm" color="gray.500">
+            单价 / 百万 Token
+          </Text>
+        </Stack>
+        <PrimaryButton
+          size="sm"
+          disabled={!data.data || save.isPending}
+          onClick={() => {
+            save.reset();
+            setEditingRule({
+              rule: {
+                ...defaultRule,
+                kind: currentRules.length ? 'context' : 'default',
+                contextMin: currentRules.length ? '0' : null,
+              },
+            });
+          }}
+        >
+          添加规则
+        </PrimaryButton>
+      </HStack>
+      <ErrorText>{formError(data.error)?.message}</ErrorText>
+      {data.isPending ? (
         <Loading />
-      ) : !model ? (
-        <Text>模型不存在</Text>
       ) : data.data ? (
         <>
           <ErrorText>{formError(save.error)?.message}</ErrorText>

@@ -38,7 +38,7 @@ CREATE TABLE "channels" (
 	"timeout_ms" integer DEFAULT 120000 NOT NULL,
 	"multiplier_micros" bigint DEFAULT 1000000 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "channels_name_unique" UNIQUE("name"),
+	"deleted_at" timestamp with time zone,
 	CONSTRAINT "channels_timeout_positive" CHECK ("channels"."timeout_ms" > 0),
 	CONSTRAINT "channels_multiplier_range" CHECK ("channels"."multiplier_micros" between 0 and 1000000000)
 );
@@ -50,7 +50,7 @@ CREATE TABLE "models" (
 	"input_token_limit" bigint DEFAULT 1000000 NOT NULL,
 	"output_token_limit" bigint DEFAULT 128000 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "models_name_unique" UNIQUE("name"),
+	"deleted_at" timestamp with time zone,
 	CONSTRAINT "models_token_limits" CHECK ("models"."input_token_limit" >= 1 and "models"."output_token_limit" >= 1)
 );
 --> statement-breakpoint
@@ -248,6 +248,8 @@ ALTER TABLE "wallet_ledger" ADD CONSTRAINT "wallet_ledger_request_id_requests_id
 ALTER TABLE "wallet_ledger" ADD CONSTRAINT "wallet_ledger_actor_id_users_id_fk" FOREIGN KEY ("actor_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wallet_ledger" ADD CONSTRAINT "wallet_ledger_request_id_user_id_requests_id_user_id_fk" FOREIGN KEY ("request_id","user_id") REFERENCES "public"."requests"("id","user_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wallets" ADD CONSTRAINT "wallets_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "channels_name_unique" ON "channels" USING btree ("name") WHERE "channels"."deleted_at" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX "models_name_unique" ON "models" USING btree ("name") WHERE "models"."deleted_at" is null;--> statement-breakpoint
 CREATE INDEX "audit_actor_time_idx" ON "admin_audit_logs" USING btree ("actor_id","created_at");--> statement-breakpoint
 CREATE INDEX "api_keys_user_idx" ON "api_keys" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "sessions_user_idx" ON "sessions" USING btree ("user_id");--> statement-breakpoint
