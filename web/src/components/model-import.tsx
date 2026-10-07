@@ -32,11 +32,11 @@ const priceText = (price: string | null) =>
   price === null ? '—' : price.includes('.') ? price.replace(/0+$/, '').replace(/\.$/, '') : price;
 
 export function ModelImport({
-  existingNames,
+  existingModels,
   close,
   onImported,
 }: {
-  existingNames: string[];
+  existingModels: Pick<RouterOutputs['admin']['catalog']['list']['models'][number], 'name' | 'priced'>[];
   close: () => void;
   onImported: (result: Result) => void;
 }) {
@@ -44,7 +44,7 @@ export function ModelImport({
   const [search, setSearch] = useState('');
   const [providerId, setProviderId] = useState('');
   const [page, setPage] = useState(0);
-  const [selected, setSelected] = useState<Selection[]>([]);
+  const [selection, setSelection] = useState<Selection[]>();
   const [rate, setRate] = useState('');
   const source = useQuery({
     queryKey: ['models-dev'],
@@ -70,13 +70,32 @@ export function ModelImport({
     ).values(),
   ].sort((a, b) => a.name.localeCompare(b.name));
   const term = search.trim().toLowerCase();
-  const filtered = allModels.filter(
+  const existing = new Set(existingModels.map((model) => model.name));
+  const unpriced = new Set(existingModels.filter((model) => !model.priced).map((model) => model.name));
+  const pricingRank = (name: string) => (unpriced.has(name) ? 0 : existing.has(name) ? 1 : 2);
+  const rankedModels = [...allModels].sort(
+    (a, b) =>
+      pricingRank(a.name) - pricingRank(b.name) ||
+      Number(b.official) - Number(a.official) ||
+      a.name.localeCompare(b.name) ||
+      a.providerName.localeCompare(b.providerName),
+  );
+  const defaultSources = new Map<string, SourceModel>();
+  for (const model of rankedModels) {
+    if (unpriced.has(model.name) && !defaultSources.has(model.name)) defaultSources.set(model.name, model);
+  }
+  const selected =
+    selection ??
+    [...defaultSources.values()].slice(0, 100).map((model) => ({
+      source: model,
+      preset: suggestedPreset(model.name),
+    }));
+  const filtered = rankedModels.filter(
     (model) =>
       (!providerId || model.providerId === providerId) &&
       `${model.name} ${model.displayName} ${model.providerName}`.toLowerCase().includes(term),
   );
   const visible = filtered.slice(page * pageSize, (page + 1) * pageSize);
-  const existing = new Set(existingNames);
   const selectedNames = new Set(selected.map((item) => item.source.name));
   const selectedKeys = new Set(selected.map((item) => item.source.key));
 
@@ -103,7 +122,10 @@ export function ModelImport({
           event.preventDefault();
           if (task.isPending) return;
           if (step === 1) {
-            if (selected.length) setStep(2);
+            if (selected.length) {
+              setSelection(selected);
+              setStep(2);
+            }
             return;
           }
           if (!currency || previewError || !preview.length) return;
@@ -166,12 +188,17 @@ export function ModelImport({
                     size="sm"
                     variant="ghost"
                     disabled={!selected.length}
-                    onClick={() => setSelected([])}
+                    onClick={() => setSelection([])}
                   >
                     清空选择
                   </Button>
                 </HStack>
               </HStack>
+              {selection === undefined && defaultSources.size > 100 && (
+                <Text fontSize="xs" color="gray.500">
+                  匹配 {defaultSources.size} 个未定价模型，本轮默认选中前 100 个。
+                </Text>
+              )}
               {source.isPending ? (
                 <Loading />
               ) : source.error ? (
@@ -210,10 +237,13 @@ export function ModelImport({
                                   checked={checked}
                                   disabled={otherSource || (!checked && selected.length >= 100)}
                                   onCheckedChange={(event) => {
-                                    setSelected((items) =>
+                                    setSelection((items) =>
                                       event.checked
-                                        ? [...items, { source: model, preset: suggestedPreset(model.name) }]
-                                        : items.filter((item) => item.source.key !== model.key),
+                                        ? [
+                                            ...(items ?? selected),
+                                            { source: model, preset: suggestedPreset(model.name) },
+                                          ]
+                                        : (items ?? selected).filter((item) => item.source.key !== model.key),
                                     );
                                   }}
                                 >
@@ -231,15 +261,12 @@ export function ModelImport({
                                       {model.displayName}
                                     </Text>
                                   )}
-                                  {alreadyExists && (
-                                    <Badge colorPalette="gray" alignSelf="start">
-                                      将覆盖
-                                    </Badge>
-                                  )}
-                                  {otherSource && (
-                                    <Badge colorPalette="gray" alignSelf="start">
-                                      已选其他来源
-                                    </Badge>
+                                  {(alreadyExists || otherSource) && (
+                                    <HStack gap="2" flexWrap="wrap">
+                                      {unpriced.has(model.name) && <Badge colorPalette="yellow">未定价</Badge>}
+                                      {alreadyExists && <Badge colorPalette="gray">将覆盖</Badge>}
+                                      {otherSource && <Badge colorPalette="gray">已选其他来源</Badge>}
+                                    </HStack>
                                   )}
                                 </Stack>
                               </Table.Cell>
@@ -334,8 +361,8 @@ export function ModelImport({
                           onChange={(value) => {
                             if (!value || task.isPending) return;
                             task.reset();
-                            setSelected((items) =>
-                              items.map((item) =>
+                            setSelection((items) =>
+                              (items ?? selected).map((item) =>
                                 item.source.key === selection.source.key
                                   ? { ...item, preset: value as ImportPreset }
                                   : item,

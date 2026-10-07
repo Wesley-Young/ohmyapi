@@ -4,7 +4,13 @@ import { z } from 'zod';
 import { parseMoney } from '../billing/conventions.js';
 import type { AuthService, Principal } from '../services/auth.js';
 import { type BillingService, correctBillInput, resolveBillInput } from '../services/billing.js';
-import { type CatalogService, channelInput, importModelsInput, modelInput } from '../services/catalog.js';
+import {
+  type CatalogService,
+  channelInput,
+  fetchChannelModelsInput,
+  importModelsInput,
+  modelInput,
+} from '../services/catalog.js';
 import type { GatewayService } from '../services/gateway.js';
 import type { KeyService } from '../services/keys.js';
 import { type PricingService, previewInput, priceScope, savePriceInput } from '../services/pricing.js';
@@ -146,6 +152,9 @@ export const appRouter = t.router({
     }),
     catalog: t.router({
       list: adminProcedure.query(({ ctx }) => ctx.catalog.list()),
+      fetchChannelModels: adminProcedure
+        .input(fetchChannelModelsInput)
+        .mutation(({ ctx, input }) => ctx.catalog.fetchChannelModels(ctx.principal, input)),
       saveChannel: adminProcedure
         .input(channelInput)
         .mutation(({ ctx, input }) => ctx.catalog.saveChannel(ctx.principal, input)),

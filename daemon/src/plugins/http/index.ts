@@ -41,7 +41,9 @@ export const HttpPlugin = definePlugin({
     const rpcBodyLimit = bodyLimit({ maxSize: 64 * 1024 });
     const importBodyLimit = bodyLimit({ maxSize: 256 * 1024 });
     app.use('/api/trpc/*', (c, next) =>
-      (c.req.path === '/api/trpc/admin.catalog.importModels' ? importBodyLimit : rpcBodyLimit)(c, next),
+      (['/api/trpc/admin.catalog.importModels', '/api/trpc/admin.catalog.saveChannel'].includes(c.req.path)
+        ? importBodyLimit
+        : rpcBodyLimit)(c, next),
     );
     app.use('/api/trpc/*', async (c, next) => {
       c.header('Cache-Control', 'no-store');

@@ -82,7 +82,9 @@ export default function Models() {
                           <Badge colorPalette={model.enabled ? 'green' : 'gray'}>
                             {model.enabled ? '启用' : '禁用'}
                           </Badge>
-                          <Badge colorPalette="gray">{model.priced ? '已定价' : '未定价'}</Badge>
+                          <Badge colorPalette={model.priced ? 'gray' : 'yellow'}>
+                            {model.priced ? '已定价' : '未定价'}
+                          </Badge>
                         </HStack>
                       </Stack>
                     </RouterLink>
@@ -146,7 +148,7 @@ export default function Models() {
       )}
       {importing && (
         <ModelImport
-          existingNames={models.map((model) => model.name)}
+          existingModels={models}
           close={() => setImporting(false)}
           onImported={(result) => {
             setImportNotice(`已导入 ${result.imported.length} 个模型`);

@@ -22,6 +22,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 export const endpoints = ['/v1/chat/completions', '/v1/responses', '/v1/messages'] as const;
 export type Endpoint = (typeof endpoints)[number];
 const name = z.string().trim().min(1).max(128);
+const modelName = name.regex(/^[A-Za-z0-9][A-Za-z0-9_./:-]*$/, '模型名称格式无效');
 export const channelInput = z.object({
   id: z.uuid().optional(),
   name,
@@ -40,8 +41,9 @@ export const channelInput = z.object({
   timeoutMs: z.number().int().min(100).max(600_000),
   multiplier: multiplierInput.default('1'),
   availableModels: z
-    .array(z.object({ modelId: z.uuid(), multiplier: multiplierInput.nullable() }))
-    .max(100)
+    .array(z.object({ name: modelName, multiplier: multiplierInput.nullable() }))
+    .max(1000, '每个渠道最多添加 1000 个模型')
+    .refine((items) => new Set(items.map((item) => item.name)).size === items.length, '模型不能重复')
     .default([]),
   endpoints: z
     .array(z.enum(endpoints))
@@ -49,9 +51,10 @@ export const channelInput = z.object({
     .max(3)
     .refine((v) => new Set(v).size === v.length),
 });
+export const fetchChannelModelsInput = channelInput.pick({ id: true, baseUrl: true, credential: true });
 export const modelInput = z.object({
   id: z.uuid().optional(),
-  name: name.regex(/^[A-Za-z0-9][A-Za-z0-9_./:-]*$/, '模型名称格式无效'),
+  name: modelName,
   enabled: z.boolean(),
   inputTokenLimit: z.number().int().min(1).default(1_000_000),
   outputTokenLimit: z.number().int().min(1).default(128_000),
@@ -162,6 +165,91 @@ export class CatalogService {
   ) {
     await tx.insert(adminAuditLogs).values({ actorId, action, targetType: 'catalog', targetId, metadata });
   }
+  async fetchChannelModels(principal: Principal, input: z.infer<typeof fetchChannelModelsInput>) {
+    const credential = await this.auth.authorized(principal, { admin: true }, async (tx) => {
+      const [existing] = input.id
+        ? await tx
+            .select()
+            .from(channels)
+            .where(and(eq(channels.id, input.id), isNull(channels.deletedAt)))
+        : [];
+      if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在' });
+      if (input.credential) return input.credential;
+      if (existing) return this.vault.decrypt(existing.credentialEncrypted);
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '请先填写上游凭据' });
+    });
+    const base = input.baseUrl.replace(/\/+$/, '');
+    const url = new URL(base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`);
+    const signal = AbortSignal.timeout(20_000);
+    const names = new Set<string>();
+    const cursors = new Set<string>();
+    let bytes = 0;
+    let ignored = 0;
+    try {
+      for (;;) {
+        const response = await fetch(url, {
+          headers: {
+            authorization: `Bearer ${credential}`,
+            'x-api-key': credential,
+            'anthropic-version': '2023-06-01',
+          },
+          signal,
+          redirect: 'error',
+        });
+        if (!response.ok) {
+          await response.body?.cancel();
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              response.status === 404
+                ? '上游不支持模型列表，请手动添加模型'
+                : `获取模型失败，上游返回 HTTP ${response.status}，请检查地址和凭据`,
+          });
+        }
+        const reader = response.body?.getReader();
+        if (!reader) throw new TRPCError({ code: 'BAD_REQUEST', message: '上游返回了空的模型列表' });
+        const chunks: Uint8Array[] = [];
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            bytes += value.byteLength;
+            if (bytes > 2 * 1024 * 1024) throw new TRPCError({ code: 'BAD_REQUEST', message: '上游模型列表过大' });
+            chunks.push(value);
+          }
+        } finally {
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
+        }
+        const page = z
+          .object({
+            data: z.array(z.object({ id: z.string() })).max(1000),
+            has_more: z.boolean().optional(),
+            last_id: z.string().optional(),
+          })
+          .safeParse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        if (!page.success)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '上游模型列表格式无效，请手动添加模型' });
+        for (const model of page.data.data) {
+          const parsed = modelName.safeParse(model.id);
+          if (parsed.success) names.add(parsed.data);
+          else ignored++;
+        }
+        if (names.size > 1000) throw new TRPCError({ code: 'BAD_REQUEST', message: '每个渠道最多添加 1000 个模型' });
+        if (!page.data.has_more) break;
+        const cursor = page.data.last_id;
+        if (!cursor || cursors.has(cursor))
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '上游模型列表分页无效' });
+        cursors.add(cursor);
+        url.searchParams.set('after_id', cursor);
+      }
+    } catch (error) {
+      if (error instanceof TRPCError) throw error;
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '无法获取上游模型，请检查地址、凭据和连接后重试' });
+    }
+    if (!names.size) throw new TRPCError({ code: 'BAD_REQUEST', message: '上游未返回有效模型，请手动添加模型' });
+    return { names: [...names].sort(), ignored };
+  }
   async saveChannel(principal: Principal, input: z.infer<typeof channelInput>) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [existing] = input.id
@@ -178,19 +266,34 @@ export class CatalogService {
         .from(channels)
         .where(and(eq(channels.name, input.name), isNull(channels.deletedAt)));
       if (duplicate && duplicate.id !== input.id) throw new TRPCError({ code: 'CONFLICT', message: '渠道名称已存在' });
-      const modelIds = input.availableModels.map((m) => m.modelId);
-      if (new Set(modelIds).size !== modelIds.length)
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '模型不能重复' });
-      if (
-        modelIds.length &&
-        (
-          await tx
-            .select({ id: models.id })
+      const names = input.availableModels.map((m) => m.name).sort();
+      if (names.length) {
+        const created = await tx
+          .insert(models)
+          .values(names.map((name) => ({ name, inputTokenLimit: 1_000_000, outputTokenLimit: 128_000 })))
+          .onConflictDoNothing({ target: models.name, where: isNull(models.deletedAt) })
+          .returning({ id: models.id, name: models.name });
+        for (const model of created)
+          await this.audit(tx, actor.id, 'model.placeholder', model.id, {
+            name: model.name,
+            source: 'channel',
+            inputTokenLimit: 1_000_000,
+            outputTokenLimit: 128_000,
+          });
+      }
+      const resolved = names.length
+        ? await tx
+            .select({ id: models.id, name: models.name })
             .from(models)
-            .where(and(inArray(models.id, modelIds), isNull(models.deletedAt)))
-        ).length !== modelIds.length
-      )
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '包含不存在的模型' });
+            .where(and(inArray(models.name, names), isNull(models.deletedAt)))
+            .orderBy(models.name)
+            .for('share')
+        : [];
+      if (resolved.length !== names.length) throw new TRPCError({ code: 'CONFLICT', message: '模型已变更，请重试' });
+      const available = resolved.map((model) => ({
+        modelId: model.id,
+        multiplier: input.availableModels.find((row) => row.name === model.name)?.multiplier ?? null,
+      }));
       const values = {
         name: input.name,
         baseUrl: input.baseUrl.replace(/\/+$/, ''),
@@ -213,9 +316,9 @@ export class CatalogService {
         .values(input.endpoints.map((endpoint) => ({ channelId: row.id, endpoint })))
         .onConflictDoNothing();
       await tx.delete(channelAvailableModels).where(eq(channelAvailableModels.channelId, row.id));
-      if (input.availableModels.length)
+      if (available.length)
         await tx.insert(channelAvailableModels).values(
-          input.availableModels.map((m) => ({
+          available.map((m) => ({
             channelId: row.id,
             modelId: m.modelId,
             multiplierMicros: m.multiplier === null ? null : parseMoney(m.multiplier),
@@ -230,7 +333,21 @@ export class CatalogService {
         availableModels: input.availableModels,
         credentialChanged: Boolean(input.credential),
       });
-      return row;
+      const priced = resolved.length
+        ? await tx
+            .select({ modelId: priceRules.modelId })
+            .from(priceRules)
+            .where(
+              and(
+                inArray(
+                  priceRules.modelId,
+                  resolved.map((m) => m.id),
+                ),
+                eq(priceRules.kind, 'default'),
+              ),
+            )
+        : [];
+      return { ...row, unpricedModels: resolved.filter((m) => !priced.some((p) => p.modelId === m.id)) };
     });
   }
   async saveModel(principal: Principal, input: z.infer<typeof modelInput>) {
