@@ -68,7 +68,7 @@ export function ModelImport({
     ...new Map(
       allModels.map((model) => [model.providerId, { id: model.providerId, name: model.providerName }]),
     ).values(),
-  ];
+  ].sort((a, b) => a.name.localeCompare(b.name));
   const term = search.trim().toLowerCase();
   const filtered = allModels.filter(
     (model) =>
@@ -95,17 +95,6 @@ export function ModelImport({
       previewError = (error as Error).message;
     }
   }
-  const choosePage = () => {
-    const names = new Set(selectedNames);
-    const next = [...selected];
-    for (const model of visible) {
-      if (next.length >= 100) break;
-      if (existing.has(model.name) || names.has(model.name)) continue;
-      next.push({ source: model, preset: suggestedPreset(model.name) });
-      names.add(model.name);
-    }
-    setSelected(next);
-  };
 
   return (
     <FormDialog open title="从 models.dev 导入模型" onClose={close} busy={task.isPending} size="xl">
@@ -169,18 +158,9 @@ export function ModelImport({
               </Grid>
               <HStack justify="space-between" flexWrap="wrap" gap="2">
                 <Text fontSize="xs" color="gray.500">
-                  同名模型选择一个供应商；已有模型不会覆盖。仅列出具有输入和输出价格的模型。
+                  同名模型只能选择一个供应商；不能覆盖已有模型。
                 </Text>
                 <HStack>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={!visible.length || selected.length >= 100}
-                    onClick={choosePage}
-                  >
-                    选择本页
-                  </Button>
                   <Button
                     type="button"
                     size="sm"
@@ -264,9 +244,12 @@ export function ModelImport({
                                 </Stack>
                               </Table.Cell>
                               <Table.Cell>
-                                <Badge colorPalette="gray" whiteSpace="normal" overflowWrap="anywhere">
-                                  {model.providerName}
-                                </Badge>
+                                <HStack gap="2" flexWrap="wrap">
+                                  <Badge colorPalette="gray" whiteSpace="normal" overflowWrap="anywhere">
+                                    {model.providerName}
+                                  </Badge>
+                                  {model.official && <Badge colorPalette="green">官方</Badge>}
+                                </HStack>
                               </Table.Cell>
                             </Table.Row>
                           );

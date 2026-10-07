@@ -8,6 +8,7 @@ export type SourceModel = {
   key: string;
   providerId: string;
   providerName: string;
+  official: boolean;
   name: string;
   displayName: string;
   inputTokenLimit: number;
@@ -106,12 +107,57 @@ function record(value: unknown): Record<string, unknown> {
 const capacity = (value: unknown, fallback: number) =>
   typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : fallback;
 
+const officialProviderAliases: Record<string, string[]> = {
+  google: ['google-vertex'],
+  alibaba: [
+    'alibaba-cn',
+    'alibaba-coding-plan',
+    'alibaba-coding-plan-cn',
+    'alibaba-token-plan',
+    'alibaba-token-plan-cn',
+  ],
+  moonshotai: ['moonshotai-cn'],
+  minimax: ['minimax-cn', 'minimax-coding-plan', 'minimax-coding-plan-cn'],
+  zhipuai: ['zhipuai-cn', 'zai', 'zai-coding-plan'],
+};
+const modelAlias = (name: string) => name.toLowerCase().split('/').at(-1) ?? '';
+const canonicalPublisher = (model: Record<string, unknown>) =>
+  typeof model.canonical_model_id === 'string' ? model.canonical_model_id.match(/^([a-z0-9-]+)\/.+/)?.[1] : undefined;
+
+function officialMatcher(providers: Record<string, unknown>) {
+  const publishers = new Map<string, Set<string>>();
+  // Some official entries omit canonical_model_id; other providers can identify
+  // the same model. Do not infer a publisher when their metadata disagrees.
+  for (const provider of Object.values(providers)) {
+    for (const raw of Object.values(record(record(provider).models))) {
+      const model = record(raw);
+      const publisher = canonicalPublisher(model);
+      if (!publisher || typeof model.id !== 'string') continue;
+      for (const alias of [
+        model.id.toLowerCase(),
+        modelAlias(model.id),
+        modelAlias(String(model.canonical_model_id)),
+      ]) {
+        const owners = publishers.get(alias) ?? new Set<string>();
+        owners.add(publisher);
+        publishers.set(alias, owners);
+      }
+    }
+  }
+  return (providerId: string, model: Record<string, unknown>) => {
+    const owners = publishers.get(String(model.id).toLowerCase()) ?? publishers.get(modelAlias(String(model.id)));
+    const publisher = canonicalPublisher(model) ?? (owners?.size === 1 ? [...owners][0] : undefined);
+    return Boolean(publisher && (providerId === publisher || officialProviderAliases[publisher]?.includes(providerId)));
+  };
+}
+
 export async function fetchModelsDev(signal: AbortSignal): Promise<SourceModel[]> {
   const response = await fetch('https://models.dev/api.json', {
     signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
   });
   if (!response.ok) throw new Error('无法读取 models.dev，请稍后重试');
   const providers = record(await response.json());
+  const isOfficial = officialMatcher(providers);
   const models = new Map<string, SourceModel>();
   for (const [providerId, raw] of Object.entries(providers)) {
     if (providerId.length > 128) continue;
@@ -132,6 +178,7 @@ export async function fetchModelsDev(signal: AbortSignal): Promise<SourceModel[]
           key,
           providerId,
           providerName,
+          official: isOfficial(providerId, model),
           name,
           displayName: typeof model.name === 'string' && model.name ? model.name.slice(0, 256) : name,
           inputTokenLimit: capacity(limit.input, capacity(limit.context, 1_000_000)),
@@ -150,6 +197,9 @@ export async function fetchModelsDev(signal: AbortSignal): Promise<SourceModel[]
   }
   if (!models.size) throw new Error('models.dev 未返回可导入的模型');
   return [...models.values()].sort(
-    (a, b) => a.providerName.localeCompare(b.providerName) || a.name.localeCompare(b.name),
+    (a, b) =>
+      Number(b.official) - Number(a.official) ||
+      a.name.localeCompare(b.name) ||
+      a.providerName.localeCompare(b.providerName),
   );
 }
