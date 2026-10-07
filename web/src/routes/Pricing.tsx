@@ -336,9 +336,20 @@ function Preview({ modelId }: { modelId: string }) {
     </Panel>
   );
 }
-export default function Pricing({ modelId }: { modelId: string }) {
+export default function Pricing({
+  modelId,
+  copyLunaPrice = false,
+  lunaModelId,
+}: {
+  modelId: string;
+  copyLunaPrice?: boolean;
+  lunaModelId?: string;
+}) {
   const scope = { modelId };
   const data = useQuery(trpc.admin.pricing.list.queryOptions(scope));
+  const lunaPricing = useQuery(
+    trpc.admin.pricing.list.queryOptions({ modelId: lunaModelId ?? '' }, { enabled: copyLunaPrice && !!lunaModelId }),
+  );
   const [editingRule, setEditingRule] = useState<{ index?: number; rule: Rule }>();
   const save = useMutation(
     trpc.admin.pricing.save.mutationOptions({
@@ -363,23 +374,52 @@ export default function Pricing({ modelId }: { modelId: string }) {
             单价 / 百万 Token
           </Text>
         </Stack>
-        <PrimaryButton
-          size="sm"
-          disabled={!data.data || save.isPending}
-          onClick={() => {
-            save.reset();
-            setEditingRule({
-              rule: {
-                ...defaultRule,
-                kind: currentRules.length ? 'context' : 'default',
-                contextMin: currentRules.length ? '0' : null,
-              },
-            });
-          }}
-        >
-          添加规则
-        </PrimaryButton>
+        <HStack gap="2" flexWrap="wrap">
+          {copyLunaPrice && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={
+                !data.data ||
+                !lunaModelId ||
+                !lunaPricing.data?.rules.some((rule) => rule.kind === 'default') ||
+                save.isPending
+              }
+              onClick={() => {
+                if (!lunaPricing.data) return;
+                save.mutate({
+                  modelId,
+                  rules: lunaPricing.data.rules.map(({ id: _id, ...rule }) => rule),
+                });
+              }}
+            >
+              复制 GPT-5.6 Luna 价格
+            </Button>
+          )}
+          <PrimaryButton
+            size="sm"
+            disabled={!data.data || save.isPending}
+            onClick={() => {
+              save.reset();
+              setEditingRule({
+                rule: {
+                  ...defaultRule,
+                  kind: currentRules.length ? 'context' : 'default',
+                  contextMin: currentRules.length ? '0' : null,
+                },
+              });
+            }}
+          >
+            添加规则
+          </PrimaryButton>
+        </HStack>
       </HStack>
+      {copyLunaPrice && !lunaModelId && (
+        <Text fontSize="sm" color="gray.500">
+          请先为 gpt-5.6-luna 定价。
+        </Text>
+      )}
+      <ErrorText>{copyLunaPrice ? formError(lunaPricing.error)?.message : undefined}</ErrorText>
       <ErrorText>{formError(data.error)?.message}</ErrorText>
       {data.isPending ? (
         <Loading />

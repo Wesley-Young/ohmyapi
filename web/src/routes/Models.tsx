@@ -128,7 +128,12 @@ export default function Models() {
                     />
                   </HStack>
                 </HStack>
-                <Pricing key={selected.id} modelId={selected.id} />
+                <Pricing
+                  key={selected.id}
+                  modelId={selected.id}
+                  copyLunaPrice={selected.name === 'codex-auto-review'}
+                  lunaModelId={models.find((model) => model.name === 'gpt-5.6-luna' && model.priced)?.id}
+                />
               </Stack>
             ) : (
               <Text py="8" textAlign="center" color="gray.500" fontSize="sm">
