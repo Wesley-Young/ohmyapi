@@ -1,19 +1,15 @@
 import { Button, Flex, Heading, Stack } from '@chakra-ui/react';
 import { useNavigate } from 'react-router';
 
+import { Logo } from '../components/logo';
+
 export default function Landing() {
   const navigate = useNavigate();
   return (
     <Flex minH="100dvh" align="center" justify="center" px="6">
       <Stack align="center" gap="8">
-        <Heading
-          as="h1"
-          fontSize={{ base: '48px', md: '64px' }}
-          fontWeight="800"
-          letterSpacing="-0.07em"
-          lineHeight="1"
-        >
-          ohmyapi
+        <Heading as="h1" fontSize={{ base: '48px', md: '64px' }} lineHeight="1">
+          <Logo />
         </Heading>
         <Button
           type="button"

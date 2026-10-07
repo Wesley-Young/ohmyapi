@@ -2,6 +2,7 @@ import { Box, Flex, HStack, Link, Stack, Text } from '@chakra-ui/react';
 import { KeyRound, Layers, LayoutDashboard, Network, ScrollText, UserRound, Users } from 'lucide-react';
 import { Navigate, NavLink, Outlet, Link as RouterLink } from 'react-router';
 
+import { Logo } from '../components/logo';
 import { useAuth } from '../lib/auth';
 
 const navigationIcons = {
@@ -39,8 +40,10 @@ export default function Console() {
     <Box key={auth.data.id} minH="100dvh">
       <Box as="header" position="sticky" top="0" zIndex="10" bg="white" borderBottomWidth="1px" borderColor="gray.200">
         <Flex h="64px" px={{ base: 4, md: 6 }} justify="space-between" align="center" gap="4">
-          <Link asChild fontSize="xl" fontWeight="800" letterSpacing="-0.06em" textDecoration="none">
-            <RouterLink to="/">ohmyapi</RouterLink>
+          <Link asChild fontSize="24px" textDecoration="none">
+            <RouterLink to="/">
+              <Logo />
+            </RouterLink>
           </Link>
           <HStack gap={{ base: 2, md: 4 }} minW="0">
             <Link asChild fontSize="sm" fontWeight="500" textDecoration="none" _hover={{ color: '#635bff' }}>
