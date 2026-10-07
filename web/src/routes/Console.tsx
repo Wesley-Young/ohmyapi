@@ -56,6 +56,8 @@ export default function Console() {
                 to={link.to}
                 end={link.end}
                 style={({ isActive }) => ({
+                  display: 'inline-grid',
+                  flexShrink: 0,
                   color: isActive ? '#171717' : '#737373',
                   borderBottom: `2px solid ${isActive ? '#635bff' : 'transparent'}`,
                   padding: '0 0 14px',
@@ -64,7 +66,12 @@ export default function Console() {
                   fontWeight: isActive ? 600 : 400,
                 })}
               >
-                {link.label}
+                <Box as="span" gridArea="1 / 1" fontWeight="600" visibility="hidden" aria-hidden="true">
+                  {link.label}
+                </Box>
+                <Box as="span" gridArea="1 / 1" textAlign="center">
+                  {link.label}
+                </Box>
               </NavLink>
             ))}
           </HStack>
