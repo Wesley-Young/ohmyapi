@@ -55,6 +55,7 @@ export class GatewayService implements Disposable {
     this.config = config;
     this.logError = logError;
   }
+
   dispose() {
     this.stopping = true;
     this.disposal ??= (async () => {
@@ -64,6 +65,7 @@ export class GatewayService implements Disposable {
     })();
     return this.disposal;
   }
+
   error(endpoint: Endpoint, status: number, code: string, message: string, id: string) {
     const type =
       status === 401
@@ -89,6 +91,7 @@ export class GatewayService implements Disposable {
       },
     );
   }
+
   private acquire(userId: string) {
     const now = Date.now();
     for (const [key, entry] of this.limits) if (!entry.active && entry.reset <= now) this.limits.delete(key);
@@ -110,6 +113,7 @@ export class GatewayService implements Disposable {
       entry.active--;
     };
   }
+
   private async identify(req: Request, endpoint: Endpoint) {
     const authorization = req.headers.get('authorization');
     const bearer = authorization?.match(/^Bearer (sk-[A-Za-z0-9_-]{43})$/i)?.[1];
@@ -137,6 +141,7 @@ export class GatewayService implements Disposable {
     if (!identity) throw new GatewayError(401, 'invalid_api_key', 'Invalid or expired API Key');
     return identity;
   }
+
   private async body(req: Request, signal: AbortSignal) {
     if (!req.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
       throw new GatewayError(415, 'unsupported_media_type', 'Content-Type must be application/json');
@@ -192,7 +197,9 @@ export class GatewayService implements Disposable {
       throw new GatewayError(400, 'unsupported_mode', 'Background responses are not supported');
     return { parsed, bytes };
   }
+
   async forward(req: Request, endpoint: Endpoint): Promise<Response> {
+    // Track the request lifecycle and propagate client disconnects.
     const id = randomUUID();
     const receivedAt = new Date();
     let dispatched = false;
@@ -211,6 +218,8 @@ export class GatewayService implements Disposable {
     const onAbort = () => {
       void finish(typeof abort.signal.reason === 'string' ? abort.signal.reason : 'upstream_disconnected');
     };
+
+    // Collect upstream usage and build the billing summary.
     const collector = new UsageCollector(endpoint);
     let httpStatus: number | undefined;
     let safeRejection = false;
@@ -235,6 +244,8 @@ export class GatewayService implements Disposable {
                   ? 'usage_not_final'
                   : undefined),
     });
+
+    // Finalize billing and release resources once, including after cancellation.
     const finish = (errorCode?: string): Promise<void> => {
       if (finalization) return finalization;
       if (timer) clearTimeout(timer);
@@ -253,12 +264,16 @@ export class GatewayService implements Disposable {
       })();
       return finalization;
     };
+
+    // Check gateway readiness, authenticate the caller, and acquire request capacity.
     try {
       if (this.stopping) throw new GatewayError(503, 'server_stopping', 'Gateway is stopping');
       this.billing.assertReady();
       if (!this.config.enabled) throw new GatewayError(503, 'gateway_disabled', 'Gateway is disabled');
       const identity = await this.identify(req, endpoint);
       release = this.acquire(identity.user.id);
+
+      // Read and validate the request body with an admission timeout.
       const bodyTimer = setTimeout(() => abort.abort('body_timeout'), 30000);
       let payload: Awaited<ReturnType<GatewayService['body']>>;
       try {
@@ -268,6 +283,8 @@ export class GatewayService implements Disposable {
       }
       const { parsed, bytes } = payload;
       const streaming = parsed.stream === true;
+
+      // Record the admitted request before resolving its model and channel.
       await this.db.insert(requests).values({
         id,
         receivedAt,
@@ -278,6 +295,8 @@ export class GatewayService implements Disposable {
         streaming,
       });
       recorded = true;
+
+      // Resolve the enabled model and enforce API Key model restrictions.
       const [model] = await this.db
         .select({ id: models.id, inputTokenLimit: models.inputTokenLimit, outputTokenLimit: models.outputTokenLimit })
         .from(models)
@@ -290,6 +309,8 @@ export class GatewayService implements Disposable {
             .from(apiKeyModelGrants)
             .where(and(eq(apiKeyModelGrants.apiKeyId, identity.key.id), eq(apiKeyModelGrants.modelId, model.id)));
       if (!keyGrant) throw new GatewayError(403, 'model_forbidden', 'API Key does not authorize this model');
+
+      // Resolve the bound channel and verify model and endpoint availability.
       if (!identity.channelId)
         throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
       const [route] = await this.db
@@ -312,6 +333,8 @@ export class GatewayService implements Disposable {
           'channel_unavailable',
           'The API Key channel does not provide this model and endpoint',
         );
+
+      // Require a user model grant for private channels unless the caller is an admin.
       if (identity.user.role !== 'admin' && !route.channel.isPublic) {
         const [grant] = await this.db
           .select({ modelId: userModelGrants.modelId })
@@ -320,6 +343,8 @@ export class GatewayService implements Disposable {
         if (!grant)
           throw new GatewayError(403, 'model_forbidden', 'Model is not authorized for this user on a private channel');
       }
+
+      // Lock the price and validate the request against billable token limits.
       const lockedPrice = await this.pricing.lock(
         model.id,
         receivedAt,
@@ -334,6 +359,8 @@ export class GatewayService implements Disposable {
         model.inputTokenLimit,
         model.outputTokenLimit,
       );
+
+      // Build upstream authentication and protocol headers.
       const credential = this.vault.decrypt(route.channel.credentialEncrypted);
       const headers = new Headers({
         'content-type': 'application/json',
@@ -348,6 +375,8 @@ export class GatewayService implements Disposable {
         const beta = req.headers.get('anthropic-beta');
         if (beta) headers.set('anthropic-beta', beta);
       } else headers.set('authorization', `Bearer ${credential}`);
+
+      // Reserve funds before marking the request as forwarding.
       await this.billing.reserve({
         requestId: id,
         userId: identity.user.id,
@@ -364,6 +393,8 @@ export class GatewayService implements Disposable {
       if (abort.signal.aborted)
         throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
       await this.billing.forwarding(id);
+
+      // Apply the channel timeout and dispatch the original request body.
       timer = setTimeout(() => abort.abort('upstream_timeout'), route.channel.timeoutMs);
       if (req.signal.aborted) disconnect();
       // Base URL accepts both an origin/prefix and an SDK-style .../v1 URL.
@@ -377,6 +408,8 @@ export class GatewayService implements Disposable {
         signal: abort.signal,
         redirect: 'manual',
       });
+
+      // Reject redirects and copy the allowed upstream response headers.
       httpStatus = upstream.status;
       if (upstream.status >= 300 && upstream.status < 400) {
         await upstream.body?.cancel();
@@ -397,10 +430,14 @@ export class GatewayService implements Disposable {
         0,
         256,
       );
+
+      // Finalize empty responses without creating a response stream.
       if (!upstream.body) {
         await finish('empty_response');
         return new Response(null, { status: upstream.status, headers: responseHeaders });
       }
+
+      // Observe SSE events or buffer JSON while forwarding response bytes.
       const isSse = upstream.headers.get('content-type')?.toLowerCase().includes('text/event-stream') ?? false;
       if (isSse) responseHeaders.set('x-accel-buffering', 'no');
       const observer = isSse ? new SseObserver(collector) : undefined;
@@ -415,6 +452,7 @@ export class GatewayService implements Disposable {
           try {
             const { value, done } = await reader.read();
             if (done) {
+              // Validate final usage and identify rejections that did not execute.
               observer?.finish();
               if (!isSse && jsonSize <= 8 * 1024 * 1024) {
                 try {
@@ -437,6 +475,8 @@ export class GatewayService implements Disposable {
               return;
             }
             observer?.push(value);
+
+            // Persist final usage or blocked settlement as soon as it is observed.
             if (!finalCheckpoint && collector.finalUsage && !collector.invalid && !collector.unknownCosts) {
               finalCheckpoint = true;
               try {
@@ -453,6 +493,8 @@ export class GatewayService implements Disposable {
                 this.logError(`Usage validation checkpoint failed: ${id}`);
               }
             }
+
+            // Limit JSON buffering to 8 MiB without limiting response forwarding.
             if (!isSse) {
               jsonSize += value.byteLength;
               if (jsonSize <= 8 * 1024 * 1024) jsonChunks.push(value);
@@ -477,6 +519,7 @@ export class GatewayService implements Disposable {
       });
       return new Response(stream, { status: upstream.status, headers: responseHeaders });
     } catch (error) {
+      // Normalize failures and finalize billing before returning a protocol error.
       const failure =
         error instanceof GatewayError
           ? error
@@ -490,6 +533,7 @@ export class GatewayService implements Disposable {
       return this.error(endpoint, failure.status, failure.code, failure.message, id);
     }
   }
+
   async list(userId: string | undefined, page: number, reviewOnly = false) {
     const rows = await this.db
       .select({ request: requests, username: users.username, usage: requestUsage })

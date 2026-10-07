@@ -82,10 +82,12 @@ export class CredentialVault {
       this.key = Buffer.from(raw, 'hex');
     }
   }
+
   private requireKey() {
     if (!this.key) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '请先配置 CHANNEL_ENCRYPTION_KEY' });
     return this.key;
   }
+
   encrypt(value: string) {
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', this.requireKey(), iv);
@@ -97,6 +99,7 @@ export class CredentialVault {
       encrypted.toString('base64url'),
     ].join('.');
   }
+
   decrypt(value: string) {
     const [version, iv, tag, encrypted] = value.split('.');
     if (version !== 'v1' || !iv || !tag || !encrypted) throw new Error('Invalid encrypted credential');
@@ -114,6 +117,7 @@ export class CatalogService {
     this.auth = auth;
     this.vault = vault;
   }
+
   async list() {
     const [channelRows, modelRows, channelScopes, available, activePrices] = await Promise.all([
       this.auth.db
@@ -156,6 +160,7 @@ export class CatalogService {
       })),
     };
   }
+
   private async audit(
     tx: Transaction,
     actorId: string,
@@ -165,6 +170,7 @@ export class CatalogService {
   ) {
     await tx.insert(adminAuditLogs).values({ actorId, action, targetType: 'catalog', targetId, metadata });
   }
+
   async fetchChannelModels(principal: Principal, input: z.infer<typeof fetchChannelModelsInput>) {
     const credential = await this.auth.authorized(principal, { admin: true }, async (tx) => {
       const [existing] = input.id
@@ -250,6 +256,7 @@ export class CatalogService {
     if (!names.size) throw new TRPCError({ code: 'BAD_REQUEST', message: '上游未返回有效模型，请手动添加模型' });
     return { names: [...names].sort(), ignored };
   }
+
   async saveChannel(principal: Principal, input: z.infer<typeof channelInput>) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [existing] = input.id
@@ -350,6 +357,7 @@ export class CatalogService {
       return { ...row, unpricedModels: resolved.filter((m) => !priced.some((p) => p.modelId === m.id)) };
     });
   }
+
   async saveModel(principal: Principal, input: z.infer<typeof modelInput>) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [existing] = input.id
@@ -394,6 +402,7 @@ export class CatalogService {
       return row;
     });
   }
+
   async importModels(principal: Principal, input: z.infer<typeof importModelsInput>) {
     const prepared = input.models
       .map((entry) => {
@@ -440,6 +449,7 @@ export class CatalogService {
       return { imported };
     });
   }
+
   async grants(userId: string) {
     return this.auth.db
       .select({ modelId: userModelGrants.modelId })
@@ -447,6 +457,7 @@ export class CatalogService {
       .innerJoin(models, eq(models.id, userModelGrants.modelId))
       .where(and(eq(userModelGrants.userId, userId), isNull(models.deletedAt)));
   }
+
   async deleteChannel(principal: Principal, channelId: string) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [channel] = await tx
@@ -459,6 +470,7 @@ export class CatalogService {
       return { success: true };
     });
   }
+
   async deleteModel(principal: Principal, modelId: string) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [model] = await tx
@@ -471,6 +483,7 @@ export class CatalogService {
       return { success: true };
     });
   }
+
   async setGrants(principal: Principal, userId: string, modelIds: string[]) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [user] = await tx.select().from(users).where(eq(users.id, userId)).for('update');

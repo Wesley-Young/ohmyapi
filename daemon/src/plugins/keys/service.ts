@@ -66,6 +66,7 @@ export class KeyService {
       .orderBy(channels.name, models.name);
     return base;
   }
+
   async availableChannels(principal: Principal) {
     const rows = await this.offerings(this.auth.db, principal.user.id, principal.user.role);
     return [...new Set(rows.map((r) => r.channelId))].map((id) => ({
@@ -74,6 +75,7 @@ export class KeyService {
       models: rows.filter((r) => r.channelId === id).map((r) => ({ id: r.modelId, name: r.modelName })),
     }));
   }
+
   async bindChannel(principal: Principal, keyId: string, channelId: string) {
     return this.auth.authorized(principal, {}, async (tx, user) => {
       const [key] = await tx
@@ -93,6 +95,7 @@ export class KeyService {
       return { success: true };
     });
   }
+
   async list(userId: string, page: number) {
     const rows = await this.auth.db
       .select({

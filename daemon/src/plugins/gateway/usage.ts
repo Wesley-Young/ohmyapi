@@ -41,6 +41,7 @@ export class UsageCollector {
   constructor(endpoint: Endpoint) {
     this.endpoint = endpoint;
   }
+
   observe(value: unknown) {
     const data = object(value);
     if (!data) return;
@@ -85,12 +86,14 @@ export class UsageCollector {
       }
     }
   }
+
   done() {
     if (this.endpoint === '/v1/chat/completions') {
       this.complete = true;
       if (this.usage && !this.invalid) this.finalUsage = true;
     }
   }
+
   private normalize(raw: ObjectValue) {
     const isChat = this.endpoint === '/v1/chat/completions';
     const anthropic = this.endpoint === '/v1/messages';
@@ -146,14 +149,17 @@ export class SseObserver {
   constructor(collector: UsageCollector) {
     this.collector = collector;
   }
+
   push(chunk: Uint8Array) {
     this.consume(this.decoder.decode(chunk, { stream: true }));
   }
+
   finish() {
     this.consume(this.decoder.decode());
     if (this.line) this.endLine();
     this.event();
   }
+
   private consume(text: string) {
     for (const char of text) {
       if (char === '\n' && this.previousCR) {
@@ -175,12 +181,14 @@ export class SseObserver {
       }
     }
   }
+
   private endLine() {
     if (!this.lineLength) this.event();
     else if (this.line.startsWith('data:')) this.data.push(this.line.slice(5).replace(/^ /, ''));
     this.line = '';
     this.lineLength = 0;
   }
+
   private event() {
     if (!this.skip && this.data.length) {
       const raw = this.data.join('\n');

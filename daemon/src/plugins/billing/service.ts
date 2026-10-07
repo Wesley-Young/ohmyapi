@@ -109,12 +109,15 @@ export class BillingService implements Disposable {
     this.pricing = pricing;
     this.logError = logError;
   }
+
   assertReady() {
     if (!this.healthy) throw new GatewayError(503, 'billing_unavailable', 'Billing is unavailable');
   }
+
   onLeaseLost(handler: () => void) {
     this.lostHandler = handler;
   }
+
   async start(config: DatabaseConfig) {
     const lease = new Client({
       connectionString: config.connectionString,
@@ -149,6 +152,7 @@ export class BillingService implements Disposable {
       );
     }
   }
+
   async dispose() {
     if (this.closing) return;
     this.closing = true;
@@ -320,6 +324,7 @@ export class BillingService implements Disposable {
     }
     return amount;
   }
+
   async forwarding(id: string) {
     this.assertReady();
     const [r] = await this.auth.db
@@ -329,12 +334,14 @@ export class BillingService implements Disposable {
       .returning({ id: requests.id });
     if (!r) throw new Error('Request reservation lost');
   }
+
   private async writeUsage(tx: Transaction, id: string, usage: Usage) {
     await tx
       .insert(requestUsage)
       .values({ requestId: id, ...usage })
       .onConflictDoUpdate({ target: requestUsage.requestId, set: usage });
   }
+
   async checkpoint(id: string, summary: BillingSummary) {
     this.assertReady();
     await this.auth.db.transaction(async (tx) => {
@@ -359,6 +366,7 @@ export class BillingService implements Disposable {
         .where(eq(requests.id, id));
     });
   }
+
   async finish(id: string, summary: BillingSummary) {
     this.assertReady();
     try {
@@ -413,6 +421,7 @@ export class BillingService implements Disposable {
       this.active.delete(id);
     }
   }
+
   private async reviewFailed(id: string, summary?: BillingSummary) {
     await this.auth.db.transaction(async (tx) => {
       const [r] = await tx.select().from(requests).where(eq(requests.id, id)).for('update');
@@ -432,11 +441,13 @@ export class BillingService implements Disposable {
     });
     this.logError(`Billing requires manual review after financial processing failure: ${id}`);
   }
+
   private async pinned(r: RequestRow, usage: Usage) {
     const locked = this.pricing.restore(r.reservationSnapshot?.pricing, r.receivedAt);
     if (locked.modelId !== r.modelId) throw new Error('Price snapshot scope mismatch');
     return this.pricing.calculate(locked, usage);
   }
+
   private async release(tx: Transaction, r: RequestRow, actorId: string | undefined, reason: string) {
     const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, r.userId)).for('update');
     if (!wallet || wallet.reservedMicros < r.heldMicros) throw new Error('Wallet reservation mismatch');
@@ -461,6 +472,7 @@ export class BillingService implements Disposable {
       .set({ status: 'released', heldMicros: 0n, chargedMicros: 0n, finishedAt: new Date() })
       .where(eq(requests.id, r.id));
   }
+
   private async charge(
     tx: Transaction,
     r: RequestRow,
@@ -502,6 +514,7 @@ export class BillingService implements Disposable {
       })
       .where(eq(requests.id, r.id));
   }
+
   private async settleStored(id: string) {
     this.assertReady();
     await this.auth.db.transaction(async (tx) => {
@@ -528,6 +541,7 @@ export class BillingService implements Disposable {
       await this.charge(tx, r, BigInt(priced.totalMicros), priced);
     });
   }
+
   private async recover() {
     this.assertReady();
     const rows = await this.auth.db
@@ -574,6 +588,7 @@ export class BillingService implements Disposable {
       }
     }
   }
+
   async tick() {
     if (!this.healthy || this.ticking) return;
     this.ticking = true;
@@ -668,6 +683,7 @@ export class BillingService implements Disposable {
       })),
     };
   }
+
   async resolve(principal: Principal, input: z.infer<typeof resolveBillInput>) {
     this.assertReady();
     if (input.action === 'settle_usage' && !input.usage)
@@ -746,6 +762,7 @@ export class BillingService implements Disposable {
       return { success: true, userId: r.userId };
     });
   }
+
   async correct(principal: Principal, input: z.infer<typeof correctBillInput>) {
     this.assertReady();
     const target = parseMoney(input.amount);
@@ -804,6 +821,7 @@ export class BillingService implements Disposable {
       return { success: true, userId: r.userId };
     });
   }
+
   async reconcile(userId: string) {
     return this.auth.db.transaction(
       async (tx) => {

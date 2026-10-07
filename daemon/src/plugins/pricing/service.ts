@@ -68,6 +68,7 @@ export class PricingService {
     this.auth = auth;
     this.currency = currency;
   }
+
   async list(scope: z.infer<typeof priceScope>) {
     const [model] = await this.auth.db
       .select({ id: models.id })
@@ -89,6 +90,7 @@ export class PricingService {
     );
     return { currency: this.currency, rules: rules.map(serializeRule) };
   }
+
   async save(principal: Principal, input: z.infer<typeof savePriceInput>) {
     const expanded = expandRules(input.rules);
     if (expanded.length > 200) throw new TRPCError({ code: 'BAD_REQUEST', message: '拆分跨午夜时段后最多 200 条规则' });
@@ -119,6 +121,7 @@ export class PricingService {
       return { success: true };
     });
   }
+
   async lock(
     modelId: string,
     at: Date,
@@ -135,6 +138,7 @@ export class PricingService {
     validateRules(rules);
     return { modelId, rules, multiplierMicros, multiplierSource, receivedAt: at };
   }
+
   snapshot(locked: LockedPrice) {
     return {
       modelId: locked.modelId,
@@ -144,6 +148,7 @@ export class PricingService {
       receivedAt: locked.receivedAt.toISOString(),
     };
   }
+
   restore(snapshot: unknown, receivedAt: Date): LockedPrice {
     const saved = snapshotInput.parse(snapshot);
     if (new Date(saved.receivedAt).getTime() !== receivedAt.getTime()) throw new Error('Price snapshot time mismatch');
@@ -157,6 +162,7 @@ export class PricingService {
       multiplierSource: saved.multiplierSource,
     };
   }
+
   calculate(locked: LockedPrice, usage: Quantities) {
     return {
       currency: this.currency,
@@ -166,6 +172,7 @@ export class PricingService {
       billed: false,
     };
   }
+
   async preview(input: z.infer<typeof previewInput>) {
     const at = new Date(input.at);
     let multiplierMicros = input.multiplier ? parseMoney(input.multiplier) : 1_000_000n;
