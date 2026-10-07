@@ -15,7 +15,6 @@ const categories = [
   ['cacheReadPrice', '缓存读取'],
   ['cacheWritePrice', '缓存写入'],
 ] as const;
-const kinds = { default: '默认', context: '上下文', time: '时段', combined: '上下文与时段' };
 const minuteText = (minute: number) =>
   `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
 
