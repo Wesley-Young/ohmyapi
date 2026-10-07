@@ -73,6 +73,8 @@ export class WalletService {
           throw new TRPCError({ code: 'CONFLICT', message: '该操作标识已用于其他余额调整' });
         return ledgerDto(existing);
       }
+      const [target] = await tx.select().from(users).where(eq(users.id, input.userId)).for('update');
+      if (!target || target.deletedAt) throw new TRPCError({ code: 'NOT_FOUND', message: '用户不存在或已删除' });
       const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, input.userId)).for('update');
       if (!wallet) throw new TRPCError({ code: 'NOT_FOUND', message: '钱包不存在' });
       const next = wallet.balanceMicros + delta;

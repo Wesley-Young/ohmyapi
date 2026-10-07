@@ -342,7 +342,8 @@ export class CatalogService {
   async setGrants(principal: Principal, userId: string, modelIds: string[]) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [user] = await tx.select().from(users).where(eq(users.id, userId)).for('update');
-      if (user?.role !== 'user') throw new TRPCError({ code: 'BAD_REQUEST', message: '仅为普通用户设置模型授权' });
+      if (user?.role !== 'user' || user.deletedAt)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '仅为未删除的普通用户设置模型授权' });
       const ids = [...new Set(modelIds)];
       if (
         ids.length &&

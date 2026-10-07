@@ -113,9 +113,9 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) => ctx.keys.create(ctx.principal, input)),
-    revoke: protectedProcedure
+    delete: protectedProcedure
       .input(z.object({ keyId: z.uuid() }))
-      .mutation(({ ctx, input }) => ctx.keys.revoke(ctx.principal, input.keyId)),
+      .mutation(({ ctx, input }) => ctx.keys.delete(ctx.principal, input.keyId)),
   }),
   wallet: t.router({
     get: protectedProcedure.query(({ ctx }) => ctx.wallet.get(ctx.principal.user.id)),
@@ -174,6 +174,9 @@ export const appRouter = t.router({
         .input(z.object({ page, search: z.string().trim().max(64).default('') }).default({ page: 0, search: '' }))
         .query(({ ctx, input }) => ctx.users.list(input.page, input.search)),
       get: adminProcedure.input(userId).query(({ ctx, input }) => ctx.users.get(input.userId)),
+      delete: adminProcedure
+        .input(userId)
+        .mutation(({ ctx, input }) => ctx.users.manage(ctx.principal, input.userId, 'delete')),
       create: adminProcedure
         .input(z.object({ username, password: password.optional() }))
         .mutation(({ ctx, input }) => ctx.users.create(ctx.principal, input.username, input.password)),

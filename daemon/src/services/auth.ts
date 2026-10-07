@@ -57,6 +57,7 @@ export class AuthService {
           isNull(sessions.revokedAt),
           gt(sessions.expiresAt, new Date()),
           eq(users.status, 'active'),
+          isNull(users.deletedAt),
         ),
       );
     return row ? { user: publicUser(row.user), sessionId: row.sessionId } : null;
@@ -81,7 +82,7 @@ export class AuthService {
             gt(sessions.expiresAt, new Date()),
           ),
         );
-      if (user?.status !== 'active' || !session)
+      if (user?.status !== 'active' || user.deletedAt || !session)
         throw new TRPCError({ code: 'UNAUTHORIZED', message: '登录已失效，请重新登录' });
       if (options.admin && user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: '需要管理员权限' });
       return work(tx, user);
@@ -97,13 +98,16 @@ export class AuthService {
 
   async login(username: string, password: string) {
     this.limitLogin(username);
-    const [candidate] = await this.db.select().from(users).where(eq(users.username, username));
+    const [candidate] = await this.db
+      .select()
+      .from(users)
+      .where(and(eq(users.username, username), isNull(users.deletedAt)));
     const valid = await verifyPassword(password, candidate?.passwordHash ?? (await this.dummyHash));
     if (!candidate || !valid || candidate.status !== 'active')
       throw new TRPCError({ code: 'UNAUTHORIZED', message: '用户名或密码错误' });
     return this.db.transaction(async (tx) => {
       const [user] = await tx.select().from(users).where(eq(users.id, candidate.id)).for('update');
-      if (user.status !== 'active' || user.passwordHash !== candidate.passwordHash)
+      if (user.status !== 'active' || user.deletedAt || user.passwordHash !== candidate.passwordHash)
         throw new TRPCError({ code: 'UNAUTHORIZED', message: '用户名或密码错误' });
       const session = await this.createSession(tx, user.id);
       this.attempts.delete(username);

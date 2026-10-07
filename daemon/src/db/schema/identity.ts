@@ -10,6 +10,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -22,13 +23,17 @@ export const users = pgTable(
   'users',
   {
     id: id(),
-    username: text('username').notNull().unique(),
+    username: text('username').notNull(),
     passwordHash: text('password_hash').notNull(),
     role: userRole('role').default('user').notNull(),
     status: userStatus('status').default('active').notNull(),
     createdAt: createdAt(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
-  (table) => [check('users_username_format', sql`${table.username} ~ '^[a-z0-9][a-z0-9_.-]{2,63}$'`)],
+  (table) => [
+    uniqueIndex('users_username_unique').on(table.username).where(sql`${table.deletedAt} is null`),
+    check('users_username_format', sql`${table.username} ~ '^[a-z0-9][a-z0-9_.-]{2,63}$'`),
+  ],
 );
 
 export const sessions = pgTable(
@@ -59,6 +64,7 @@ export const apiKeys = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     createdAt: createdAt(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => [index('api_keys_user_idx').on(table.userId), unique('api_keys_owner_unique').on(table.id, table.userId)],
 );

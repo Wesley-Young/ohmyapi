@@ -1,6 +1,6 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, isNull, like } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
 
 import { generatePassword, hashPassword } from '../auth/password.js';
 import { formatMoney } from '../billing/conventions.js';
@@ -22,7 +22,12 @@ export class UserService {
       .select({ user: users, wallet: wallets })
       .from(users)
       .innerJoin(wallets, eq(users.id, wallets.userId))
-      .where(search ? like(users.username, `%${search.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`) : undefined)
+      .where(
+        and(
+          isNull(users.deletedAt),
+          search ? like(users.username, `%${search.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`) : undefined,
+        ),
+      )
       .orderBy(desc(users.createdAt), desc(users.id))
       .limit(pageSize + 1)
       .offset(page * pageSize);
@@ -40,7 +45,7 @@ export class UserService {
   async get(userId: string) {
     const [user] = await this.auth.db.select().from(users).where(eq(users.id, userId));
     if (!user) throw new TRPCError({ code: 'NOT_FOUND', message: '用户不存在' });
-    return { ...publicUser(user), createdAt: user.createdAt.toISOString() };
+    return { ...publicUser(user), createdAt: user.createdAt.toISOString(), deleted: user.deletedAt !== null };
   }
 
   async create(principal: Principal, username: string, password: string = generatePassword()) {
@@ -49,7 +54,7 @@ export class UserService {
       const [user] = await tx
         .insert(users)
         .values({ username, passwordHash })
-        .onConflictDoNothing({ target: users.username })
+        .onConflictDoNothing({ target: users.username, where: isNull(users.deletedAt) })
         .returning();
       if (!user) throw new TRPCError({ code: 'CONFLICT', message: '用户名已存在' });
       await tx.insert(wallets).values({ userId: user.id });
@@ -67,12 +72,16 @@ export class UserService {
   async manage(
     principal: Principal,
     userId: string,
-    action: 'enable' | 'disable' | 'revoke_sessions' | 'reset_password',
+    action: 'enable' | 'disable' | 'revoke_sessions' | 'reset_password' | 'delete',
     password?: string,
   ) {
     const passwordHash = action === 'reset_password' && password ? await hashPassword(password) : undefined;
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
-      const [target] = await tx.select().from(users).where(eq(users.id, userId)).for('update');
+      const [target] = await tx
+        .select()
+        .from(users)
+        .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+        .for('update');
       if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: '用户不存在' });
       if (target.role !== 'user') throw new TRPCError({ code: 'FORBIDDEN', message: '此操作仅适用于普通用户' });
       if (action === 'reset_password' && !passwordHash)
@@ -83,6 +92,14 @@ export class UserService {
           .set({ status: action === 'enable' ? 'active' : 'disabled' })
           .where(eq(users.id, userId));
       if (action === 'reset_password') await tx.update(users).set({ passwordHash }).where(eq(users.id, userId));
+      if (action === 'delete') {
+        const now = new Date();
+        await tx.update(users).set({ deletedAt: now, status: 'disabled' }).where(eq(users.id, userId));
+        await tx
+          .update(apiKeys)
+          .set({ deletedAt: now, revokedAt: sql`coalesce(${apiKeys.revokedAt}, ${now})` })
+          .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.deletedAt)));
+      }
       if (action !== 'enable')
         await tx
           .update(sessions)
@@ -90,9 +107,13 @@ export class UserService {
           .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
       if (action === 'reset_password')
         await tx.update(apiKeys).set({ revokedAt: new Date() }).where(eq(apiKeys.userId, userId));
-      await tx
-        .insert(adminAuditLogs)
-        .values({ actorId: actor.id, action: `user.${action}`, targetType: 'user', targetId: userId });
+      await tx.insert(adminAuditLogs).values({
+        actorId: actor.id,
+        action: `user.${action}`,
+        targetType: 'user',
+        targetId: userId,
+        metadata: { username: target.username },
+      });
       return { success: true };
     });
   }

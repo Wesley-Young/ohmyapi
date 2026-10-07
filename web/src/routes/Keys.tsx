@@ -14,18 +14,9 @@ import {
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import {
-  ConfirmAction,
-  ErrorText,
-  FormDialog,
-  FormInput,
-  Loading,
-  PageControls,
-  PrimaryButton,
-  Title,
-} from '../components/ui';
+import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton, Title } from '../components/ui';
 import { formError, localDate } from '../lib/format';
-import { queryClient, trpc, trpcClient } from '../lib/trpc';
+import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './Catalog';
 
 export default function Keys() {
@@ -44,6 +35,15 @@ export default function Keys() {
   const [binding, setBinding] = useState<string>();
   const [bindChannelId, setBindChannelId] = useState('');
   const refresh = () => queryClient.invalidateQueries(trpc.keys.list.pathFilter());
+  const deletion = useMutation(
+    trpc.keys.delete.mutationOptions({
+      onSuccess: async () => {
+        setCopiedId(undefined);
+        setPage(0);
+        await refresh();
+      },
+    }),
+  );
   const task = useMutation(
     trpc.keys.create.mutationOptions({
       onSuccess: async () => {
@@ -100,6 +100,7 @@ export default function Keys() {
       </Title>
       <ErrorText>{formError(data.error ?? channels.error)?.message}</ErrorText>
       <ErrorText>{copyError}</ErrorText>
+      <ErrorText>{formError(deletion.error)?.message}</ErrorText>
       {creating && (
         <FormDialog open title="创建 Key" busy={task.isPending} onClose={close}>
           <form
@@ -315,13 +316,17 @@ export default function Keys() {
                                 绑定渠道
                               </Button>
                             )}
-                            <ConfirmAction
-                              label="撤销"
-                              description={`撤销「${key.name}」后无法恢复。`}
-                              disabled={Boolean(key.revokedAt)}
-                              action={() => trpcClient.keys.revoke.mutate({ keyId: key.id })}
-                              onSuccess={refresh}
-                            />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              color="red.600"
+                              aria-label={`删除 Key「${key.name}」`}
+                              disabled={deletion.isPending}
+                              loading={deletion.isPending && deletion.variables?.keyId === key.id}
+                              onClick={() => deletion.mutate({ keyId: key.id })}
+                            >
+                              删除
+                            </Button>
                           </HStack>
                         </Table.Cell>
                       </Table.Row>

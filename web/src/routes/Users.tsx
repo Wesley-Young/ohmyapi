@@ -3,9 +3,19 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
-import { ErrorText, FormDialog, FormInput, Loading, PageControls, Panel, PrimaryButton, Title } from '../components/ui';
+import {
+  ConfirmAction,
+  ErrorText,
+  FormDialog,
+  FormInput,
+  Loading,
+  PageControls,
+  Panel,
+  PrimaryButton,
+  Title,
+} from '../components/ui';
 import { displayMoney, formError, localDate } from '../lib/format';
-import { queryClient, trpc } from '../lib/trpc';
+import { invalidateUser, queryClient, trpc, trpcClient } from '../lib/trpc';
 
 export default function Users() {
   const [page, setPage] = useState(0);
@@ -196,7 +206,7 @@ export default function Users() {
                       <Table.ColumnHeader>状态</Table.ColumnHeader>
                       <Table.ColumnHeader textAlign="end">余额（{data.data.currency}）</Table.ColumnHeader>
                       <Table.ColumnHeader>创建时间</Table.ColumnHeader>
-                      <Table.ColumnHeader />
+                      <Table.ColumnHeader>操作</Table.ColumnHeader>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -212,9 +222,24 @@ export default function Users() {
                         </Table.Cell>
                         <Table.Cell whiteSpace="nowrap">{localDate(user.createdAt)}</Table.Cell>
                         <Table.Cell>
-                          <Link asChild color="#635bff" fontWeight="500">
-                            <RouterLink to={`/console/users/${user.id}`}>管理</RouterLink>
-                          </Link>
+                          <HStack gap="3">
+                            <Link asChild color="#635bff" fontWeight="500">
+                              <RouterLink to={`/console/users/${user.id}`}>管理</RouterLink>
+                            </Link>
+                            {user.role === 'user' && (
+                              <ConfirmAction
+                                label="删除"
+                                danger
+                                description={`删除用户「${user.username}」后，其会话和所有 API Key 将失效。余额、历史请求与流水保留。`}
+                                action={() => trpcClient.admin.users.delete.mutate({ userId: user.id })}
+                                onSuccess={async () => {
+                                  if (credentials?.user.id === user.id) task.reset();
+                                  setPage(0);
+                                  await invalidateUser(user.id);
+                                }}
+                              />
+                            )}
+                          </HStack>
                         </Table.Cell>
                       </Table.Row>
                     ))}

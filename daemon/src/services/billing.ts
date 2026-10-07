@@ -208,10 +208,11 @@ export class BillingService {
               eq(apiKeys.userId, input.userId),
               eq(apiKeyChannels.channelId, input.channelId),
               isNull(apiKeys.revokedAt),
+              isNull(apiKeys.deletedAt),
               or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
             ),
           );
-        if (user?.status !== 'active' || !key)
+        if (user?.status !== 'active' || user.deletedAt || !key)
           throw new GatewayError(401, 'invalid_api_key', 'Invalid or expired API Key');
         const [channel] = await tx
           .select({ id: channels.id })

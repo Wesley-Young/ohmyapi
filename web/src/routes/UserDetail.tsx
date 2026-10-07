@@ -1,8 +1,8 @@
-import { Box, Grid, Heading, HStack, Link, Stack, Text } from '@chakra-ui/react';
+import { Badge, Box, Grid, Heading, HStack, Link, Stack, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { TRPCClientError } from '@trpc/client';
 import { useRef, useState } from 'react';
-import { Link as RouterLink, useParams } from 'react-router';
+import { Link as RouterLink, useNavigate, useParams } from 'react-router';
 
 import { ModelGrants } from '../components/model-grants';
 import { WalletReconciliation } from '../components/request-billing';
@@ -185,6 +185,7 @@ function ResetPassword({ userId }: { userId: string }) {
 
 export default function UserDetail() {
   const userId = useParams().userId ?? '';
+  const navigate = useNavigate();
   const [page, setPage] = useState(0);
   const user = useQuery(trpc.admin.users.get.queryOptions({ userId }));
   const wallet = useQuery(trpc.admin.wallet.get.queryOptions({ userId }));
@@ -204,26 +205,38 @@ export default function UserDetail() {
           <>
             <Title
               action={
-                <HStack gap="3">
-                  <Text fontSize="sm" color="gray.500">
-                    {user.data.status === 'active' ? '启用' : '已禁用'}
-                  </Text>
-                  {user.data.role === 'user' && (
-                    <ConfirmAction
-                      label={user.data.status === 'active' ? '禁用' : '启用'}
-                      description={
-                        user.data.status === 'active'
-                          ? '该用户的会话将失效，API Key 将暂停访问。'
-                          : '重新允许该用户登录及使用尚未撤销的 API Key。'
-                      }
-                      action={async () => {
-                        await trpcClient.admin.users.setStatus.mutate({
-                          userId,
-                          status: user.data?.status === 'active' ? 'disabled' : 'active',
-                        });
-                        await invalidateUser(userId);
-                      }}
-                    />
+                <HStack gap="3" flexWrap="wrap">
+                  <Badge colorPalette={user.data.deleted || user.data.status === 'disabled' ? 'gray' : 'green'}>
+                    {user.data.deleted ? '已删除' : user.data.status === 'active' ? '启用' : '已禁用'}
+                  </Badge>
+                  {user.data.role === 'user' && !user.data.deleted && (
+                    <>
+                      <ConfirmAction
+                        label={user.data.status === 'active' ? '禁用' : '启用'}
+                        description={
+                          user.data.status === 'active'
+                            ? '该用户的会话将失效，API Key 将暂停访问。'
+                            : '重新允许该用户登录及使用尚未撤销的 API Key。'
+                        }
+                        action={async () => {
+                          await trpcClient.admin.users.setStatus.mutate({
+                            userId,
+                            status: user.data?.status === 'active' ? 'disabled' : 'active',
+                          });
+                          await invalidateUser(userId);
+                        }}
+                      />
+                      <ConfirmAction
+                        label="删除用户"
+                        danger
+                        description={`删除用户「${user.data.username}」后，其会话和所有 API Key 将失效。余额、历史请求与流水保留。`}
+                        action={() => trpcClient.admin.users.delete.mutate({ userId })}
+                        onSuccess={async () => {
+                          await invalidateUser(userId);
+                          navigate('/console/users', { replace: true });
+                        }}
+                      />
+                    </>
                   )}
                 </HStack>
               }
@@ -234,12 +247,14 @@ export default function UserDetail() {
             <Box>
               <WalletReconciliation userId={userId} />
             </Box>
-            <Grid templateColumns={{ base: '1fr', md: '1fr 1fr' }} gap="5">
-              <Adjustment key={userId} userId={userId} />
-              {user.data.role === 'user' && <ResetPassword key={userId} userId={userId} />}
-            </Grid>
-            {user.data.role === 'user' && <ModelGrants key={userId} userId={userId} />}
-            {user.data.role === 'user' && (
+            {!user.data.deleted && (
+              <Grid templateColumns={{ base: '1fr', md: '1fr 1fr' }} gap="5">
+                <Adjustment key={userId} userId={userId} />
+                {user.data.role === 'user' && <ResetPassword key={userId} userId={userId} />}
+              </Grid>
+            )}
+            {user.data.role === 'user' && !user.data.deleted && <ModelGrants key={userId} userId={userId} />}
+            {user.data.role === 'user' && !user.data.deleted && (
               <Box>
                 <ConfirmAction
                   label="退出所有会话"

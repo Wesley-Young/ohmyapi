@@ -4,6 +4,7 @@ import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import type { Database } from '../db/client.js';
 import {
+  adminAuditLogs,
   apiKeyChannels,
   apiKeyModelGrants,
   apiKeys,
@@ -80,7 +81,7 @@ export class KeyService {
       const [key] = await tx
         .select()
         .from(apiKeys)
-        .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, user.id)))
+        .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, user.id), isNull(apiKeys.deletedAt)))
         .for('update');
       if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'Key 不存在' });
       if (key.revokedAt || (key.expiresAt && key.expiresAt <= new Date()))
@@ -111,7 +112,7 @@ export class KeyService {
       .from(apiKeys)
       .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
       .leftJoin(channels, eq(channels.id, apiKeyChannels.channelId))
-      .where(eq(apiKeys.userId, userId))
+      .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.deletedAt)))
       .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
       .limit(pageSize + 1)
       .offset(page * pageSize);
@@ -158,6 +159,7 @@ export class KeyService {
           and(
             eq(apiKeys.userId, user.id),
             isNull(apiKeys.revokedAt),
+            isNull(apiKeys.deletedAt),
             or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
           ),
         );
@@ -185,14 +187,22 @@ export class KeyService {
     });
   }
 
-  async revoke(principal: Principal, keyId: string) {
+  async delete(principal: Principal, keyId: string) {
     return this.auth.authorized(principal, {}, async (tx, user) => {
+      const now = new Date();
       const [key] = await tx
         .update(apiKeys)
-        .set({ revokedAt: new Date() })
-        .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, user.id)))
-        .returning({ id: apiKeys.id });
-      if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'Key 不存在' });
+        .set({ deletedAt: now, revokedAt: sql`coalesce(${apiKeys.revokedAt}, ${now})` })
+        .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, user.id), isNull(apiKeys.deletedAt)))
+        .returning({ id: apiKeys.id, name: apiKeys.name });
+      if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'Key 不存在或已删除' });
+      await tx.insert(adminAuditLogs).values({
+        actorId: user.id,
+        action: 'key.delete',
+        targetType: 'api_key',
+        targetId: key.id,
+        metadata: { name: key.name },
+      });
       return { success: true };
     });
   }

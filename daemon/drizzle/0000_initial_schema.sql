@@ -79,6 +79,7 @@ CREATE TABLE "api_keys" (
 	"expires_at" timestamp with time zone,
 	"revoked_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"deleted_at" timestamp with time zone,
 	CONSTRAINT "api_keys_key_unique" UNIQUE("key"),
 	CONSTRAINT "api_keys_owner_unique" UNIQUE("id","user_id")
 );
@@ -116,7 +117,7 @@ CREATE TABLE "users" (
 	"role" "user_role" DEFAULT 'user' NOT NULL,
 	"status" "user_status" DEFAULT 'active' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "users_username_unique" UNIQUE("username"),
+	"deleted_at" timestamp with time zone,
 	CONSTRAINT "users_username_format" CHECK ("users"."username" ~ '^[a-z0-9][a-z0-9_.-]{2,63}$')
 );
 --> statement-breakpoint
@@ -248,6 +249,7 @@ ALTER TABLE "wallet_ledger" ADD CONSTRAINT "wallet_ledger_request_id_requests_id
 ALTER TABLE "wallet_ledger" ADD CONSTRAINT "wallet_ledger_actor_id_users_id_fk" FOREIGN KEY ("actor_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wallet_ledger" ADD CONSTRAINT "wallet_ledger_request_id_user_id_requests_id_user_id_fk" FOREIGN KEY ("request_id","user_id") REFERENCES "public"."requests"("id","user_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wallets" ADD CONSTRAINT "wallets_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "users_username_unique" ON "users" USING btree ("username") WHERE "users"."deleted_at" is null;--> statement-breakpoint
 CREATE UNIQUE INDEX "channels_name_unique" ON "channels" USING btree ("name") WHERE "channels"."deleted_at" is null;--> statement-breakpoint
 CREATE UNIQUE INDEX "models_name_unique" ON "models" USING btree ("name") WHERE "models"."deleted_at" is null;--> statement-breakpoint
 CREATE INDEX "audit_actor_time_idx" ON "admin_audit_logs" USING btree ("actor_id","created_at");--> statement-breakpoint

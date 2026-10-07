@@ -128,8 +128,10 @@ export class GatewayService {
         and(
           eq(apiKeys.key, token),
           isNull(apiKeys.revokedAt),
+          isNull(apiKeys.deletedAt),
           or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
           eq(users.status, 'active'),
+          isNull(users.deletedAt),
         ),
       );
     if (!identity) throw new GatewayError(401, 'invalid_api_key', 'Invalid or expired API Key');
