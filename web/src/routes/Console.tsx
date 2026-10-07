@@ -1,5 +1,14 @@
 import { Box, Flex, HStack, Link, Stack, Text } from '@chakra-ui/react';
-import { KeyRound, Layers, LayoutDashboard, Network, ScrollText, UserRound, Users } from 'lucide-react';
+import {
+  CircleDollarSign,
+  KeyRound,
+  Layers,
+  LayoutDashboard,
+  Network,
+  ScrollText,
+  UserRound,
+  Users,
+} from 'lucide-react';
 import { Navigate, NavLink, Outlet, Link as RouterLink } from 'react-router';
 
 import { Logo } from '../components/logo';
@@ -12,7 +21,7 @@ const navigationIcons = {
   users: Users,
   channels: Network,
   models: Layers,
-  plaza: Layers,
+  plaza: CircleDollarSign,
 };
 
 function NavigationIcon({ name }: { name: keyof typeof navigationIcons }) {
