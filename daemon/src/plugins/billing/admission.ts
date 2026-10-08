@@ -70,6 +70,16 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
     );
   if (body.n !== undefined && body.n !== 1)
     throw new GatewayError(400, 'unsupported_billing_mode', 'Only one completion per request is supported');
+  if (
+    body.web_search_options != null ||
+    body.enable_search === true ||
+    (typeof body.model === 'string' && /(?:^|-)search-(?:preview|api)(?:-\d{4}-\d{2}-\d{2})?$/.test(body.model))
+  )
+    throw new GatewayError(
+      400,
+      'unsupported_billing_mode',
+      'Search options and search models with additional charges are not supported',
+    );
   for (const field of ['previous_response_id', 'conversation', 'prompt', 'audio', 'prediction'])
     if (body[field] !== undefined && body[field] !== null)
       throw new GatewayError(400, 'unsupported_billing_mode', `${field} is not supported for billing`);
