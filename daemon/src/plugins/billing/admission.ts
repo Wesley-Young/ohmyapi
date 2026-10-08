@@ -55,8 +55,8 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
       : endpoint === '/v1/messages'
         ? ['max_tokens']
         : ['max_completion_tokens', 'max_tokens'];
-  const supplied = fields.filter((field) => body[field] !== undefined);
-  const defaultOutput = endpoint === '/v1/responses' && body.max_output_tokens == null;
+  const supplied = fields.filter((field) => body[field] != null);
+  const defaultOutput = endpoint !== '/v1/messages' && supplied.length === 0;
   if (!defaultOutput && supplied.length !== 1)
     throw new GatewayError(400, 'output_limit_required', `Provide exactly one output limit: ${fields.join(' or ')}`);
   // 缺省上限只用于预占估算，保留上游请求中的缺省值或 null。
@@ -124,11 +124,6 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
         'Images, audio, files and hosted tools are not supported for billing',
       );
     for (const value of Object.values(object)) stack.push(value);
-  }
-  if (endpoint === '/v1/chat/completions' && body.stream === true) {
-    const options = body.stream_options as Record<string, unknown> | undefined;
-    if (options?.include_usage !== true)
-      throw new GatewayError(400, 'usage_required', 'Streaming chat requires stream_options.include_usage=true');
   }
   return output;
 }

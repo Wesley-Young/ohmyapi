@@ -413,6 +413,15 @@ export class GatewayService implements Disposable {
       );
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
       const outputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
+      let upstreamBody = bytes;
+      if (endpoint === '/v1/chat/completions' && streaming) {
+        const options = parsed.stream_options;
+        if (options != null && (typeof options !== 'object' || Array.isArray(options)))
+          throw new GatewayError(400, 'invalid_request', 'stream_options must be an object');
+        // 保留其他流式选项，并主动请求结算所需的 usage。
+        parsed.stream_options = { ...(options as Record<string, unknown> | undefined), include_usage: true };
+        upstreamBody = Buffer.from(JSON.stringify(parsed));
+      }
 
       // Build upstream authentication and protocol headers.
       const credential = this.vault.decrypt(route.channel.credentialEncrypted);
@@ -458,7 +467,7 @@ export class GatewayService implements Disposable {
       const upstream = await fetch(target, {
         method: 'POST',
         headers,
-        body: bytes,
+        body: upstreamBody,
         signal: abort.signal,
         redirect: 'manual',
       });
