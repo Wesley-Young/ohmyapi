@@ -108,7 +108,21 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
     'web_search_tool_result',
     'server_tool_use',
   ]);
-  const stack: unknown[] = [body];
+  const stack: unknown[] = [];
+  if (endpoint === '/v1/responses') stack.push(body.input);
+  else {
+    if (endpoint === '/v1/messages') stack.push(body.system);
+    if (Array.isArray(body.messages)) {
+      for (const message of body.messages) {
+        if (!message || typeof message !== 'object' || Array.isArray(message)) continue;
+        const value = message as Record<string, unknown>;
+        if (value.audio != null)
+          throw new GatewayError(400, 'unsupported_billing_mode', 'Audio messages are not supported for billing');
+        stack.push(value.content);
+      }
+    }
+  }
+  // 按协议检查消息、内容块和工具结果，schema、examples 与业务数据保持原样。
   while (stack.length) {
     const item = stack.pop();
     if (!item || typeof item !== 'object') continue;
@@ -123,7 +137,9 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
         'unsupported_billing_mode',
         'Images, audio, files and hosted tools are not supported for billing',
       );
-    for (const value of Object.values(object)) stack.push(value);
+    if (object.type === 'message' || object.type === 'tool_result' || (object.type == null && object.role))
+      stack.push(object.content);
+    if (object.type === 'function_call_output' || object.type === 'custom_tool_call_output') stack.push(object.output);
   }
   return output;
 }
