@@ -448,7 +448,7 @@ export class GatewayService implements Disposable {
         throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
       await this.billing.forwarding(id);
 
-      // Apply the channel timeout and dispatch the original request body.
+      // 渠道超时用于等待响应；SSE 收到响应后改用独立的空闲超时。
       timer = setTimeout(() => abort.abort('upstream_timeout'), route.channel.timeoutMs);
       if (req.signal.aborted) disconnect();
       // Base URL accepts both an origin/prefix and an SDK-style .../v1 URL.
@@ -493,6 +493,12 @@ export class GatewayService implements Disposable {
 
       // Observe SSE events or buffer JSON while forwarding response bytes.
       const isSse = upstream.headers.get('content-type')?.toLowerCase().includes('text/event-stream') ?? false;
+      const resetIdleTimeout = () => {
+        if (!isSse || abort.signal.aborted) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => abort.abort('upstream_idle_timeout'), this.config.streamIdleTimeoutMs);
+      };
+      resetIdleTimeout();
       if (isSse) responseHeaders.set('x-accel-buffering', 'no');
       const observer = isSse ? new SseObserver(collector) : undefined;
       const jsonChunks: Uint8Array[] = [];
@@ -560,6 +566,7 @@ export class GatewayService implements Disposable {
                 else controller.close();
                 return;
               }
+              resetIdleTimeout();
               observer?.push(value);
 
               // Persist final usage or blocked settlement as soon as it is observed.
