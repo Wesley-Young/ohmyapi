@@ -120,6 +120,7 @@ export const appRouter = t.router({
       }),
   }),
   keys: t.router({
+    playgroundOptions: protectedProcedure.query(({ ctx }) => ctx.keys.playgroundOptions(ctx.principal)),
     list: protectedProcedure
       .input(pagination)
       .query(({ ctx, input }) => ctx.keys.list(ctx.principal.user.id, input.page)),

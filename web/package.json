@@ -10,12 +10,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.75",
+    "@ai-sdk/openai": "^4.0.87",
+    "@ai-sdk/openai-compatible": "^3.0.65",
+    "@ai-sdk/react": "^4.0.134",
     "@chakra-ui/react": "^3.37.0",
     "@emotion/react": "^11.14.0",
     "@ohmyapi/daemon": "workspace:*",
     "@tanstack/react-query": "^5.104.1",
     "@trpc/client": "^11.19.0",
     "@trpc/tanstack-react-query": "^11.19.0",
+    "ai": "^7.0.131",
     "lucide-react": "^1.52.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

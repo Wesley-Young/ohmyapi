@@ -13,6 +13,7 @@ import {
   channelEndpoints,
   channels,
   models,
+  priceRules,
   userModelGrants,
 } from '../database/schema/index.js';
 import { pageSize } from '../users/service.js';
@@ -84,6 +85,85 @@ export class KeyService {
         ).values(),
       ],
     }));
+  }
+
+  async playgroundOptions(principal: Principal) {
+    const rows = await this.auth.db
+      .selectDistinct({
+        keyId: apiKeys.id,
+        keyName: apiKeys.name,
+        token: apiKeys.key,
+        expiresAt: apiKeys.expiresAt,
+        channelName: channels.name,
+        endpoint: channelEndpoints.endpoint,
+        modelId: models.id,
+        modelName: models.name,
+        outputTokenLimit: models.outputTokenLimit,
+      })
+      .from(apiKeys)
+      .innerJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
+      .innerJoin(channels, eq(channels.id, apiKeyChannels.channelId))
+      .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
+      .innerJoin(channelAvailableModels, eq(channelAvailableModels.channelId, channels.id))
+      .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
+      .innerJoin(priceRules, and(eq(priceRules.modelId, models.id), eq(priceRules.kind, 'default')))
+      .leftJoin(
+        apiKeyModelGrants,
+        and(eq(apiKeyModelGrants.apiKeyId, apiKeys.id), eq(apiKeyModelGrants.modelId, models.id)),
+      )
+      .leftJoin(
+        userModelGrants,
+        and(eq(userModelGrants.userId, principal.user.id), eq(userModelGrants.modelId, models.id)),
+      )
+      .where(
+        and(
+          eq(apiKeys.userId, principal.user.id),
+          isNull(apiKeys.deletedAt),
+          isNull(apiKeys.revokedAt),
+          or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
+          eq(channels.enabled, true),
+          isNull(channels.deletedAt),
+          eq(models.enabled, true),
+          isNull(models.deletedAt),
+          or(eq(apiKeys.restrictModels, false), eq(apiKeyModelGrants.apiKeyId, apiKeys.id)),
+          principal.user.role === 'admin'
+            ? undefined
+            : or(eq(channels.isPublic, true), eq(userModelGrants.userId, principal.user.id)),
+        ),
+      )
+      .orderBy(apiKeys.name, apiKeys.id, models.name);
+
+    const options = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        token: string;
+        expiresAt: string | null;
+        channelName: string;
+        endpoints: (typeof rows)[number]['endpoint'][];
+        models: { id: string; name: string; outputTokenLimit: number }[];
+      }
+    >();
+    for (const row of rows) {
+      let key = options.get(row.keyId);
+      if (!key) {
+        key = {
+          id: row.keyId,
+          name: row.keyName,
+          token: row.token,
+          expiresAt: row.expiresAt?.toISOString() ?? null,
+          channelName: row.channelName,
+          endpoints: [],
+          models: [],
+        };
+        options.set(row.keyId, key);
+      }
+      if (!key.endpoints.includes(row.endpoint)) key.endpoints.push(row.endpoint);
+      if (!key.models.some((model) => model.id === row.modelId))
+        key.models.push({ id: row.modelId, name: row.modelName, outputTokenLimit: row.outputTokenLimit });
+    }
+    return [...options.values()];
   }
 
   async bindChannel(principal: Principal, keyId: string, channelId: string) {

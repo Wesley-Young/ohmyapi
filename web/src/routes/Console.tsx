@@ -1,6 +1,7 @@
 import { Box, Flex, HStack, Link, Stack, Text } from '@chakra-ui/react';
 import {
   CircleDollarSign,
+  FlaskConical,
   KeyRound,
   Layers,
   LayoutDashboard,
@@ -9,7 +10,7 @@ import {
   UserRound,
   Users,
 } from 'lucide-react';
-import { Navigate, NavLink, Outlet, Link as RouterLink } from 'react-router';
+import { Navigate, NavLink, Outlet, Link as RouterLink, useMatch } from 'react-router';
 
 import { Logo } from '../components/logo';
 import { useAuth } from '../lib/auth';
@@ -22,6 +23,7 @@ const navigationIcons = {
   channels: Network,
   models: Layers,
   plaza: CircleDollarSign,
+  playground: FlaskConical,
 };
 
 function NavigationIcon({ name }: { name: keyof typeof navigationIcons }) {
@@ -31,11 +33,13 @@ function NavigationIcon({ name }: { name: keyof typeof navigationIcons }) {
 
 export default function Console() {
   const auth = useAuth();
+  const playground = Boolean(useMatch('/console/playground'));
   if (!auth.data) return null;
   const links: { to: string; label: string; end: boolean; icon: keyof typeof navigationIcons }[] = [
     { to: '/console', label: '总览', end: true, icon: 'overview' },
     { to: '/console/model-plaza', label: '模型广场', end: false, icon: 'plaza' },
     { to: '/console/keys', label: 'API Key', end: false, icon: 'keys' },
+    { to: '/console/playground', label: 'Playground', end: false, icon: 'playground' },
     { to: '/console/requests', label: '请求', end: false, icon: 'requests' },
     ...(auth.data.role === 'admin'
       ? [
@@ -46,8 +50,17 @@ export default function Console() {
       : []),
   ];
   return (
-    <Box key={auth.data.id} minH="100dvh">
-      <Box as="header" position="sticky" top="0" zIndex="10" bg="white" borderBottomWidth="1px" borderColor="gray.200">
+    <Flex key={auth.data.id} direction="column" minH="100dvh" h={playground ? '100dvh' : undefined}>
+      <Box
+        as="header"
+        flexShrink="0"
+        position="sticky"
+        top="0"
+        zIndex="10"
+        bg="white"
+        borderBottomWidth="1px"
+        borderColor="gray.200"
+      >
         <Flex h="64px" px={{ base: 4, md: 6 }} justify="space-between" align="center" gap="4">
           <Link asChild fontSize="24px" textDecoration="none">
             <RouterLink to="/">
@@ -64,14 +77,14 @@ export default function Console() {
           </HStack>
         </Flex>
       </Box>
-      <Flex align="start" minH="calc(100dvh - 64px)">
+      <Flex align={playground ? 'stretch' : 'start'} flex="1" minH={playground ? '0' : 'calc(100dvh - 64px)'}>
         <Box
           as="aside"
           w={{ base: '64px', md: '208px', lg: '228px' }}
           flexShrink="0"
           position="sticky"
           top="64px"
-          h="calc(100dvh - 64px)"
+          h={playground ? 'full' : 'calc(100dvh - 64px)'}
           overflowY="auto"
           borderRightWidth="1px"
           borderColor="gray.200"
@@ -112,13 +125,25 @@ export default function Console() {
             ))}
           </Stack>
         </Box>
-        <Box flex="1" minW="0" px={{ base: 4, md: 8, lg: 10 }} py={{ base: 7, md: 10 }}>
-          <Stack gap="7" maxW="1280px" mx="auto">
+        <Box
+          flex="1"
+          minW="0"
+          minH="0"
+          px={playground ? 0 : { base: 4, md: 8, lg: 10 }}
+          py={playground ? 0 : { base: 7, md: 10 }}
+        >
+          <Stack
+            gap="7"
+            maxW={playground ? undefined : '1280px'}
+            h={playground ? 'full' : undefined}
+            minH="0"
+            mx="auto"
+          >
             <Outlet />
           </Stack>
         </Box>
       </Flex>
-    </Box>
+    </Flex>
   );
 }
 

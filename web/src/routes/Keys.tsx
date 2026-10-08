@@ -223,7 +223,7 @@ export default function Keys() {
               <Table.Root size="sm">
                 <Table.Header>
                   <Table.Row>
-                    {['名称', 'Key', '渠道', '模型', '有效期', '状态', '操作'].map((h) => (
+                    {['名称', 'Key', '渠道', '有效期', '状态', '操作'].map((h) => (
                       <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                     ))}
                   </Table.Row>
@@ -271,9 +271,6 @@ export default function Keys() {
                             {key.channelDeleted && <Badge colorPalette="gray">已删除</Badge>}
                           </HStack>
                         </Table.Cell>
-                        <Table.Cell minW="140px" maxW="280px" overflowWrap="anywhere">
-                          {key.restrictModels ? key.modelNames.join('、') || '无可用模型' : '所有'}
-                        </Table.Cell>
                         <Table.Cell whiteSpace="nowrap">{key.expiresAt ? localDate(key.expiresAt) : '长期'}</Table.Cell>
                         <Table.Cell whiteSpace="nowrap">
                           {key.revokedAt
@@ -302,7 +299,7 @@ export default function Keys() {
                               </Button>
                             )}
                             <Button
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
                               color="red.600"
                               aria-label={`删除 Key「${key.name}」`}
