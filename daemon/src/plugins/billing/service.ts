@@ -193,6 +193,7 @@ export class BillingService implements Disposable {
         error instanceof Error && error.message.startsWith('Another ohmyapi')
           ? error.message
           : 'Unable to initialize billing ownership and recovery',
+        { cause: error },
       );
     }
   }

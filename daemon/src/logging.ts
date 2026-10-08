@@ -1,5 +1,6 @@
 import { createColoredLogHandler } from '@fraqjs/color-log';
 import { Logger, type LogLevel } from '@fraqjs/kernel';
+import { DrizzleQueryError } from 'drizzle-orm';
 
 export const logHandler = createColoredLogHandler({ minLevel: 'debug' });
 export const globalLogger = new Logger(logHandler, 'ohmyapi');
@@ -17,6 +18,7 @@ const errorTypes = new Set([
   'TRPCError',
   'DrizzleQueryError',
   'DatabaseError',
+  'AggregateError',
 ]);
 const errorCodes = new Set([
   'ECONNREFUSED',
@@ -46,19 +48,59 @@ const errorReasons = new Map([
   ['Price snapshot time mismatch', 'price_snapshot_time_mismatch'],
 ]);
 
+function redactErrorMessage(message: string) {
+  return message
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, '$1[REDACTED]@')
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi, '$1 [REDACTED]')
+    .replace(/\bsk-[A-Za-z0-9_-]+/g, '[REDACTED]')
+    .replace(/\b(cookie|set-cookie)\s*:\s*[^\r\n]+/gi, '$1: [REDACTED]')
+    .replace(
+      /(["']?(?:password|passwd|api[-_]?key|access[-_]?token|refresh[-_]?token|secret|authorization|cookie)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;&]+)/gi,
+      '$1[REDACTED]',
+    );
+}
+
 export function errorDetails(error: unknown): LogFields {
   const fields: LogFields = { errorType: 'UnknownError' };
-  // 只提取错误类型和错误码，避免错误消息、堆栈及 cause 中的 SQL 参数泄漏。
-  for (let depth = 0; depth < 4 && error instanceof Error; depth++, error = error.cause) {
-    if (depth === 0) fields.errorType = errorTypes.has(error.name) ? error.name : 'Error';
-    const reason = errorReasons.get(error.message);
-    if (reason && fields.reason === undefined) fields.reason = reason;
-    const code = 'code' in error ? error.code : undefined;
-    if (typeof code === 'string' && (errorCodes.has(code) || /^[0-9A-Z]{5}$/.test(code))) {
-      fields.causeCode = code;
-      break;
+  const pending: unknown[] = [error];
+  const seen = new Set<unknown>();
+  const causes: string[] = [];
+  // 保留具体消息和底层原因；Drizzle 包装消息包含 SQL 与参数，改用底层异常消息。
+  while (pending.length && seen.size < 4) {
+    const current = pending.shift();
+    if (seen.has(current)) continue;
+    seen.add(current);
+    if (!(current instanceof Error)) {
+      if (typeof current === 'string') {
+        const message = redactErrorMessage(current);
+        if (seen.size === 1) fields.errorMessage = message;
+        else causes.push(message);
+      }
+      continue;
     }
+    const queryError = current instanceof DrizzleQueryError;
+    if (seen.size === 1)
+      fields.errorType = queryError ? 'DrizzleQueryError' : errorTypes.has(current.name) ? current.name : 'Error';
+    const code = 'code' in current ? current.code : undefined;
+    let message = queryError ? '数据库查询失败' : redactErrorMessage(current.message);
+    // PostgreSQL 的数据转换错误可能把实际参数值嵌入消息。
+    if (typeof code === 'string' && /^22[0-9A-Z]{3}$/.test(code))
+      message = message.replace(/"[^"]*"|'[^']*'/g, '[REDACTED]');
+    if (seen.size === 1) fields.errorMessage = message;
+    else causes.push(message);
+    const reason = errorReasons.get(current.message);
+    if (reason && fields.reason === undefined) fields.reason = reason;
+    if (
+      fields.causeCode === undefined &&
+      typeof code === 'string' &&
+      (errorCodes.has(code) || /^[0-9A-Z]{5}$/.test(code))
+    ) {
+      fields.causeCode = code;
+    }
+    if (current.cause !== undefined) pending.push(current.cause);
+    if (current instanceof AggregateError) pending.push(...current.errors.slice(0, 4));
   }
+  if (causes.length) fields.causeMessage = causes.join('; ');
   return fields;
 }
 

@@ -1,5 +1,5 @@
 import { readBillingCurrency, readDatabaseConfig } from '../config.js';
-import { globalLogger } from '../logging.js';
+import { errorDetails, globalLogger } from '../logging.js';
 import { initializeDatabase } from '../plugins/database/bootstrap.js';
 import { createDatabase } from '../plugins/database/client.js';
 
@@ -25,11 +25,6 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  // Drizzle query errors carry parameter values; do not log them or their causes.
-  globalLogger.error(
-    error instanceof Error && !('cause' in error)
-      ? error.message
-      : 'Database initialization failed. Check migrations and PostgreSQL connectivity.',
-  );
+  globalLogger.error(`数据库初始化失败 ${JSON.stringify(errorDetails(error))}`);
   process.exitCode = 1;
 });

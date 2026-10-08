@@ -1,5 +1,5 @@
 import { readDatabaseConfig } from '../config.js';
-import { globalLogger } from '../logging.js';
+import { errorDetails, globalLogger } from '../logging.js';
 import { createDatabase } from '../plugins/database/client.js';
 import { migrateDatabase } from '../plugins/database/migrate.js';
 
@@ -13,7 +13,7 @@ async function main() {
   }
 }
 
-main().catch(() => {
-  globalLogger.error('Database migration failed. Check DATABASE_URL, PostgreSQL connectivity, and migration SQL.');
+main().catch((error: unknown) => {
+  globalLogger.error(`数据库迁移失败 ${JSON.stringify(errorDetails(error))}`);
   process.exitCode = 1;
 });

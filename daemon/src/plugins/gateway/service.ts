@@ -77,7 +77,7 @@ export class GatewayService implements Disposable {
   error(endpoint: Endpoint | '/v1/models', status: number, code: string, message: string, id: string) {
     if (code === 'method_not_allowed' && this.sampleLog(code))
       this.logger.warn(
-        `网关请求被拒绝 ${JSON.stringify({ requestId: id, endpoint, httpStatus: status, errorCode: code })}`,
+        `网关请求被拒绝 ${JSON.stringify({ requestId: id, endpoint, httpStatus: status, errorCode: code, errorMessage: message })}`,
       );
     const type =
       status === 401
@@ -218,7 +218,7 @@ export class GatewayService implements Disposable {
             httpStatus: failure.status,
             errorCode: failure.code,
             durationMs: Date.now() - startedAt,
-            ...(error instanceof GatewayError ? {} : errorDetails(error)),
+            ...errorDetails(error),
           })}`,
         );
       return this.error('/v1/models', failure.status, failure.code, failure.message, id);
@@ -449,7 +449,7 @@ export class GatewayService implements Disposable {
         },
       });
     } catch (error) {
-      if (!(error instanceof GatewayError)) session.failureDetails = errorDetails(error);
+      session.failureDetails = errorDetails(error);
       const failure =
         error instanceof GatewayError
           ? error
