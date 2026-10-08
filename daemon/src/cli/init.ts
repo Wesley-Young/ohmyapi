@@ -1,4 +1,5 @@
 import { readBillingCurrency, readDatabaseConfig } from '../config.js';
+import { globalLogger } from '../logging.js';
 import { initializeDatabase } from '../plugins/database/bootstrap.js';
 import { createDatabase } from '../plugins/database/client.js';
 
@@ -13,7 +14,7 @@ async function main() {
   const { db, pool } = createDatabase(readDatabaseConfig());
   try {
     const result = await initializeDatabase(db, options);
-    console.info(
+    globalLogger.info(
       result.created
         ? 'Administrator, wallet, and billing settings initialized'
         : 'Database already initialized; existing credentials preserved',
@@ -25,7 +26,7 @@ async function main() {
 
 main().catch((error: unknown) => {
   // Drizzle query errors carry parameter values; do not log them or their causes.
-  console.error(
+  globalLogger.error(
     error instanceof Error && !('cause' in error)
       ? error.message
       : 'Database initialization failed. Check migrations and PostgreSQL connectivity.',

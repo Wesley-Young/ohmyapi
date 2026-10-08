@@ -2,6 +2,7 @@ import HonoPlugin from '@fraqjs/plugin-hono';
 
 import { readBillingCurrency, readDatabaseConfig } from './config.js';
 import { AppContext } from './kernel.js';
+import { logHandler } from './logging.js';
 import { AuthPlugin } from './plugins/auth/index.js';
 import { BillingPlugin } from './plugins/billing/index.js';
 import { CatalogPlugin } from './plugins/catalog/index.js';
@@ -15,9 +16,7 @@ import { WalletPlugin } from './plugins/wallet/index.js';
 
 export function createApp(options: { host: string; port: number }) {
   const ctx = AppContext.create();
-  ctx.logBus.on('log', ({ level, module, message, error }) => {
-    console[level](`[${module}] ${message}`, ...(error ? [error] : []));
-  });
+  ctx.logBus.on('log', logHandler);
   ctx.install(DatabasePlugin, readDatabaseConfig(), readBillingCurrency());
   ctx.install(AuthPlugin);
   ctx.install(UsersPlugin);

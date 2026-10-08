@@ -10,7 +10,7 @@ async function shutdown() {
   try {
     await ctx.stop();
   } catch (error) {
-    console.error('Failed to stop ohmyapi', error);
+    ctx.logger.error('Failed to stop ohmyapi', error);
     process.exitCode = 1;
   }
 }
@@ -20,7 +20,7 @@ try {
   process.once('SIGINT', () => void shutdown());
   process.once('SIGTERM', () => void shutdown());
 } catch (error) {
-  console.error('Failed to start ohmyapi', error);
+  ctx.logger.error('Failed to start ohmyapi', error);
   process.exitCode = 1;
   await shutdown();
 }

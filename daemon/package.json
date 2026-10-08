@@ -18,6 +18,7 @@
     "db:init": "tsx --env-file-if-exists=../.env src/cli/init.ts"
   },
   "dependencies": {
+    "@fraqjs/color-log": "^1.1.1",
     "@fraqjs/kernel": "^1.1.1",
     "@fraqjs/plugin-hono": "^1.1.0",
     "@hono/node-server": "^2.1.3",
