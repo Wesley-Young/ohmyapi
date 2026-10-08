@@ -45,6 +45,7 @@ export class UsageCollector {
   unknownCosts = false;
   failed = false;
   invalid = false;
+  observationIncomplete = false;
   private anthropic: ObjectValue = {};
   private readonly endpoint: Endpoint;
   constructor(endpoint: Endpoint) {
@@ -152,8 +153,10 @@ export class SseObserver {
   private skip = false;
   private previousCR = false;
   private readonly collector: UsageCollector;
-  constructor(collector: UsageCollector) {
+  private readonly maxEventBytes: number;
+  constructor(collector: UsageCollector, maxEventBytes: number) {
     this.collector = collector;
+    this.maxEventBytes = maxEventBytes;
   }
 
   push(chunk: Uint8Array) {
@@ -167,24 +170,33 @@ export class SseObserver {
   }
 
   private consume(text: string) {
-    for (const char of text) {
-      if (char === '\n' && this.previousCR) {
+    let offset = 0;
+    const breaks = /[\r\n]/g;
+    while (offset < text.length) {
+      if (this.previousCR) {
         this.previousCR = false;
-        continue;
+        if (text[offset] === '\n') {
+          offset++;
+          continue;
+        }
       }
-      this.previousCR = char === '\r';
-      if (char === '\r' || char === '\n') this.endLine();
-      else {
-        this.lineLength++;
-        if (this.skip) continue;
-        this.line += char;
-        if (++this.size > 1024 * 1024) {
+      breaks.lastIndex = offset;
+      const end = breaks.exec(text)?.index ?? text.length;
+      const fragment = text.slice(offset, end);
+      this.lineLength += fragment.length;
+      if (!this.skip) {
+        this.size += Buffer.byteLength(fragment, 'utf8');
+        if (this.size > this.maxEventBytes) {
           this.skip = true;
           this.line = '';
           this.data = [];
-          this.collector.invalid = true;
-        }
+          this.collector.observationIncomplete = true;
+        } else this.line += fragment;
       }
+      if (end === text.length) break;
+      this.previousCR = text[end] === '\r';
+      this.endLine();
+      offset = end + 1;
     }
   }
 

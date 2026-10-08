@@ -286,24 +286,27 @@ export class GatewayService implements Disposable {
     let safeRejection = false;
     const summary = (errorCode?: string): BillingSummary => ({
       usage: collector.usage,
-      usageFinal: collector.finalUsage && !collector.invalid && !collector.unknownCosts,
-      blockSettlement: collector.invalid || collector.unknownCosts,
+      usageFinal:
+        collector.finalUsage && !collector.invalid && !collector.unknownCosts && !collector.observationIncomplete,
+      blockSettlement: collector.invalid || collector.unknownCosts || collector.observationIncomplete,
       httpStatus,
       upstreamRequestId: collector.upstreamId,
       noExecution: !dispatched || safeRejection,
       errorCode:
         errorCode ??
-        (collector.unknownCosts
-          ? 'unsupported_usage'
-          : collector.failed
-            ? 'upstream_error'
-            : collector.invalid
-              ? 'invalid_usage'
-              : !collector.usage
-                ? 'usage_missing'
-                : !collector.finalUsage
-                  ? 'usage_not_final'
-                  : undefined),
+        (collector.observationIncomplete
+          ? 'usage_observation_limit'
+          : collector.unknownCosts
+            ? 'unsupported_usage'
+            : collector.failed
+              ? 'upstream_error'
+              : collector.invalid
+                ? 'invalid_usage'
+                : !collector.usage
+                  ? 'usage_missing'
+                  : !collector.finalUsage
+                    ? 'usage_not_final'
+                    : undefined),
     });
 
     // Finalize billing and release resources once, including after cancellation.
@@ -481,6 +484,8 @@ export class GatewayService implements Disposable {
       const responseHeaders = new Headers({ 'x-request-id': id, 'cache-control': 'no-store' });
       for (const name of [
         'content-type',
+        'x-codex-turn-state',
+        'x-reasoning-included',
         'retry-after',
         'x-ratelimit-limit-requests',
         'x-ratelimit-remaining-requests',
@@ -509,7 +514,7 @@ export class GatewayService implements Disposable {
       };
       resetIdleTimeout();
       if (isSse) responseHeaders.set('x-accel-buffering', 'no');
-      const observer = isSse ? new SseObserver(collector) : undefined;
+      const observer = isSse ? new SseObserver(collector, this.config.maxUsageEventBytes) : undefined;
       const jsonChunks: Uint8Array[] = [];
       let jsonSize = 0;
       const reader = upstream.body.getReader();
@@ -523,7 +528,7 @@ export class GatewayService implements Disposable {
       const finalizeResponse = (errorCode?: string): Promise<void> => {
         responseFinalization ??= (async () => {
           observer?.finish();
-          if (!isSse && jsonSize <= 8 * 1024 * 1024) {
+          if (!isSse && !collector.observationIncomplete) {
             try {
               collector.observe(JSON.parse(Buffer.concat(jsonChunks).toString('utf8')));
               if (endpoint === '/v1/chat/completions') collector.done();
@@ -535,6 +540,7 @@ export class GatewayService implements Disposable {
             !collector.usage &&
             collector.failed &&
             !collector.invalid &&
+            !collector.observationIncomplete &&
             [400, 401, 403, 404, 405, 413, 415, 422, 429].includes(upstream.status);
           reader.releaseLock();
           await finish(errorCode);
@@ -579,7 +585,7 @@ export class GatewayService implements Disposable {
               observer?.push(value);
 
               // Persist final usage or blocked settlement as soon as it is observed.
-              if (!finalCheckpoint && collector.finalUsage && !collector.invalid && !collector.unknownCosts) {
+              if (!finalCheckpoint && summary().usageFinal) {
                 finalCheckpoint = true;
                 try {
                   await this.billing.checkpoint(id, summary());
@@ -587,7 +593,7 @@ export class GatewayService implements Disposable {
                   this.logError(`Final usage checkpoint failed: ${id}`);
                 }
               }
-              if (!blockedCheckpoint && (collector.invalid || collector.unknownCosts)) {
+              if (!blockedCheckpoint && summary().blockSettlement) {
                 blockedCheckpoint = true;
                 try {
                   await this.billing.checkpoint(id, summary());
@@ -596,13 +602,13 @@ export class GatewayService implements Disposable {
                 }
               }
 
-              // Limit JSON buffering to 8 MiB without limiting response forwarding.
+              // usage 观察容量独立于请求体限制，超限后继续转发并保留待核对状态。
               if (!isSse) {
                 jsonSize += value.byteLength;
-                if (jsonSize <= 8 * 1024 * 1024) jsonChunks.push(value);
+                if (jsonSize <= this.config.maxUsageBodyBytes) jsonChunks.push(value);
                 else {
                   jsonChunks.length = 0;
-                  collector.invalid = true;
+                  collector.observationIncomplete = true;
                 }
               }
               if (!abort.signal.aborted) controller.enqueue(value);
