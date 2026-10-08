@@ -193,7 +193,6 @@ export class BillingService implements Disposable {
       .limit(100);
     const estimate = estimateReservation(
       input.body,
-      input.inputLimit,
       input.outputLimit,
       history.map((r) => r.outputTokens),
     );

@@ -16,7 +16,6 @@ const capped = (tokens: bigint, limit: number) => Number(tokens > BigInt(limit) 
 
 export function estimateReservation(
   body: Record<string, unknown>,
-  inputLimit: number,
   outputLimit: number,
   recentOutputTokens: bigint[],
 ): ReservationEstimate {
@@ -32,7 +31,8 @@ export function estimateReservation(
   const paddedOutput = useHistory ? margin(baseline) : baseline;
   const outputTokens = paddedOutput < 512n ? 512n : paddedOutput;
   return {
-    inputTokens: capped(margin(BigInt(inputContentTokens)), inputLimit),
+    // 模型上下文容量独立于计费预估，预占覆盖完整输入和估算余量。
+    inputTokens: Number(margin(BigInt(inputContentTokens))),
     outputTokens: capped(outputTokens, outputLimit),
     inputContentTokens,
     outputHistorySamples: samples.length,
