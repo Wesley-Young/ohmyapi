@@ -15,6 +15,7 @@ import {
   channelEndpoints,
   channels,
   models,
+  priceRules,
   requests,
   requestUsage,
   userModelGrants,
@@ -66,7 +67,7 @@ export class GatewayService implements Disposable {
     return this.disposal;
   }
 
-  error(endpoint: Endpoint, status: number, code: string, message: string, id: string) {
+  error(endpoint: Endpoint | '/v1/models', status: number, code: string, message: string, id: string) {
     const type =
       status === 401
         ? 'authentication_error'
@@ -114,7 +115,7 @@ export class GatewayService implements Disposable {
     };
   }
 
-  private async identify(req: Request, endpoint: Endpoint) {
+  private async identify(req: Request, endpoint: Endpoint | '/v1/models') {
     const authorization = req.headers.get('authorization');
     const bearer = authorization?.match(/^Bearer (sk-[A-Za-z0-9_-]{43})$/i)?.[1];
     const headerKey = endpoint === '/v1/messages' ? req.headers.get('x-api-key') : null;
@@ -140,6 +141,65 @@ export class GatewayService implements Disposable {
       );
     if (!identity) throw new GatewayError(401, 'invalid_api_key', 'Invalid or expired API Key');
     return identity;
+  }
+
+  async listModels(req: Request): Promise<Response> {
+    const id = randomUUID();
+    try {
+      if (this.stopping) throw new GatewayError(503, 'server_stopping', 'Gateway is stopping');
+      const identity = await this.identify(req, '/v1/models');
+      if (!identity.channelId)
+        throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
+      const [channel] = await this.db
+        .select({ isPublic: channels.isPublic })
+        .from(channels)
+        .where(and(eq(channels.id, identity.channelId), eq(channels.enabled, true), isNull(channels.deletedAt)));
+      if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
+      const available = await this.db
+        .selectDistinct({ name: models.name, createdAt: models.createdAt })
+        .from(models)
+        .innerJoin(channelAvailableModels, eq(channelAvailableModels.modelId, models.id))
+        .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channelAvailableModels.channelId))
+        .innerJoin(priceRules, and(eq(priceRules.modelId, models.id), eq(priceRules.kind, 'default')))
+        .leftJoin(
+          apiKeyModelGrants,
+          and(eq(apiKeyModelGrants.modelId, models.id), eq(apiKeyModelGrants.apiKeyId, identity.key.id)),
+        )
+        .leftJoin(
+          userModelGrants,
+          and(eq(userModelGrants.modelId, models.id), eq(userModelGrants.userId, identity.user.id)),
+        )
+        .where(
+          and(
+            eq(channelAvailableModels.channelId, identity.channelId),
+            eq(models.enabled, true),
+            isNull(models.deletedAt),
+            identity.key.restrictModels ? eq(apiKeyModelGrants.apiKeyId, identity.key.id) : undefined,
+            identity.user.role !== 'admin' && !channel.isPublic
+              ? eq(userModelGrants.userId, identity.user.id)
+              : undefined,
+          ),
+        )
+        .orderBy(models.name);
+      return Response.json(
+        {
+          object: 'list',
+          data: available.map((model) => ({
+            id: model.name,
+            object: 'model',
+            created: Math.floor(model.createdAt.getTime() / 1000),
+            owned_by: 'ohmyapi',
+          })),
+        },
+        { headers: { 'x-request-id': id, 'cache-control': 'no-store' } },
+      );
+    } catch (error) {
+      const failure =
+        error instanceof GatewayError
+          ? error
+          : new GatewayError(502, 'gateway_error', 'Unable to list available models');
+      return this.error('/v1/models', failure.status, failure.code, failure.message, id);
+    }
   }
 
   private async body(req: Request, signal: AbortSignal) {

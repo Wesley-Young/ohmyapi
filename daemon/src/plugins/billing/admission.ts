@@ -3,6 +3,32 @@ import { GatewayError } from '../gateway/errors.js';
 import { ruleTimeMatcher } from '../pricing/rules.js';
 import type { LockedPrice } from '../pricing/service.js';
 
+function isClientTool(value: unknown, endpoint: Endpoint): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const tool = value as Record<string, unknown>;
+  if (tool.type === 'function' || tool.type === 'custom') return true;
+  if (endpoint === '/v1/responses' && tool.type === 'namespace')
+    return (
+      typeof tool.name === 'string' &&
+      tool.name.length > 0 &&
+      Array.isArray(tool.tools) &&
+      tool.tools.every(
+        (child) =>
+          child &&
+          typeof child === 'object' &&
+          !Array.isArray(child) &&
+          (child.type === 'function' || child.type === 'custom'),
+      )
+    );
+  return (
+    endpoint === '/v1/messages' &&
+    tool.type === undefined &&
+    typeof tool.name === 'string' &&
+    Boolean(tool.input_schema) &&
+    typeof tool.input_schema === 'object'
+  );
+}
+
 /** Reserve against estimated usage and the most expensive reachable rule at receipt. */
 export function reservationAmount(price: LockedPrice, inputTokens: number, outputTokens: number) {
   let numerator = 0n;
@@ -36,10 +62,12 @@ export function validateBillableRequest(
         ? ['max_tokens']
         : ['max_completion_tokens', 'max_tokens'];
   const supplied = fields.filter((field) => body[field] !== undefined);
-  if (supplied.length !== 1)
+  const defaultOutput = endpoint === '/v1/responses' && body.max_output_tokens == null;
+  if (!defaultOutput && supplied.length !== 1)
     throw new GatewayError(400, 'output_limit_required', `Provide exactly one output limit: ${fields.join(' or ')}`);
-  const output = body[supplied[0]];
-  const minimum = endpoint === '/v1/responses' ? 16 : 1;
+  // 缺省上限只用于预占估算，保留上游请求中的缺省值或 null。
+  const output = defaultOutput ? outputLimit : body[supplied[0]];
+  const minimum = endpoint === '/v1/responses' && !defaultOutput ? 16 : 1;
   if (typeof output !== 'number' || !Number.isSafeInteger(output) || output < minimum || output > outputLimit)
     throw new GatewayError(
       400,
@@ -53,22 +81,9 @@ export function validateBillableRequest(
       throw new GatewayError(400, 'unsupported_billing_mode', `${field} is not supported for billing`);
   if (body.modalities !== undefined && (!Array.isArray(body.modalities) || body.modalities.some((m) => m !== 'text')))
     throw new GatewayError(400, 'unsupported_billing_mode', 'Only text modalities are supported');
-  if (
-    Array.isArray(body.tools) &&
-    body.tools.some(
-      (tool) =>
-        !tool ||
-        typeof tool !== 'object' ||
-        !(
-          ['function', 'custom'].includes(tool.type) ||
-          (endpoint === '/v1/messages' &&
-            tool.type === undefined &&
-            typeof tool.name === 'string' &&
-            tool.input_schema &&
-            typeof tool.input_schema === 'object')
-        ),
-    )
-  )
+  if (body.tools !== undefined && body.tools !== null && !Array.isArray(body.tools))
+    throw new GatewayError(400, 'invalid_request', 'tools must be an array');
+  if (Array.isArray(body.tools) && body.tools.some((tool) => !isClientTool(tool, endpoint)))
     throw new GatewayError(
       400,
       'unsupported_billing_mode',
