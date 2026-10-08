@@ -92,6 +92,12 @@
 
   代码：[usage.ts](../daemon/src/plugins/gateway/usage.ts)：`normalize`。维护时核对：缓存拆分字段、输入是否含缓存以及长上下文计算口径。
 
+- **图像输入**：Messages 接受 `image` 内容块，包括消息和工具结果中的图像；`source` 的 Base64、URL 及文件引用原样转发，由上游校验可用性。图像 Token 沿用输入及缓存计费，不单独增加图像收费项。
+
+  依据与核对日期：`2026-10-08`，[Anthropic Vision](https://platform.claude.com/docs/en/build-with-claude/vision) 确认 `image` 来源和按模型输入 Token 单价计费；不同平台及模型对来源和分辨率支持不同。
+
+  代码：[content.ts](../daemon/src/plugins/billing/content.ts)、[admission.ts](../daemon/src/plugins/billing/admission.ts)、[estimation.ts](../daemon/src/plugins/billing/estimation.ts)、[usage.ts](../daemon/src/plugins/gateway/usage.ts)。维护时核对：图像缓存计数口径与新来源格式。
+
 - **客户端工具**：允许未提供 `type`、具有字符串 `name` 和对象 `input_schema` 的工具定义；内容中的 `server_tool_use` 只允许 `name: web_search`，并允许 `web_search_tool_result`。
 
   代码：[admission.ts](../daemon/src/plugins/billing/admission.ts)：`isBillableTool`、`validateBillableRequest`。维护时核对：客户端工具结构、服务端工具和工具结果类型变化。
@@ -192,15 +198,15 @@
 
   代码：[protocol.ts](../daemon/src/plugins/gateway/protocol.ts)：`responseHeaders`；[response.ts](../daemon/src/plugins/gateway/response.ts)：`forwardResponse`。维护时核对：新限流头、新错误状态和“请求是否执行”的供应商语义。
 
-- **内容与付费工具边界**：`n` 若提供只能为 `1`，`modalities` 若提供只能含 `text`。拒绝图片、音频、文件、视频、computer use 等内容；托管工具只支持已识别的 Web Search。仅按协议内容检查，工具 schema、examples 和业务数据保持原样。
+- **内容与付费工具边界**：`n` 若提供只能为 `1`，输出 `modalities` 若提供只能含 `text`。接受三个端点各自的图像输入内容块；拒绝音频、文件、视频、computer use 等独立内容，图像块内的协议文件引用允许透传；托管工具只支持已识别的 Web Search。仅按协议内容检查，工具 schema、examples 和业务数据保持原样。
 
-  代码：[admission.ts](../daemon/src/plugins/billing/admission.ts)。维护时核对：多模态、新托管工具或多候选输出上线时同时设计用量和费用支持。
+  代码：[admission.ts](../daemon/src/plugins/billing/admission.ts)、[content.ts](../daemon/src/plugins/billing/content.ts)。维护时核对：多模态、新托管工具或多候选输出上线时同时设计用量和费用支持。
 
 - **搜索报告字段优先级**：`usage.server_tool_use.web_search_requests` 优先于 `tool_usage.web_search.num_requests`；明确报告计数覆盖推断值。`enable_search: true` 当前拒绝，`web_search_options` 仅允许用于 Chat Completions。
 
   代码：[search-usage.ts](../daemon/src/plugins/gateway/search-usage.ts)：`observe`；[billing/search.ts](../daemon/src/plugins/billing/search.ts)：`searchRequest`。维护时核对：兼容渠道的扩展报告字段、计数含义和新增搜索模式。
 
-- **未知用量与人工核对**：正数音频、图像、视频 Token、未知收费工具、无效或不完整 usage 会阻止自动结算；无法确认完整费用的响应进入 `needs_review`。
+- **未知用量与人工核对**：正数音频、视频 Token、输出图像或顶层未标明方向的图像 Token、未知收费工具、无效或不完整 usage 会阻止自动结算；输入明细中的图像 Token 已包含在输入总量中，校验通过后可自动结算。无法确认完整费用的响应进入 `needs_review`。
 
   代码：[usage.ts](../daemon/src/plugins/gateway/usage.ts)；[search-usage.ts](../daemon/src/plugins/gateway/search-usage.ts)；[billing-session.ts](../daemon/src/plugins/gateway/billing-session.ts)：`summary`、`checkpoint`；[response.ts](../daemon/src/plugins/gateway/response.ts)：`forwardResponse`。维护时核对：同时检查准入、请求预占、SSE/JSON 观察、快照、结算及人工核对入口，保留计费证据。
 
@@ -208,7 +214,9 @@
 
   代码：[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)、[schema/catalog.ts](../daemon/src/plugins/database/schema/catalog.ts)、[Catalog.tsx](../web/src/routes/Catalog.tsx)、[models-dev.ts](../web/src/lib/models-dev.ts)；数据库缺省也在迁移中。
 
-- **预占 tokenizer**：所有模型统一采用 `o200k_base`，对 JSON 序列化后的输入按 `4096` 字符分块估算。余量为 `ceil(tokens × 1.25) + 256`；最终计费用上游 usage。
+- **预占 tokenizer**：所有模型统一采用 `o200k_base`，对 JSON 序列化后的输入按 `4096` 字符分块估算。协议图像块在估算副本中只保留类型，跳过 URL、文件引用和 Base64 载荷，每张图像额外预估 `4096` Token；对文本与图像预估之和添加余量 `ceil(tokens × 1.25) + 256`。快照保存 `inputImageCount` 和 `inputImageTokens`，最终计费用上游 usage。
+
+  依据与核对日期：`2026-10-08`，每张 `4096` Token 是项目的统一预占估算值，适用于所有图像来源；不同模型、分辨率和 detail 的实际 Token 由上游确定，可能超出预占。网关不下载或解码图像，转发请求保持原样，图像载荷不持久化。
 
   代码：[estimation.ts](../daemon/src/plugins/billing/estimation.ts)；新模型 tokenizer、工具 schema 或长文本分布变化时核对预占误差。
 

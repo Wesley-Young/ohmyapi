@@ -2,6 +2,7 @@ import type { Endpoint } from '../catalog/service.js';
 import { GatewayError } from '../gateway/errors.js';
 import { ruleTimeMatcher } from '../pricing/rules.js';
 import type { LockedPrice } from '../pricing/service.js';
+import { imageInputTypes, requestContentBlocks } from './content.js';
 import { type SearchRequest, searchRequest, searchToolKind } from './search.js';
 
 function isBillableTool(value: unknown, endpoint: Endpoint): boolean {
@@ -98,9 +99,6 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
       'Only client tools and web search tools are supported for billing',
     );
   const forbidden = new Set([
-    'image',
-    'image_url',
-    'input_image',
     'audio',
     'input_audio',
     'output_audio',
@@ -110,29 +108,23 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
     'video',
     'computer_use',
   ]);
-  const stack: unknown[] = [];
-  if (endpoint === '/v1/responses') stack.push(body.input);
-  else {
-    if (endpoint === '/v1/messages') stack.push(body.system);
-    if (Array.isArray(body.messages)) {
-      for (const message of body.messages) {
-        if (!message || typeof message !== 'object' || Array.isArray(message)) continue;
-        const value = message as Record<string, unknown>;
-        if (value.audio != null)
-          throw new GatewayError(400, 'unsupported_billing_mode', 'Audio messages are not supported for billing');
-        stack.push(value.content);
-      }
+  if (endpoint !== '/v1/responses' && Array.isArray(body.messages)) {
+    for (const message of body.messages) {
+      if (message && typeof message === 'object' && !Array.isArray(message) && message.audio != null)
+        throw new GatewayError(400, 'unsupported_billing_mode', 'Audio messages are not supported for billing');
     }
   }
   // 按协议检查消息、内容块和工具结果，schema、examples 与业务数据保持原样。
-  while (stack.length) {
-    const item = stack.pop();
-    if (!item || typeof item !== 'object') continue;
-    if (Array.isArray(item)) {
-      for (const value of item) stack.push(value);
-      continue;
-    }
-    const object = item as Record<string, unknown>;
+  for (const object of requestContentBlocks(body, endpoint)) {
+    if (
+      ['image', 'image_url', 'input_image'].includes(String(object.type)) &&
+      object.type !== imageInputTypes[endpoint]
+    )
+      throw new GatewayError(
+        400,
+        'invalid_request',
+        `Use ${imageInputTypes[endpoint]} for image inputs on ${endpoint}`,
+      );
     if (
       (typeof object.type === 'string' && forbidden.has(object.type)) ||
       (object.type === 'server_tool_use' && (endpoint !== '/v1/messages' || object.name !== 'web_search')) ||
@@ -141,11 +133,8 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
       throw new GatewayError(
         400,
         'unsupported_billing_mode',
-        'Images, audio, files and hosted tools are not supported for billing',
+        'Audio, files, video and hosted tools are not supported for billing',
       );
-    if (object.type === 'message' || object.type === 'tool_result' || (object.type == null && object.role))
-      stack.push(object.content);
-    if (object.type === 'function_call_output' || object.type === 'custom_tool_call_output') stack.push(object.output);
   }
   return output;
 }

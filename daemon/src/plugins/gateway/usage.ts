@@ -132,21 +132,26 @@ export class UsageCollector {
     for (const part of [raw, details, object(raw.completion_tokens_details), object(raw.output_tokens_details)]) {
       if (
         part &&
-        ['audio_tokens', 'image_tokens', 'video_tokens'].some(
-          (key) => typeof part[key] === 'number' && (part[key] as number) > 0,
-        )
+        ['audio_tokens', 'video_tokens'].some((key) => typeof part[key] === 'number' && (part[key] as number) > 0)
       )
         this.unknownCosts = true;
+    }
+    // 输入图像已包含在输入总量中；图像输出和未标明方向的图像费用仍需核对。
+    for (const part of [raw, object(raw.completion_tokens_details), object(raw.output_tokens_details)]) {
+      if (part && typeof part.image_tokens === 'number' && part.image_tokens > 0) this.unknownCosts = true;
     }
     const readValue = anthropic ? raw.cache_read_input_tokens : details?.cached_tokens;
     const writeValue = anthropic ? raw.cache_creation_input_tokens : details?.cache_write_tokens;
     const read = readValue === undefined ? 0n : count(readValue);
     const write = writeValue === undefined ? 0n : count(writeValue);
+    const image = details?.image_tokens === undefined ? 0n : count(details.image_tokens);
     if (
       input === undefined ||
       output === undefined ||
       read === undefined ||
       write === undefined ||
+      image === undefined ||
+      image > (anthropic ? input + read + write : input) ||
       (!anthropic && input < read + write)
     ) {
       this.invalid = true;
