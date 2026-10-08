@@ -18,6 +18,7 @@ import {
   tokenInput,
   validateRules,
 } from './rules.js';
+import { applySearchDefaults, defaultSearchPrices } from './search-defaults.js';
 
 export const priceScope = z.object({ modelId: z.uuid() });
 export const savePriceInput = priceScope.extend({ rules: z.array(ruleInput).max(200) });
@@ -112,15 +113,18 @@ export class PricingService {
               endpoints: rows.filter((r) => r.channelId === row.channelId).map((r) => r.endpoint),
               rules: rules
                 .filter((rule) => rule.modelId === id)
-                .map((rule) => ({
-                  ...serializeRule(rule),
-                  inputPrice: scaledPrice(rule.inputPriceMicros, row.multiplierMicros) as string,
-                  outputPrice: scaledPrice(rule.outputPriceMicros, row.multiplierMicros) as string,
-                  cacheReadPrice: scaledPrice(rule.cacheReadPriceMicros, row.multiplierMicros),
-                  cacheWritePrice: scaledPrice(rule.cacheWritePriceMicros, row.multiplierMicros),
-                  webSearchPrice: scaledPrice(rule.webSearchPriceMicros, row.multiplierMicros),
-                  webSearchPreviewPrice: scaledPrice(rule.webSearchPreviewPriceMicros, row.multiplierMicros),
-                })),
+                .map((rule) => {
+                  const effective = applySearchDefaults(rule, model.modelName);
+                  return {
+                    ...serializeRule(effective),
+                    inputPrice: scaledPrice(rule.inputPriceMicros, row.multiplierMicros) as string,
+                    outputPrice: scaledPrice(rule.outputPriceMicros, row.multiplierMicros) as string,
+                    cacheReadPrice: scaledPrice(rule.cacheReadPriceMicros, row.multiplierMicros),
+                    cacheWritePrice: scaledPrice(rule.cacheWritePriceMicros, row.multiplierMicros),
+                    webSearchPrice: scaledPrice(effective.webSearchPriceMicros, row.multiplierMicros),
+                    webSearchPreviewPrice: scaledPrice(effective.webSearchPreviewPriceMicros, row.multiplierMicros),
+                  };
+                }),
             }));
           return {
             id,
@@ -137,7 +141,7 @@ export class PricingService {
 
   async list(scope: z.infer<typeof priceScope>) {
     const [model] = await this.auth.db
-      .select({ id: models.id })
+      .select({ id: models.id, name: models.name })
       .from(models)
       .where(and(eq(models.id, scope.modelId), isNull(models.deletedAt)));
     if (!model) throw new TRPCError({ code: 'NOT_FOUND', message: '模型不存在或已删除' });
@@ -154,7 +158,11 @@ export class PricingService {
         (a.weekdaysMask ?? 0) - (b.weekdaysMask ?? 0) ||
         (a.startMinute ?? 0) - (b.startMinute ?? 0),
     );
-    return { currency: this.currency, rules: rules.map(serializeRule) };
+    return {
+      currency: this.currency,
+      searchDefaults: defaultSearchPrices(model.name),
+      rules: rules.map(serializeRule),
+    };
   }
 
   async save(principal: Principal, input: z.infer<typeof savePriceInput>) {
@@ -195,11 +203,12 @@ export class PricingService {
     multiplierSource: 'model' | 'channel',
   ): Promise<LockedPrice | null> {
     const rows = await this.auth.db
-      .select({ rule: priceRules })
+      .select({ rule: priceRules, modelName: models.name })
       .from(priceRules)
       .innerJoin(models, eq(models.id, priceRules.modelId))
       .where(and(eq(priceRules.modelId, modelId), isNull(models.deletedAt)));
-    const rules = rows.map((row) => row.rule);
+    // 锁定实际采用的默认值，后续改价和模型改名均沿用请求快照。
+    const rules = rows.map((row) => applySearchDefaults(row.rule, row.modelName));
     if (!rules.length) return null;
     validateRules(rules);
     return { modelId, rules, multiplierMicros, multiplierSource, receivedAt: at };

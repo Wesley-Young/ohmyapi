@@ -9,6 +9,7 @@ import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './Catalog';
 
 type Rule = Omit<RouterOutputs['admin']['pricing']['list']['rules'][number], 'id'>;
+type SearchDefaults = RouterOutputs['admin']['pricing']['list']['searchDefaults'];
 const kinds = { default: '默认', context: '上下文', time: '时段', combined: '上下文与时段' };
 const defaultRule: Rule = {
   label: '默认价格',
@@ -33,12 +34,14 @@ const isoShanghai = (value: string) => new Date(`${value}:00+08:00`).toISOString
 const dayNames = ['一', '二', '三', '四', '五', '六', '日'];
 function RuleForm({
   initial,
+  searchDefaults,
   save,
   close,
   busy,
   error,
 }: {
   initial: Rule;
+  searchDefaults: SearchDefaults;
   save: (r: Rule) => void;
   close: () => void;
   busy: boolean;
@@ -164,7 +167,9 @@ function RuleForm({
             </>
           )}
           <Text fontSize="sm" color="gray.500">
-            Token 单价按每百万，搜索单价按每千次调用，最多六位小数。可选单价留空表示尚未支持，填写 0 表示免费。
+            Token
+            单价按每百万，搜索单价按每千次调用，最多六位小数。缓存价格留空表示未配置，搜索价格留空使用模型默认值，填写 0
+            表示免费。
           </Text>
           <Grid templateColumns={{ base: '1fr', sm: '1fr 1fr' }} gap="4">
             {(
@@ -183,6 +188,18 @@ function RuleForm({
                 inputMode="decimal"
                 required={key === 'inputPrice' || key === 'outputPrice'}
                 value={rule[key] ?? ''}
+                placeholder={
+                  key === 'webSearchPrice' || key === 'webSearchPreviewPrice'
+                    ? (searchDefaults[key] ?? undefined)
+                    : undefined
+                }
+                helper={
+                  key === 'webSearchPrice' || key === 'webSearchPreviewPrice'
+                    ? searchDefaults[key] === null
+                      ? '该模型无默认搜索价格'
+                      : `默认 ${searchDefaults[key]} / 千次`
+                    : undefined
+                }
                 onChange={(e) =>
                   set(key, e.target.value || (key === 'inputPrice' || key === 'outputPrice' ? '' : null))
                 }
@@ -487,8 +504,10 @@ export default function Pricing({
                     <Table.Cell>{r.outputPrice}</Table.Cell>
                     <Table.Cell>{r.cacheReadPrice ?? '—'}</Table.Cell>
                     <Table.Cell>{r.cacheWritePrice ?? '—'}</Table.Cell>
-                    <Table.Cell>{r.webSearchPrice ?? '—'}</Table.Cell>
-                    <Table.Cell>{r.webSearchPreviewPrice ?? '—'}</Table.Cell>
+                    <Table.Cell>{r.webSearchPrice ?? data.data.searchDefaults.webSearchPrice ?? '—'}</Table.Cell>
+                    <Table.Cell>
+                      {r.webSearchPreviewPrice ?? data.data.searchDefaults.webSearchPreviewPrice ?? '—'}
+                    </Table.Cell>
                     <Table.Cell>
                       <HStack>
                         <Button
@@ -525,6 +544,7 @@ export default function Pricing({
           {editingRule && (
             <RuleForm
               initial={editingRule.rule}
+              searchDefaults={data.data.searchDefaults}
               busy={save.isPending}
               error={formError(save.error)?.message}
               close={() => setEditingRule(undefined)}
