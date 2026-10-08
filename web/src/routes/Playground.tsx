@@ -153,7 +153,7 @@ export default function Playground() {
           ref={composer}
           gap="3"
           w="full"
-          maxW="1080px"
+          maxW="880px"
           mx="auto"
           position="absolute"
           bottom="0"
