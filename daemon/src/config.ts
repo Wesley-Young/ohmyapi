@@ -63,7 +63,7 @@ export function readGatewayConfig(env: Environment = process.env) {
     throw new Error('CHANNEL_ENCRYPTION_KEY must contain 64 hexadecimal characters');
   }
   return {
-    maxBodyBytes: integerSetting(env, 'GATEWAY_MAX_BODY_BYTES', 4 * 1024 * 1024, 32 * 1024 * 1024),
+    maxBodyBytes: integerSetting(env, 'GATEWAY_MAX_BODY_BYTES', 32 * 1024 * 1024, 32 * 1024 * 1024),
     streamIdleTimeoutMs: integerSetting(env, 'GATEWAY_STREAM_IDLE_TIMEOUT_MS', 300_000, 3_600_000),
     maxUsageEventBytes: integerSetting(env, 'GATEWAY_MAX_USAGE_EVENT_BYTES', 128 * 1024 * 1024, 256 * 1024 * 1024),
     maxUsageBodyBytes: integerSetting(env, 'GATEWAY_MAX_USAGE_BODY_BYTES', 128 * 1024 * 1024, 256 * 1024 * 1024),
