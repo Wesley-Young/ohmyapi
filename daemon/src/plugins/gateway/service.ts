@@ -2,11 +2,11 @@ import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { and, desc, eq, gt, isNull, or } from 'drizzle-orm';
 
 import type { readGatewayConfig } from '../../config.js';
-import { createLogSampler, type EventLogger, errorDetails, type LogFields } from '../../logging.js';
+import { createLogSampler, type EventLogger, errorDetails } from '../../logging.js';
 import { validateBillableRequest } from '../billing/admission.js';
 import { formatMoney } from '../billing/conventions.js';
 import { searchRequest } from '../billing/search.js';
-import type { BillingService, BillingSummary } from '../billing/service.js';
+import type { BillingService } from '../billing/service.js';
 import type { CredentialVault, Endpoint } from '../catalog/service.js';
 import type { Database } from '../database/client.js';
 import {
@@ -25,8 +25,11 @@ import {
 } from '../database/schema/index.js';
 import type { PricingService } from '../pricing/service.js';
 import { pageSize } from '../users/service.js';
+import { ForwardBillingSession } from './billing-session.js';
 import { GatewayError } from './errors.js';
-import { SseObserver, UsageCollector } from './usage.js';
+import { RequestLifecycle } from './lifecycle.js';
+import { upstreamBody, upstreamHeaders, upstreamUrl } from './protocol.js';
+import { forwardResponse } from './response.js';
 
 import { randomUUID } from 'node:crypto';
 
@@ -279,155 +282,102 @@ export class GatewayService implements Disposable {
     return { parsed, bytes };
   }
 
+  private async resolveRoute(
+    identity: Awaited<ReturnType<GatewayService['identify']>>,
+    requestedModel: string,
+    endpoint: Endpoint,
+    details: { modelName?: string; upstreamTimeoutMs?: number },
+  ) {
+    const [model] = await this.db
+      .select({
+        id: models.id,
+        name: models.name,
+        inputTokenLimit: models.inputTokenLimit,
+        outputTokenLimit: models.outputTokenLimit,
+      })
+      .from(models)
+      .where(and(eq(models.name, requestedModel), eq(models.enabled, true), isNull(models.deletedAt)));
+    if (!model) throw new GatewayError(404, 'model_not_found', 'Unknown or disabled model');
+    details.modelName = model.name;
+    const [keyGrant] = !identity.key.restrictModels
+      ? [{ modelId: model.id }]
+      : await this.db
+          .select()
+          .from(apiKeyModelGrants)
+          .where(and(eq(apiKeyModelGrants.apiKeyId, identity.key.id), eq(apiKeyModelGrants.modelId, model.id)));
+    if (!keyGrant) throw new GatewayError(403, 'model_forbidden', 'API Key does not authorize this model');
+
+    if (!identity.channelId)
+      throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
+    const [route] = await this.db
+      .select({ channel: channels, override: channelAvailableModels.multiplierMicros })
+      .from(channels)
+      .innerJoin(channelAvailableModels, eq(channelAvailableModels.channelId, channels.id))
+      .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
+      .where(
+        and(
+          eq(channels.id, identity.channelId),
+          eq(channels.enabled, true),
+          isNull(channels.deletedAt),
+          eq(channelAvailableModels.modelId, model.id),
+          eq(channelEndpoints.endpoint, endpoint),
+        ),
+      );
+    if (!route)
+      throw new GatewayError(
+        503,
+        'channel_unavailable',
+        'The API Key channel does not provide this model and endpoint',
+      );
+    details.upstreamTimeoutMs = route.channel.timeoutMs;
+
+    if (identity.user.role !== 'admin' && !route.channel.isPublic) {
+      const [grant] = await this.db
+        .select({ modelId: userModelGrants.modelId })
+        .from(userModelGrants)
+        .where(and(eq(userModelGrants.userId, identity.user.id), eq(userModelGrants.modelId, model.id)));
+      if (!grant)
+        throw new GatewayError(403, 'model_forbidden', 'Model is not authorized for this user on a private channel');
+    }
+    return { model, ...route };
+  }
+
   async forward(req: Request, endpoint: Endpoint): Promise<Response> {
-    // Track the request lifecycle and propagate client disconnects.
-    const id = randomUUID();
-    const receivedAt = new Date();
-    const bodyStats = { bytes: 0 };
-    let userId: string | undefined;
-    let channelId: string | undefined;
-    let modelName: string | undefined;
-    let streaming: boolean | undefined;
-    let upstreamStatus: number | undefined;
-    let upstreamTimeoutMs: number | undefined;
-    let failureDetails: LogFields = {};
-    let dispatched = false;
-    let recorded = false;
-    let release: (() => void) | undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const abort = new AbortController();
-    let completeRequest: () => void = () => {};
-    const done = new Promise<void>((resolve) => {
-      completeRequest = resolve;
+    const lifecycle = new RequestLifecycle(req, () => this.running.delete(lifecycle.id));
+    const { id, receivedAt, abort } = lifecycle;
+    this.running.set(id, lifecycle);
+    const session = new ForwardBillingSession({
+      id,
+      receivedAt,
+      endpoint,
+      config: this.config,
+      billing: this.billing,
+      logger: this.logger,
+      sampleLog: this.sampleLog,
     });
-    this.running.set(id, { abort, done });
-    const disconnect = () => abort.abort('client_disconnected');
-    req.signal.addEventListener('abort', disconnect, { once: true });
-    let finalization: Promise<void> | undefined;
-    let stopResponse: (() => Promise<void>) | undefined;
-    const onAbort = () => {
-      void stopResponse?.();
+    const finish = (errorCode?: string) => {
+      const result = session.summary(errorCode);
+      return lifecycle.finish(
+        () => session.finish(result),
+        () => session.log(result),
+      );
     };
 
-    // Collect upstream usage and build the billing summary.
-    const collector = new UsageCollector(endpoint);
-    let httpStatus: number | undefined;
-    let safeRejection = false;
-    const summary = (errorCode?: string): BillingSummary => ({
-      usage: collector.usage,
-      usageFinal:
-        collector.finalUsage && !collector.invalid && !collector.unknownCosts && !collector.observationIncomplete,
-      blockSettlement: collector.invalid || collector.unknownCosts || collector.observationIncomplete,
-      httpStatus,
-      upstreamRequestId: collector.upstreamId,
-      noExecution: !dispatched || safeRejection,
-      errorCode:
-        errorCode ??
-        (collector.observationIncomplete
-          ? 'usage_observation_limit'
-          : collector.unknownCosts
-            ? 'unsupported_usage'
-            : collector.failed
-              ? 'upstream_error'
-              : collector.invalid
-                ? 'invalid_usage'
-                : !collector.usage
-                  ? 'usage_missing'
-                  : !collector.finalUsage
-                    ? 'usage_not_final'
-                    : undefined),
-    });
-
-    // Finalize billing and release resources once, including after cancellation.
-    const finish = (errorCode?: string): Promise<void> => {
-      if (finalization) return finalization;
-      if (timer) clearTimeout(timer);
-      req.signal.removeEventListener('abort', disconnect);
-      abort.signal.removeEventListener('abort', onAbort);
-      finalization = (async () => {
-        const result = summary(errorCode);
-        try {
-          if (recorded) await this.billing.finish(id, result);
-        } catch (error) {
-          this.logger.error(`计费收尾未完成 ${JSON.stringify({ requestId: id, ...errorDetails(error) })}`);
-        } finally {
-          release?.();
-          this.running.delete(id);
-          completeRequest();
-          const code = result.errorCode;
-          const routineRejection =
-            !dispatched &&
-            httpStatus !== undefined &&
-            httpStatus < 500 &&
-            !['request_too_large', 'body_timeout'].includes(code ?? '');
-          if (!routineRejection || this.sampleLog(code ?? 'rejected')) {
-            const level =
-              code === 'client_disconnected' || code === 'request_cancelled'
-                ? 'debug'
-                : code === 'server_shutdown'
-                  ? 'info'
-                  : (httpStatus ?? 0) >= 500
-                    ? 'error'
-                    : code || (httpStatus ?? 0) >= 400
-                      ? 'warn'
-                      : 'info';
-            this.logger[level](
-              `网关请求结束 ${JSON.stringify({
-                requestId: id,
-                endpoint,
-                userId,
-                channelId,
-                model: modelName,
-                streaming,
-                dispatched,
-                recorded,
-                httpStatus,
-                upstreamStatus,
-                upstreamRequestId: result.upstreamRequestId,
-                durationMs: Date.now() - receivedAt.getTime(),
-                bodyBytes: bodyStats.bytes,
-                errorCode: code,
-                usageFinal: result.usageFinal,
-                blockSettlement: result.blockSettlement,
-                maxBodyBytes: code === 'request_too_large' ? this.config.maxBodyBytes : undefined,
-                timeoutMs:
-                  code === 'body_timeout'
-                    ? this.config.bodyTimeoutMs
-                    : code === 'upstream_timeout'
-                      ? upstreamTimeoutMs
-                      : code === 'upstream_idle_timeout'
-                        ? this.config.streamIdleTimeoutMs
-                        : undefined,
-                ...failureDetails,
-              })}`,
-            );
-          }
-        }
-      })();
-      return finalization;
-    };
-
-    // Check gateway readiness, authenticate the caller, and acquire request capacity.
     try {
       if (this.stopping) throw new GatewayError(503, 'server_stopping', 'Gateway is stopping');
       this.billing.assertReady();
       const identity = await this.identify(req, endpoint);
-      userId = identity.user.id;
-      channelId = identity.channelId ?? undefined;
-      release = this.acquire(identity.user.id);
+      session.userId = identity.user.id;
+      session.channelId = identity.channelId ?? undefined;
+      lifecycle.releaseCapacity = this.acquire(identity.user.id);
 
-      // Read and validate the request body with an admission timeout.
-      const bodyTimer = setTimeout(() => abort.abort('body_timeout'), this.config.bodyTimeoutMs);
-      let payload: Awaited<ReturnType<GatewayService['body']>>;
-      try {
-        payload = await this.body(req, abort.signal, bodyStats);
-      } finally {
-        clearTimeout(bodyTimer);
-      }
-      const { parsed, bytes } = payload;
-      streaming = parsed.stream === true;
+      const { parsed, bytes } = await lifecycle.withBodyTimeout(this.config.bodyTimeoutMs, () =>
+        this.body(req, abort.signal, session.bodyStats),
+      );
+      const streaming = parsed.stream === true;
+      session.streaming = streaming;
 
-      // Record the admitted request before resolving its model and channel.
+      // 完整请求体通过校验后入库，后续模型或渠道拒绝仍保留记录。
       await this.db.insert(requests).values({
         id,
         receivedAt,
@@ -437,291 +387,69 @@ export class GatewayService implements Disposable {
         endpoint,
         streaming,
       });
-      recorded = true;
-
-      // Resolve the enabled model and enforce API Key model restrictions.
-      const [model] = await this.db
-        .select({
-          id: models.id,
-          name: models.name,
-          inputTokenLimit: models.inputTokenLimit,
-          outputTokenLimit: models.outputTokenLimit,
-        })
-        .from(models)
-        .where(and(eq(models.name, parsed.model as string), eq(models.enabled, true), isNull(models.deletedAt)));
-      if (!model) throw new GatewayError(404, 'model_not_found', 'Unknown or disabled model');
-      modelName = model.name;
-      const [keyGrant] = !identity.key.restrictModels
-        ? [{ modelId: model.id }]
-        : await this.db
-            .select()
-            .from(apiKeyModelGrants)
-            .where(and(eq(apiKeyModelGrants.apiKeyId, identity.key.id), eq(apiKeyModelGrants.modelId, model.id)));
-      if (!keyGrant) throw new GatewayError(403, 'model_forbidden', 'API Key does not authorize this model');
-
-      // Resolve the bound channel and verify model and endpoint availability.
-      if (!identity.channelId)
-        throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
-      const [route] = await this.db
-        .select({ channel: channels, override: channelAvailableModels.multiplierMicros })
-        .from(channels)
-        .innerJoin(channelAvailableModels, eq(channelAvailableModels.channelId, channels.id))
-        .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
-        .where(
-          and(
-            eq(channels.id, identity.channelId),
-            eq(channels.enabled, true),
-            isNull(channels.deletedAt),
-            eq(channelAvailableModels.modelId, model.id),
-            eq(channelEndpoints.endpoint, endpoint),
-          ),
-        );
-      if (!route)
-        throw new GatewayError(
-          503,
-          'channel_unavailable',
-          'The API Key channel does not provide this model and endpoint',
-        );
-      upstreamTimeoutMs = route.channel.timeoutMs;
-
-      // Require a user model grant for private channels unless the caller is an admin.
-      if (identity.user.role !== 'admin' && !route.channel.isPublic) {
-        const [grant] = await this.db
-          .select({ modelId: userModelGrants.modelId })
-          .from(userModelGrants)
-          .where(and(eq(userModelGrants.userId, identity.user.id), eq(userModelGrants.modelId, model.id)));
-        if (!grant)
-          throw new GatewayError(403, 'model_forbidden', 'Model is not authorized for this user on a private channel');
-      }
-
-      // Lock the price and validate the request against billable token limits.
+      session.recorded = true;
+      const { model, channel, override } = await this.resolveRoute(identity, parsed.model as string, endpoint, session);
       const lockedPrice = await this.pricing.lock(
         model.id,
         receivedAt,
-        route.override ?? route.channel.multiplierMicros,
-        route.override === null ? 'channel' : 'model',
+        override ?? channel.multiplierMicros,
+        override === null ? 'channel' : 'model',
       );
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
       const outputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
-      collector.configureSearch(searchRequest(parsed, endpoint));
-      let upstreamBody = bytes;
-      if (endpoint === '/v1/chat/completions' && streaming) {
-        const options = parsed.stream_options;
-        if (options != null && (typeof options !== 'object' || Array.isArray(options)))
-          throw new GatewayError(400, 'invalid_request', 'stream_options must be an object');
-        // 保留其他流式选项，并主动请求结算所需的 usage。
-        parsed.stream_options = { ...(options as Record<string, unknown> | undefined), include_usage: true };
-        upstreamBody = Buffer.from(JSON.stringify(parsed));
-      }
+      session.collector.configureSearch(searchRequest(parsed, endpoint));
+      const body = upstreamBody(endpoint, parsed, bytes);
+      const credential = this.vault.decrypt(channel.credentialEncrypted);
+      const headers = upstreamHeaders(req, endpoint, streaming, credential);
 
-      // Build upstream authentication and protocol headers.
-      const credential = this.vault.decrypt(route.channel.credentialEncrypted);
-      const headers = new Headers({
-        'content-type': 'application/json',
-        accept: streaming ? 'text/event-stream' : 'application/json',
-      });
-      if (endpoint === '/v1/messages') {
-        headers.set('x-api-key', credential);
-        const version = req.headers.get('anthropic-version') ?? '2023-06-01';
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(version))
-          throw new GatewayError(400, 'invalid_version', 'Invalid anthropic-version');
-        headers.set('anthropic-version', version);
-        const beta = req.headers.get('anthropic-beta');
-        if (beta) headers.set('anthropic-beta', beta);
-      } else headers.set('authorization', `Bearer ${credential}`);
-
-      // Reserve funds before marking the request as forwarding.
       await this.billing.reserve({
         requestId: id,
         userId: identity.user.id,
         keyId: identity.key.id,
         modelId: model.id,
-        channelId: route.channel.id,
+        channelId: channel.id,
         price: lockedPrice,
         inputLimit: model.inputTokenLimit,
         outputLimit,
         body: parsed,
         endpoint,
       });
-      if (req.signal.aborted) disconnect();
+      lifecycle.syncClientAbort();
       if (abort.signal.aborted)
         throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
       await this.billing.forwarding(id);
 
-      // 渠道超时用于等待响应；SSE 收到响应后改用独立的空闲超时。
-      timer = setTimeout(() => abort.abort('upstream_timeout'), route.channel.timeoutMs);
-      if (req.signal.aborted) disconnect();
-      // Base URL accepts both an origin/prefix and an SDK-style .../v1 URL.
-      const base = route.channel.baseUrl.replace(/\/+$/, '');
-      const target = `${base}${base.endsWith('/v1') ? endpoint.slice(3) : endpoint}`;
-      dispatched = true;
+      lifecycle.setTimeout('upstream_timeout', channel.timeoutMs);
+      lifecycle.syncClientAbort();
+      const target = upstreamUrl(channel.baseUrl, endpoint);
+      session.dispatched = true;
       const upstream = await fetch(target, {
         method: 'POST',
         headers,
-        body: upstreamBody,
+        body,
         signal: abort.signal,
         redirect: 'manual',
       });
-
-      // Reject redirects and copy the allowed upstream response headers.
-      httpStatus = upstream.status;
-      upstreamStatus = upstream.status;
-      if (upstream.status >= 300 && upstream.status < 400) {
-        await upstream.body?.cancel();
-        throw new GatewayError(502, 'upstream_redirect', 'Upstream redirects are not supported');
-      }
-      const responseHeaders = new Headers({ 'x-request-id': id, 'cache-control': 'no-store' });
-      for (const name of [
-        'content-type',
-        'x-codex-turn-state',
-        'x-reasoning-included',
-        'retry-after',
-        'x-ratelimit-limit-requests',
-        'x-ratelimit-remaining-requests',
-        'x-ratelimit-reset-requests',
-      ]) {
-        const value = upstream.headers.get(name);
-        if (value) responseHeaders.set(name, value);
-      }
-      collector.upstreamId = (upstream.headers.get('x-request-id') ?? upstream.headers.get('request-id'))?.slice(
-        0,
-        256,
-      );
-
-      // Finalize empty responses without creating a response stream.
-      if (!upstream.body) {
-        await finish('empty_response');
-        return new Response(null, { status: upstream.status, headers: responseHeaders });
-      }
-
-      // Observe SSE events or buffer JSON while forwarding response bytes.
-      const isSse = upstream.headers.get('content-type')?.toLowerCase().includes('text/event-stream') ?? false;
-      const resetIdleTimeout = () => {
-        if (!isSse || abort.signal.aborted) return;
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => abort.abort('upstream_idle_timeout'), this.config.streamIdleTimeoutMs);
-      };
-      resetIdleTimeout();
-      if (isSse) responseHeaders.set('x-accel-buffering', 'no');
-      const observer = isSse ? new SseObserver(collector, this.config.maxUsageEventBytes) : undefined;
-      const jsonChunks: Uint8Array[] = [];
-      let jsonSize = 0;
-      const reader = upstream.body.getReader();
-      let pullTask: Promise<void> | undefined;
-      let responseFinalization: Promise<void> | undefined;
-      let stoppingResponse: Promise<void> | undefined;
-      let responseController: ReadableStreamDefaultController<Uint8Array>;
-      const abortReason = () =>
-        typeof abort.signal.reason === 'string' ? abort.signal.reason : 'upstream_disconnected';
-      // 读取任务停止后汇总已收到的数据，再执行一次性计费收尾。
-      const finalizeResponse = (errorCode?: string): Promise<void> => {
-        responseFinalization ??= (async () => {
-          observer?.finish();
-          if (!isSse && !collector.observationIncomplete) {
-            try {
-              collector.observe(JSON.parse(Buffer.concat(jsonChunks).toString('utf8')));
-              if (endpoint === '/v1/chat/completions') collector.done();
-            } catch {
-              collector.invalid = true;
-            }
-          }
-          safeRejection =
-            !collector.usage &&
-            collector.failed &&
-            !collector.invalid &&
-            !collector.observationIncomplete &&
-            [400, 401, 403, 404, 405, 413, 415, 422, 429].includes(upstream.status);
-          reader.releaseLock();
-          await finish(errorCode);
-        })();
-        return responseFinalization;
-      };
-      stopResponse = () => {
-        stoppingResponse ??= (async () => {
-          await reader.cancel().catch(() => {});
-          await pullTask;
-          await finalizeResponse(abortReason());
-          responseController.error(new Error('Upstream stream interrupted'));
-        })();
-        return stoppingResponse;
-      };
-      let finalCheckpoint = false;
-      let blockedCheckpoint = false;
-      const stream = new ReadableStream<Uint8Array>({
-        start: (controller) => {
-          responseController = controller;
+      session.httpStatus = upstream.status;
+      session.upstreamStatus = upstream.status;
+      return await forwardResponse({
+        upstream,
+        endpoint,
+        streaming,
+        lifecycle,
+        collector: session.collector,
+        config: this.config,
+        onCheckpoint: () => session.checkpoint(),
+        onFinish: (safeRejection, errorCode) => {
+          session.safeRejection = safeRejection;
+          return finish(errorCode);
         },
-        pull: (controller) => {
-          if (responseFinalization || stoppingResponse) return;
-          pullTask = (async () => {
-            try {
-              const { value, done } = await reader.read();
-              if (done) {
-                await finalizeResponse(
-                  abort.signal.aborted
-                    ? abortReason()
-                    : !upstream.ok
-                      ? 'upstream_http_error'
-                      : streaming !== isSse
-                        ? 'unexpected_response_type'
-                        : undefined,
-                );
-                if (abort.signal.aborted) controller.error(new Error('Upstream stream interrupted'));
-                else controller.close();
-                return;
-              }
-              resetIdleTimeout();
-              observer?.push(value);
-
-              // Persist final usage or blocked settlement as soon as it is observed.
-              if (!finalCheckpoint && summary().usageFinal) {
-                finalCheckpoint = true;
-                try {
-                  await this.billing.checkpoint(id, summary());
-                } catch (error) {
-                  this.logger.error(`最终用量保存失败 ${JSON.stringify({ requestId: id, ...errorDetails(error) })}`);
-                }
-              }
-              if (!blockedCheckpoint && summary().blockSettlement) {
-                blockedCheckpoint = true;
-                try {
-                  await this.billing.checkpoint(id, summary());
-                } catch (error) {
-                  this.logger.error(
-                    `用量校验状态保存失败 ${JSON.stringify({ requestId: id, ...errorDetails(error) })}`,
-                  );
-                }
-              }
-
-              // usage 观察容量独立于请求体限制，超限后继续转发并保留待核对状态。
-              if (!isSse) {
-                jsonSize += value.byteLength;
-                if (jsonSize <= this.config.maxUsageBodyBytes) jsonChunks.push(value);
-                else {
-                  jsonChunks.length = 0;
-                  collector.observationIncomplete = true;
-                }
-              }
-              if (!abort.signal.aborted) controller.enqueue(value);
-            } catch (error) {
-              failureDetails = errorDetails(error);
-              abort.abort(abort.signal.reason ?? 'upstream_disconnected');
-              controller.error(new Error('Upstream stream interrupted'));
-            }
-          })();
-          return pullTask;
-        },
-        cancel: () => {
-          abort.abort('client_disconnected');
-          return stopResponse?.();
+        onError: (error) => {
+          session.failureDetails = errorDetails(error);
         },
       });
-      abort.signal.addEventListener('abort', onAbort, { once: true });
-      if (abort.signal.aborted) onAbort();
-      return new Response(stream, { status: upstream.status, headers: responseHeaders });
     } catch (error) {
-      // Normalize failures and finalize billing before returning a protocol error.
-      if (!(error instanceof GatewayError)) failureDetails = errorDetails(error);
+      if (!(error instanceof GatewayError)) session.failureDetails = errorDetails(error);
       const failure =
         error instanceof GatewayError
           ? error
@@ -730,7 +458,7 @@ export class GatewayService implements Disposable {
               abort.signal.reason === 'upstream_timeout' ? 'upstream_timeout' : 'gateway_error',
               'Unable to complete the upstream request',
             );
-      httpStatus = failure.status;
+      session.httpStatus = failure.status;
       await finish(failure.code);
       return this.error(endpoint, failure.status, failure.code, failure.message, id);
     }

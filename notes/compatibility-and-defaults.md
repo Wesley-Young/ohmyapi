@@ -36,7 +36,7 @@
 
 - **Codex 响应头**：允许向客户端返回 `x-codex-turn-state`、`x-reasoning-included`；这里是响应头白名单，请求头只按当前协议构造。
 
-  代码：[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)：`forward`。维护时核对：客户端新增状态头、要求回传请求头或修改状态延续方式。
+  代码：[protocol.ts](../daemon/src/plugins/gateway/protocol.ts)：`responseHeaders`。维护时核对：客户端新增状态头、要求回传请求头或修改状态延续方式。
 
 - **跨请求状态与异步模式**：非空 `previous_response_id`、`conversation`、`prompt`、`audio`、`prediction` 被计费准入拒绝；`background: true` 被拒绝。当前只接同步 HTTP 请求和 SSE，未提供 Responses 后续检索或 WebSocket 路由。
 
@@ -44,11 +44,11 @@
 
 - **OpenAI 兼容端点和输出上限**：推理支持 `/v1/chat/completions` 和 `/v1/responses`，使用上游 Bearer 凭据。Responses 识别 `max_output_tokens`，显式值至少 `16`；Chat 可选 `max_completion_tokens` 或 `max_tokens`，二者同时提供会报错。未提供上限时仅使用模型输出上限做预占估算，转发保留缺省值或 `null`。
 
-  代码：[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)：`endpoints`；[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)：`forward`；[admission.ts](../daemon/src/plugins/billing/admission.ts)：`validateBillableRequest`。维护时核对：API 字段名、最小值、鉴权和客户端缺省行为，避免为了预占改写上游输出行为。
+  代码：[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)：`endpoints`；[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)：`forward`；[protocol.ts](../daemon/src/plugins/gateway/protocol.ts)：`upstreamHeaders`；[admission.ts](../daemon/src/plugins/billing/admission.ts)：`validateBillableRequest`。维护时核对：API 字段名、最小值、鉴权和客户端缺省行为，避免为了预占改写上游输出行为。
 
 - **Chat 流式 usage**：强制合并 `stream_options.include_usage: true`，保留其余流式选项；识别 usage-only 的空 `choices` chunk 与 `[DONE]`。
 
-  代码：[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)：`forward`；[usage.ts](../daemon/src/plugins/gateway/usage.ts)。维护时核对：兼容供应商是否支持该选项，末尾 usage 与结束标志格式是否变化。
+  代码：[protocol.ts](../daemon/src/plugins/gateway/protocol.ts)：`upstreamBody`；[usage.ts](../daemon/src/plugins/gateway/usage.ts)。维护时核对：兼容供应商是否支持该选项，末尾 usage 与结束标志格式是否变化。
 
 - **Responses 终态**：接受状态 `completed`、`incomplete`、`failed`、`cancelled`、`canceled`；事件接受对应 `response.*` 及 `response.done`。终态与错误标记、最终 usage 分开记录。
 
@@ -78,7 +78,7 @@
 
 - **Messages 版本与鉴权**：推理端点为 `/v1/messages`，使用上游 `x-api-key`。`anthropic-version` 取客户端请求值，缺省 `2023-06-01`，仅接受日期格式；透传 `anthropic-beta`。
 
-  代码：[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)：`forward`；[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)：`endpoints`。维护时核对：API 版本、beta 能力和鉴权方式变化。
+  代码：[protocol.ts](../daemon/src/plugins/gateway/protocol.ts)：`upstreamHeaders`；[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)：`endpoints`。维护时核对：API 版本、beta 能力和鉴权方式变化。
 
 - **输出上限**：Messages 必须提供 `max_tokens`，为至少 `1` 且不超过模型输出上限的整数。
 
@@ -172,15 +172,17 @@
 
 ## 跨供应商兼容规则与项目默认值
 
+转发职责于 `2026-10-08` 按现有实现拆分：`GatewayService.forward` 编排准入、入库、路由、锁价、预占和发送；`RequestLifecycle` 管理取消、超时和一次性资源释放；`ForwardBillingSession` 构造摘要、保存两类用量检查点并记录结束日志；`forwardResponse` 管理响应读取和结束时机。协议值、默认值及计费判定沿用拆分前实现，下面的代码入口已同步更新。
+
 - **后端日志与降噪**：日志直接调用内核 logger，默认由 `@fraqjs/color-log` 输出。网关在请求完整收尾后记录一次摘要，包含请求 ID、端点、已解析模型、渠道、状态、耗时、请求体字节数和错误码；上传超限、上传超时额外记录对应阈值。普通准入拒绝按错误码每 `60s` 最多记录一次，上传超限、上传超时及服务端错误保留逐次日志；登录限流按全局、账号或容量类别每 `60s` 最多记录一次。
 
   计费状态日志在事务提交后输出，记录结算、预占释放和转人工核对；重试记录失败次数与队列长度，启动和有待恢复请求时输出恢复汇总，周期空扫描保持安静。就绪检查仅在状态或失败依赖变化时输出。HTTP/RPC 错误与成功的已认证变更通过请求 ID 关联；密码、Key、Cookie、凭据、正文、数据库查询及参数均不写入新增日志，异常只提取白名单类型、网络错误码或 SQLSTATE，以及固定业务错误对应的原因码。
 
-  依据与核对日期：`2026-10-08`，用户要求补齐常见日志位置并直接调用 logger；上述日志级别、字段与降噪间隔是项目约定。代码：[logging.ts](../daemon/src/logging.ts)、[index.ts](../daemon/src/index.ts)、[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)、[billing/service.ts](../daemon/src/plugins/billing/service.ts)、[http/index.ts](../daemon/src/plugins/http/index.ts)、[auth/service.ts](../daemon/src/plugins/auth/service.ts)、[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)、[trpc/router.ts](../daemon/src/trpc/router.ts)。
+  依据与核对日期：`2026-10-08`，用户要求补齐常见日志位置并直接调用 logger；上述日志级别、字段与降噪间隔是项目约定。代码：[logging.ts](../daemon/src/logging.ts)、[index.ts](../daemon/src/index.ts)、[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)、[billing-session.ts](../daemon/src/plugins/gateway/billing-session.ts)、[lifecycle.ts](../daemon/src/plugins/gateway/lifecycle.ts)、[billing/service.ts](../daemon/src/plugins/billing/service.ts)、[http/index.ts](../daemon/src/plugins/http/index.ts)、[auth/service.ts](../daemon/src/plugins/auth/service.ts)、[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)、[trpc/router.ts](../daemon/src/trpc/router.ts)。
 
 - **转发端点**：固定支持 `/v1/chat/completions`、`/v1/responses`、`/v1/messages`；使用相同端点转发。Base URL 去掉尾部 `/`，以 `/v1` 结尾时去重该路径前缀。
 
-  代码：[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)：`endpoints`；[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)：`forward`；[schema/common.ts](../daemon/src/plugins/database/schema/common.ts)。维护时核对：新 API 版本、供应商原生端点或不同 Base URL 约定；端点枚举也涉及数据库。
+  代码：[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)：`endpoints`；[protocol.ts](../daemon/src/plugins/gateway/protocol.ts)：`upstreamUrl`；[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)：`forward`；[schema/common.ts](../daemon/src/plugins/database/schema/common.ts)。维护时核对：新 API 版本、供应商原生端点或不同 Base URL 约定；端点枚举也涉及数据库。
 
 - **兼容模型列表**：本地 `GET /v1/models` 返回已启用、已定价、渠道可用且调用者有权限的模型，`owned_by` 固定为 `ohmyapi`；上游列表采用 `/v1/models`，同时发送 Bearer、`x-api-key` 和固定 `2023-06-01` 版本头，分页使用 `has_more` / `last_id` / `after_id`。
 
@@ -188,7 +190,7 @@
 
 - **响应头和拒绝状态**：除 Codex 头外，仅复制 `content-type`、`retry-after` 和三项 `x-ratelimit-*-requests` 头。无 usage、明确错误且 HTTP 状态在 `400/401/403/404/405/413/415/422/429` 时才作为安全拒绝释放预占；重定向被拒绝。
 
-  代码：[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)：`forward`。维护时核对：新限流头、新错误状态和“请求是否执行”的供应商语义。
+  代码：[protocol.ts](../daemon/src/plugins/gateway/protocol.ts)：`responseHeaders`；[response.ts](../daemon/src/plugins/gateway/response.ts)：`forwardResponse`。维护时核对：新限流头、新错误状态和“请求是否执行”的供应商语义。
 
 - **内容与付费工具边界**：`n` 若提供只能为 `1`，`modalities` 若提供只能含 `text`。拒绝图片、音频、文件、视频、computer use 等内容；托管工具只支持已识别的 Web Search。仅按协议内容检查，工具 schema、examples 和业务数据保持原样。
 
@@ -200,7 +202,7 @@
 
 - **未知用量与人工核对**：正数音频、图像、视频 Token、未知收费工具、无效或不完整 usage 会阻止自动结算；无法确认完整费用的响应进入 `needs_review`。
 
-  代码：[usage.ts](../daemon/src/plugins/gateway/usage.ts)；[search-usage.ts](../daemon/src/plugins/gateway/search-usage.ts)；[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)：`summary`。维护时核对：同时检查准入、请求预占、SSE/JSON 观察、快照、结算及人工核对入口，保留计费证据。
+  代码：[usage.ts](../daemon/src/plugins/gateway/usage.ts)；[search-usage.ts](../daemon/src/plugins/gateway/search-usage.ts)；[billing-session.ts](../daemon/src/plugins/gateway/billing-session.ts)：`summary`、`checkpoint`；[response.ts](../daemon/src/plugins/gateway/response.ts)：`forwardResponse`。维护时核对：同时检查准入、请求预占、SSE/JSON 观察、快照、结算及人工核对入口，保留计费证据。
 
 - **模型容量缺省**：输入 `1,000,000`、输出 `128,000` Token；用于手动创建、渠道占位和外部数据缺失时的回退。输入容量作为元数据保存，不用作 JSON 字节上限，也不裁剪输入预占估算；输出上限用于准入和估算。
 
@@ -222,13 +224,13 @@
 
   依据与核对日期：`2026-10-08`，用户反馈长上下文触发 `Request body exceeds the gateway limit`，代码核对确认原缺省 `4 MiB` 会限制包含历史消息、工具定义和工具结果的完整 JSON。提高缺省至现有配置上限是项目容量约定，上游仍独立限制请求大小和模型上下文。请求完整缓存、JSON 解析及同步 Token 预估会增加大请求的内存和 CPU 开销；本次未进行容量压测。已有部署保留原 `.env` 显式值，需修改并重启进程；仅修改示例或代码回退值不会覆盖该配置。
 
-  代码：[config.ts](../daemon/src/config.ts)：`readGatewayConfig`；[.env.example](../.env.example)；[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)、[usage.ts](../daemon/src/plugins/gateway/usage.ts)。
+  代码：[config.ts](../daemon/src/config.ts)：`readGatewayConfig`；[.env.example](../.env.example)；[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)：`body`；[response.ts](../daemon/src/plugins/gateway/response.ts)：`forwardResponse`；[usage.ts](../daemon/src/plugins/gateway/usage.ts)。
 
 - **超时**：三个推理端点的请求体读取总超时由 `GATEWAY_BODY_TIMEOUT_MS` 配置，缺省 `120s`，范围 `1–600,000ms`，显式配置优先；鉴权和并发准入完成后开始计时，收到数据时不重置，超时返回 `408 body_timeout`。渠道缺省 `120s`，表单范围 `100–600,000ms`；渠道超时用于等待响应，SSE 收到响应后改用空闲超时，缺省 `300s`、配置最大 `3,600s`。
 
   依据与核对日期：`2026-10-08`，用户反馈放宽请求体大小后触发 `Request body was not completed before admission`，代码核对确认原固定 `30s` 读取总超时触发该错误。按本次长上下文上传需求将缺省改为 `120s`，配置最大值采用 `600s`；这些是项目约定，与渠道超时、SSE 空闲超时独立。等待上传期间仍占用用户并发名额。修改后需构建并重启服务；线上长请求上传效果未验证。
 
-  代码：[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)、[config.ts](../daemon/src/config.ts)、[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)、[schema/catalog.ts](../daemon/src/plugins/database/schema/catalog.ts)、[Catalog.tsx](../web/src/routes/Catalog.tsx)、[.env.example](../.env.example)。
+  代码：[lifecycle.ts](../daemon/src/plugins/gateway/lifecycle.ts)：`withBodyTimeout`、`setTimeout`；[response.ts](../daemon/src/plugins/gateway/response.ts)：`forwardResponse`；[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)、[config.ts](../daemon/src/config.ts)、[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)、[schema/catalog.ts](../daemon/src/plugins/database/schema/catalog.ts)、[Catalog.tsx](../web/src/routes/Catalog.tsx)、[.env.example](../.env.example)。
 
 - **用户限流**：每用户并发缺省 `4`（配置最大 `100`），RPM 缺省 `60`（最大 `10,000`）；固定 `60s` 窗口，本地用户计数表最多 `10,000` 项，429 的 `retry-after` 固定 `60`。
 
@@ -248,7 +250,7 @@
 
 - **用量元数据限额**：仅保留非负安全整数；每对象最多前 `100` 个字段，字段名最多 `128`，嵌套深度最多 `2`；上游请求 ID 截至 `256` 字符。
 
-  代码：[usage.ts](../daemon/src/plugins/gateway/usage.ts)：`usageNumbers`、`observe`；[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)。
+  代码：[usage.ts](../daemon/src/plugins/gateway/usage.ts)：`usageNumbers`、`observe`；[response.ts](../daemon/src/plugins/gateway/response.ts)：`forwardResponse`。
 
 - **计费恢复节奏**：心跳与重试每 `15s`；每次处理最多 `50` 个内存待重试请求，连续失败 `3` 次后尝试转人工核对；数据库计费连接查询超时 `5s`。
 
