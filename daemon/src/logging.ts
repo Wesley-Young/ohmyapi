@@ -35,7 +35,6 @@ const errorCodes = new Set([
 ]);
 const errorReasons = new Map([
   ['Database is not initialized; run pnpm db:migrate and pnpm db:init', 'database_not_initialized'],
-  ['BILLING_CURRENCY differs from the initialized database', 'billing_currency_mismatch'],
   ['Another ohmyapi instance owns billing for this database', 'billing_ownership_conflict'],
   ['Unable to initialize billing ownership and recovery', 'billing_initialization_failed'],
   ['Billing is unavailable', 'billing_unavailable'],

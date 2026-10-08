@@ -282,7 +282,7 @@
 
   代码：[billing/index.ts](../daemon/src/plugins/billing/index.ts)、[billing/service.ts](../daemon/src/plugins/billing/service.ts)；长时间 agent 请求和数据库延迟变化时核对。
 
-- **金额与计费单位**：六位小数、整数 micros；Token 单价按百万，搜索单价按千次；倍率应用后整次费用向上舍入。货币仅支持 `USD`、`CNY`，缺省 `USD`，启动仍要求与初始化数据库一致。
+- **金额与计费单位**：六位小数、整数 micros；Token 单价按百万，搜索单价按千次；倍率应用后整次费用向上舍入。货币仅支持 `USD`、`CNY`，缺省 `USD`；启动或执行 `pnpm db:init` 时将 `BILLING_CURRENCY` 同步到数据库，修改配置后重启服务即可切换金额展示标记。已有余额、价格及历史账单金额数值保持不变，不执行汇率换算，历史账单恢复仍使用已保存的价格快照。
 
   代码：[conventions.ts](../daemon/src/plugins/billing/conventions.ts)、[pricing/rules.ts](../daemon/src/plugins/pricing/rules.ts)、[config.ts](../daemon/src/config.ts)、[database/bootstrap.ts](../daemon/src/plugins/database/bootstrap.ts)、[database/index.ts](../daemon/src/plugins/database/index.ts)、[schema/identity.ts](../daemon/src/plugins/database/schema/identity.ts)。
 

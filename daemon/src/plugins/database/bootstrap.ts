@@ -20,8 +20,9 @@ export async function initializeDatabase(db: Database, options: BootstrapOptions
     await tx.execute(sql`select pg_advisory_xact_lock(1330138457)`);
     const [existing] = await tx.select().from(systemSettings).where(eq(systemSettings.id, 1));
     if (existing) {
-      if (existing.currency !== options.currency)
-        throw new Error('Billing currency differs from the initialized database');
+      if (existing.currency !== options.currency) {
+        await tx.update(systemSettings).set({ currency: options.currency }).where(eq(systemSettings.id, 1));
+      }
       return { created: false, adminId: existing.bootstrapAdminId };
     }
 

@@ -29,6 +29,13 @@
       "when": 1791484127214,
       "tag": "0003_disconnected_usage_estimate",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791485836397,
+      "tag": "0004_mutable_billing_currency",
+      "breakpoints": true
     }
   ]
 }
