@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { and, asc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { type EventLogger, errorDetails } from '../../logging.js';
 import type { AuthService, Principal, Transaction } from '../auth/service.js';
 import { formatMoney, parseMoney } from '../billing/conventions.js';
 import {
@@ -112,10 +113,12 @@ export class CredentialVault {
 export class CatalogService {
   static readonly token = serviceToken<CatalogService>('ohmyapi/catalog');
   private readonly auth: AuthService;
+  private readonly logger: EventLogger;
   readonly vault: CredentialVault;
-  constructor(auth: AuthService, vault: CredentialVault) {
+  constructor(auth: AuthService, vault: CredentialVault, logger: EventLogger) {
     this.auth = auth;
     this.vault = vault;
+    this.logger = logger;
   }
 
   async list() {
@@ -191,8 +194,12 @@ export class CatalogService {
     const cursors = new Set<string>();
     let bytes = 0;
     let ignored = 0;
+    const startedAt = Date.now();
+    let httpStatus: number | undefined;
+    let stage = 'fetch';
     try {
       for (;;) {
+        stage = 'fetch';
         const response = await fetch(url, {
           headers: {
             authorization: `Bearer ${credential}`,
@@ -202,7 +209,9 @@ export class CatalogService {
           signal,
           redirect: 'error',
         });
+        httpStatus = response.status;
         if (!response.ok) {
+          stage = 'http_error';
           await response.body?.cancel();
           throw new TRPCError({
             code: 'BAD_REQUEST',
@@ -212,6 +221,7 @@ export class CatalogService {
                 : `获取模型失败，上游返回 HTTP ${response.status}，请检查地址和凭据`,
           });
         }
+        stage = 'read_body';
         const reader = response.body?.getReader();
         if (!reader) throw new TRPCError({ code: 'BAD_REQUEST', message: '上游返回了空的模型列表' });
         const chunks: Uint8Array[] = [];
@@ -220,13 +230,17 @@ export class CatalogService {
             const { done, value } = await reader.read();
             if (done) break;
             bytes += value.byteLength;
-            if (bytes > 2 * 1024 * 1024) throw new TRPCError({ code: 'BAD_REQUEST', message: '上游模型列表过大' });
+            if (bytes > 2 * 1024 * 1024) {
+              stage = 'response_too_large';
+              throw new TRPCError({ code: 'BAD_REQUEST', message: '上游模型列表过大' });
+            }
             chunks.push(value);
           }
         } finally {
           await reader.cancel().catch(() => {});
           reader.releaseLock();
         }
+        stage = 'parse_models';
         const page = z
           .object({
             data: z.array(z.object({ id: z.string() })).max(1000),
@@ -244,16 +258,39 @@ export class CatalogService {
         if (names.size > 1000) throw new TRPCError({ code: 'BAD_REQUEST', message: '每个渠道最多添加 1000 个模型' });
         if (!page.data.has_more) break;
         const cursor = page.data.last_id;
+        stage = 'pagination';
         if (!cursor || cursors.has(cursor))
           throw new TRPCError({ code: 'BAD_REQUEST', message: '上游模型列表分页无效' });
         cursors.add(cursor);
         url.searchParams.set('after_id', cursor);
       }
+      stage = 'empty_models';
+      if (!names.size) throw new TRPCError({ code: 'BAD_REQUEST', message: '上游未返回有效模型，请手动添加模型' });
     } catch (error) {
+      this.logger.warn(
+        `上游模型列表获取失败 ${JSON.stringify({
+          actorId: principal.user.id,
+          channelId: input.id,
+          stage,
+          timedOut: signal.aborted,
+          httpStatus,
+          durationMs: Date.now() - startedAt,
+          responseBytes: bytes,
+          ...errorDetails(error),
+        })}`,
+      );
       if (error instanceof TRPCError) throw error;
       throw new TRPCError({ code: 'BAD_REQUEST', message: '无法获取上游模型，请检查地址、凭据和连接后重试' });
     }
-    if (!names.size) throw new TRPCError({ code: 'BAD_REQUEST', message: '上游未返回有效模型，请手动添加模型' });
+    this.logger.info(
+      `上游模型列表获取完成 ${JSON.stringify({
+        actorId: principal.user.id,
+        channelId: input.id,
+        modelCount: names.size,
+        ignored,
+        durationMs: Date.now() - startedAt,
+      })}`,
+    );
     return { names: [...names].sort(), ignored };
   }
 

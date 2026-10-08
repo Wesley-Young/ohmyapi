@@ -9,7 +9,7 @@ export const BillingPlugin = definePlugin({
   inject: { auth: AuthService, pricing: PricingService },
   provides: [BillingService],
   async apply(ctx) {
-    const billing = new BillingService(ctx.auth, ctx.pricing, (message) => ctx.logger.error(message));
+    const billing = new BillingService(ctx.auth, ctx.pricing, ctx.logger);
     ctx.provide(BillingService, billing);
     await billing.start(readDatabaseConfig());
     ctx.interval(15000, () => billing.tick());

@@ -172,6 +172,12 @@
 
 ## 跨供应商兼容规则与项目默认值
 
+- **后端日志与降噪**：日志直接调用内核 logger，默认由 `@fraqjs/color-log` 输出。网关在请求完整收尾后记录一次摘要，包含请求 ID、端点、已解析模型、渠道、状态、耗时、请求体字节数和错误码；上传超限、上传超时额外记录对应阈值。普通准入拒绝按错误码每 `60s` 最多记录一次，上传超限、上传超时及服务端错误保留逐次日志；登录限流按全局、账号或容量类别每 `60s` 最多记录一次。
+
+  计费状态日志在事务提交后输出，记录结算、预占释放和转人工核对；重试记录失败次数与队列长度，启动和有待恢复请求时输出恢复汇总，周期空扫描保持安静。就绪检查仅在状态或失败依赖变化时输出。HTTP/RPC 错误与成功的已认证变更通过请求 ID 关联；密码、Key、Cookie、凭据、正文、数据库查询及参数均不写入新增日志，异常只提取白名单类型、网络错误码或 SQLSTATE，以及固定业务错误对应的原因码。
+
+  依据与核对日期：`2026-10-08`，用户要求补齐常见日志位置并直接调用 logger；上述日志级别、字段与降噪间隔是项目约定。代码：[logging.ts](../daemon/src/logging.ts)、[index.ts](../daemon/src/index.ts)、[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)、[billing/service.ts](../daemon/src/plugins/billing/service.ts)、[http/index.ts](../daemon/src/plugins/http/index.ts)、[auth/service.ts](../daemon/src/plugins/auth/service.ts)、[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)、[trpc/router.ts](../daemon/src/trpc/router.ts)。
+
 - **转发端点**：固定支持 `/v1/chat/completions`、`/v1/responses`、`/v1/messages`；使用相同端点转发。Base URL 去掉尾部 `/`，以 `/v1` 结尾时去重该路径前缀。
 
   代码：[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)：`endpoints`；[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)：`forward`；[schema/common.ts](../daemon/src/plugins/database/schema/common.ts)。维护时核对：新 API 版本、供应商原生端点或不同 Base URL 约定；端点枚举也涉及数据库。

@@ -2,6 +2,7 @@ import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { and, desc, eq, gt, isNull, or } from 'drizzle-orm';
 
 import type { readGatewayConfig } from '../../config.js';
+import { createLogSampler, type EventLogger, errorDetails, type LogFields } from '../../logging.js';
 import { validateBillableRequest } from '../billing/admission.js';
 import { formatMoney } from '../billing/conventions.js';
 import { searchRequest } from '../billing/search.js';
@@ -36,7 +37,8 @@ export class GatewayService implements Disposable {
   private readonly db: Database;
   private readonly vault: CredentialVault;
   readonly config: Config;
-  private readonly logError: (message: string) => void;
+  private readonly logger: EventLogger;
+  private readonly sampleLog = createLogSampler();
   private readonly pricing: PricingService;
   private readonly billing: BillingService;
   private stopping = false;
@@ -48,20 +50,21 @@ export class GatewayService implements Disposable {
     billing: BillingService,
     vault: CredentialVault,
     config: Config,
-    logError: (message: string) => void,
+    logger: EventLogger,
   ) {
     this.db = db;
     this.pricing = pricing;
     this.billing = billing;
     this.vault = vault;
     this.config = config;
-    this.logError = logError;
+    this.logger = logger;
   }
 
   dispose() {
     this.stopping = true;
     this.disposal ??= (async () => {
       const entries = [...this.running.values()];
+      this.logger.info(`网关停止转发 ${JSON.stringify({ activeRequests: entries.length })}`);
       for (const e of entries) e.abort.abort('server_shutdown');
       await Promise.allSettled(entries.map((e) => e.done));
     })();
@@ -69,6 +72,10 @@ export class GatewayService implements Disposable {
   }
 
   error(endpoint: Endpoint | '/v1/models', status: number, code: string, message: string, id: string) {
+    if (code === 'method_not_allowed' && this.sampleLog(code))
+      this.logger.warn(
+        `网关请求被拒绝 ${JSON.stringify({ requestId: id, endpoint, httpStatus: status, errorCode: code })}`,
+      );
     const type =
       status === 401
         ? 'authentication_error'
@@ -146,6 +153,7 @@ export class GatewayService implements Disposable {
 
   async listModels(req: Request): Promise<Response> {
     const id = randomUUID();
+    const startedAt = Date.now();
     try {
       if (this.stopping) throw new GatewayError(503, 'server_stopping', 'Gateway is stopping');
       const identity = await this.identify(req, '/v1/models');
@@ -199,11 +207,22 @@ export class GatewayService implements Disposable {
         error instanceof GatewayError
           ? error
           : new GatewayError(502, 'gateway_error', 'Unable to list available models');
+      if (failure.status >= 500 || this.sampleLog(failure.code))
+        this.logger[failure.status >= 500 ? 'error' : 'warn'](
+          `网关模型列表请求失败 ${JSON.stringify({
+            requestId: id,
+            endpoint: '/v1/models',
+            httpStatus: failure.status,
+            errorCode: failure.code,
+            durationMs: Date.now() - startedAt,
+            ...(error instanceof GatewayError ? {} : errorDetails(error)),
+          })}`,
+        );
       return this.error('/v1/models', failure.status, failure.code, failure.message, id);
     }
   }
 
-  private async body(req: Request, signal: AbortSignal) {
+  private async body(req: Request, signal: AbortSignal, stats: { bytes: number }) {
     if (!req.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
       throw new GatewayError(415, 'unsupported_media_type', 'Content-Type must be application/json');
     const reader = req.body?.getReader();
@@ -220,6 +239,7 @@ export class GatewayService implements Disposable {
         const { done, value } = await reader.read();
         if (done) break;
         size += value.byteLength;
+        stats.bytes = size;
         if (size > this.config.maxBodyBytes) {
           await reader.cancel();
           throw new GatewayError(413, 'request_too_large', 'Request body exceeds the gateway limit');
@@ -263,6 +283,14 @@ export class GatewayService implements Disposable {
     // Track the request lifecycle and propagate client disconnects.
     const id = randomUUID();
     const receivedAt = new Date();
+    const bodyStats = { bytes: 0 };
+    let userId: string | undefined;
+    let channelId: string | undefined;
+    let modelName: string | undefined;
+    let streaming: boolean | undefined;
+    let upstreamStatus: number | undefined;
+    let upstreamTimeoutMs: number | undefined;
+    let failureDetails: LogFields = {};
     let dispatched = false;
     let recorded = false;
     let release: (() => void) | undefined;
@@ -317,14 +345,63 @@ export class GatewayService implements Disposable {
       req.signal.removeEventListener('abort', disconnect);
       abort.signal.removeEventListener('abort', onAbort);
       finalization = (async () => {
+        const result = summary(errorCode);
         try {
-          if (recorded) await this.billing.finish(id, summary(errorCode));
-        } catch {
-          this.logError(`Billing finalization deferred: ${id}`);
+          if (recorded) await this.billing.finish(id, result);
+        } catch (error) {
+          this.logger.error(`计费收尾未完成 ${JSON.stringify({ requestId: id, ...errorDetails(error) })}`);
         } finally {
           release?.();
           this.running.delete(id);
           completeRequest();
+          const code = result.errorCode;
+          const routineRejection =
+            !dispatched &&
+            httpStatus !== undefined &&
+            httpStatus < 500 &&
+            !['request_too_large', 'body_timeout'].includes(code ?? '');
+          if (!routineRejection || this.sampleLog(code ?? 'rejected')) {
+            const level =
+              code === 'client_disconnected' || code === 'request_cancelled'
+                ? 'debug'
+                : code === 'server_shutdown'
+                  ? 'info'
+                  : (httpStatus ?? 0) >= 500
+                    ? 'error'
+                    : code || (httpStatus ?? 0) >= 400
+                      ? 'warn'
+                      : 'info';
+            this.logger[level](
+              `网关请求结束 ${JSON.stringify({
+                requestId: id,
+                endpoint,
+                userId,
+                channelId,
+                model: modelName,
+                streaming,
+                dispatched,
+                recorded,
+                httpStatus,
+                upstreamStatus,
+                upstreamRequestId: result.upstreamRequestId,
+                durationMs: Date.now() - receivedAt.getTime(),
+                bodyBytes: bodyStats.bytes,
+                errorCode: code,
+                usageFinal: result.usageFinal,
+                blockSettlement: result.blockSettlement,
+                maxBodyBytes: code === 'request_too_large' ? this.config.maxBodyBytes : undefined,
+                timeoutMs:
+                  code === 'body_timeout'
+                    ? this.config.bodyTimeoutMs
+                    : code === 'upstream_timeout'
+                      ? upstreamTimeoutMs
+                      : code === 'upstream_idle_timeout'
+                        ? this.config.streamIdleTimeoutMs
+                        : undefined,
+                ...failureDetails,
+              })}`,
+            );
+          }
         }
       })();
       return finalization;
@@ -335,18 +412,20 @@ export class GatewayService implements Disposable {
       if (this.stopping) throw new GatewayError(503, 'server_stopping', 'Gateway is stopping');
       this.billing.assertReady();
       const identity = await this.identify(req, endpoint);
+      userId = identity.user.id;
+      channelId = identity.channelId ?? undefined;
       release = this.acquire(identity.user.id);
 
       // Read and validate the request body with an admission timeout.
       const bodyTimer = setTimeout(() => abort.abort('body_timeout'), this.config.bodyTimeoutMs);
       let payload: Awaited<ReturnType<GatewayService['body']>>;
       try {
-        payload = await this.body(req, abort.signal);
+        payload = await this.body(req, abort.signal, bodyStats);
       } finally {
         clearTimeout(bodyTimer);
       }
       const { parsed, bytes } = payload;
-      const streaming = parsed.stream === true;
+      streaming = parsed.stream === true;
 
       // Record the admitted request before resolving its model and channel.
       await this.db.insert(requests).values({
@@ -362,10 +441,16 @@ export class GatewayService implements Disposable {
 
       // Resolve the enabled model and enforce API Key model restrictions.
       const [model] = await this.db
-        .select({ id: models.id, inputTokenLimit: models.inputTokenLimit, outputTokenLimit: models.outputTokenLimit })
+        .select({
+          id: models.id,
+          name: models.name,
+          inputTokenLimit: models.inputTokenLimit,
+          outputTokenLimit: models.outputTokenLimit,
+        })
         .from(models)
         .where(and(eq(models.name, parsed.model as string), eq(models.enabled, true), isNull(models.deletedAt)));
       if (!model) throw new GatewayError(404, 'model_not_found', 'Unknown or disabled model');
+      modelName = model.name;
       const [keyGrant] = !identity.key.restrictModels
         ? [{ modelId: model.id }]
         : await this.db
@@ -397,6 +482,7 @@ export class GatewayService implements Disposable {
           'channel_unavailable',
           'The API Key channel does not provide this model and endpoint',
         );
+      upstreamTimeoutMs = route.channel.timeoutMs;
 
       // Require a user model grant for private channels unless the caller is an admin.
       if (identity.user.role !== 'admin' && !route.channel.isPublic) {
@@ -479,6 +565,7 @@ export class GatewayService implements Disposable {
 
       // Reject redirects and copy the allowed upstream response headers.
       httpStatus = upstream.status;
+      upstreamStatus = upstream.status;
       if (upstream.status >= 300 && upstream.status < 400) {
         await upstream.body?.cancel();
         throw new GatewayError(502, 'upstream_redirect', 'Upstream redirects are not supported');
@@ -591,16 +678,18 @@ export class GatewayService implements Disposable {
                 finalCheckpoint = true;
                 try {
                   await this.billing.checkpoint(id, summary());
-                } catch {
-                  this.logError(`Final usage checkpoint failed: ${id}`);
+                } catch (error) {
+                  this.logger.error(`最终用量保存失败 ${JSON.stringify({ requestId: id, ...errorDetails(error) })}`);
                 }
               }
               if (!blockedCheckpoint && summary().blockSettlement) {
                 blockedCheckpoint = true;
                 try {
                   await this.billing.checkpoint(id, summary());
-                } catch {
-                  this.logError(`Usage validation checkpoint failed: ${id}`);
+                } catch (error) {
+                  this.logger.error(
+                    `用量校验状态保存失败 ${JSON.stringify({ requestId: id, ...errorDetails(error) })}`,
+                  );
                 }
               }
 
@@ -614,7 +703,8 @@ export class GatewayService implements Disposable {
                 }
               }
               if (!abort.signal.aborted) controller.enqueue(value);
-            } catch {
+            } catch (error) {
+              failureDetails = errorDetails(error);
               abort.abort(abort.signal.reason ?? 'upstream_disconnected');
               controller.error(new Error('Upstream stream interrupted'));
             }
@@ -631,6 +721,7 @@ export class GatewayService implements Disposable {
       return new Response(stream, { status: upstream.status, headers: responseHeaders });
     } catch (error) {
       // Normalize failures and finalize billing before returning a protocol error.
+      if (!(error instanceof GatewayError)) failureDetails = errorDetails(error);
       const failure =
         error instanceof GatewayError
           ? error

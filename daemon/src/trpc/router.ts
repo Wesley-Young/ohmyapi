@@ -1,6 +1,7 @@
 import { type inferRouterInputs, type inferRouterOutputs, initTRPC, TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import type { EventLogger } from '../logging.js';
 import type { AuthService, Principal } from '../plugins/auth/service.js';
 import { parseMoney } from '../plugins/billing/conventions.js';
 import { type BillingService, correctBillInput, resolveBillInput } from '../plugins/billing/service.js';
@@ -19,6 +20,8 @@ import type { WalletService } from '../plugins/wallet/service.js';
 
 export interface RpcContext {
   startedAt: string;
+  requestId: string;
+  logger: EventLogger;
   principal: Principal | null;
   token?: string;
   auth: AuthService;
@@ -55,7 +58,18 @@ const signedIn = t.procedure.use(({ ctx, next }) => {
   if (!ctx.principal) throw new TRPCError({ code: 'UNAUTHORIZED', message: '请先登录' });
   return next({ ctx: { ...ctx, principal: ctx.principal } });
 });
-const protectedProcedure = signedIn;
+const protectedProcedure = signedIn.use(async ({ ctx, path, type, next }) => {
+  const result = await next();
+  if (result.ok && type === 'mutation')
+    ctx.logger.info(
+      `操作完成 ${JSON.stringify({
+        requestId: ctx.requestId,
+        actorId: ctx.principal.user.id,
+        operation: path,
+      })}`,
+    );
+  return result;
+});
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.principal.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: '需要管理员权限' });
   return next();

@@ -2,6 +2,7 @@ import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
 import { and, eq, gt, isNull, lt, or } from 'drizzle-orm';
 
+import { createLogSampler, type EventLogger } from '../../logging.js';
 import type { Database } from '../database/client.js';
 import { sessions, users } from '../database/schema/index.js';
 import { hashPassword, verifyPassword } from './password.js';
@@ -26,8 +27,11 @@ export class AuthService {
   private readonly attempts = new Map<string, { count: number; expires: number }>();
 
   readonly db: Database;
-  constructor(db: Database) {
+  private readonly logger: EventLogger;
+  private readonly sampleLog = createLogSampler();
+  constructor(db: Database, logger: EventLogger) {
     this.db = db;
+    this.logger = logger;
   }
 
   private limitLogin(username: string) {
@@ -38,8 +42,20 @@ export class AuthService {
       [username, 10, 15 * 60_000],
     ] as const) {
       const attempt = this.attempts.get(key) ?? { count: 0, expires: now + window };
-      if (attempt.count >= maximum || this.attempts.size >= 10_000)
+      if (attempt.count >= maximum || this.attempts.size >= 10_000) {
+        const scope = this.attempts.size >= 10_000 ? 'capacity' : key === '*' ? 'global' : 'account';
+        if (this.sampleLog(scope))
+          this.logger.warn(
+            `登录触发限流 ${JSON.stringify({
+              scope,
+              attempts: scope === 'capacity' ? undefined : attempt.count,
+              trackedAccounts: scope === 'capacity' ? this.attempts.size : undefined,
+              limit: scope === 'capacity' ? 10_000 : maximum,
+              windowMs: scope === 'capacity' ? undefined : window,
+            })}`,
+          );
         throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: '登录尝试过于频繁，请稍后再试' });
+      }
       attempt.count++;
       this.attempts.set(key, attempt);
     }

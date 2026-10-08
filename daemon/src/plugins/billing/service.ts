@@ -5,6 +5,7 @@ import { Client } from 'pg';
 import { z } from 'zod';
 
 import type { DatabaseConfig } from '../../config.js';
+import { type EventLogger, errorDetails } from '../../logging.js';
 import type { AuthService, Principal, Transaction } from '../auth/service.js';
 import {
   adminAuditLogs,
@@ -58,6 +59,14 @@ export const correctBillInput = z.object({
   idempotencyKey: z.uuid(),
 });
 type RequestRow = typeof requests.$inferSelect;
+type BillingOutcome = {
+  request: RequestRow;
+  status: 'rejected' | 'released' | 'settling' | 'settled' | 'needs_review';
+  errorCode?: string;
+  chargedMicros?: bigint;
+  usageFinal?: boolean;
+  blockSettlement?: boolean;
+};
 export type BillingSummary = {
   usage?: Usage;
   usageFinal: boolean;
@@ -100,7 +109,7 @@ export class BillingService implements Disposable {
   readonly ownerId = randomUUID();
   private readonly auth: AuthService;
   private readonly pricing: PricingService;
-  private readonly logError: (message: string) => void;
+  private readonly logger: EventLogger;
   private lease?: Client;
   private healthy = false;
   private closing = false;
@@ -109,10 +118,32 @@ export class BillingService implements Disposable {
   private readonly active = new Set<string>();
   private readonly pending = new Map<string, BillingSummary>();
   private readonly failures = new Map<string, number>();
-  constructor(auth: AuthService, pricing: PricingService, logError: (message: string) => void) {
+  constructor(auth: AuthService, pricing: PricingService, logger: EventLogger) {
     this.auth = auth;
     this.pricing = pricing;
-    this.logError = logError;
+    this.logger = logger;
+  }
+
+  private logOutcome(outcome: BillingOutcome | undefined) {
+    if (!outcome || outcome.status === 'settling' || outcome.status === 'rejected') return;
+    const r = outcome.request;
+    this.logger[
+      outcome.errorCode === 'billing_processing_failed' ? 'error' : outcome.status === 'needs_review' ? 'warn' : 'info'
+    ](
+      `计费状态变更 ${JSON.stringify({
+        requestId: r.id,
+        userId: r.userId,
+        channelId: r.channelId,
+        status: outcome.status,
+        errorCode: outcome.errorCode ?? r.errorCode ?? undefined,
+        reservedAmount: formatMoney(r.reservedMicros),
+        heldAmount: formatMoney(outcome.status === 'needs_review' ? r.heldMicros : 0n),
+        chargedAmount: outcome.chargedMicros === undefined ? undefined : formatMoney(outcome.chargedMicros),
+        currency: this.pricing.currency,
+        usageFinal: outcome.usageFinal ?? r.usageFinal,
+        blockSettlement: outcome.blockSettlement,
+      })}`,
+    );
   }
 
   assertReady() {
@@ -132,10 +163,17 @@ export class BillingService implements Disposable {
       keepAliveInitialDelayMillis: 10000,
     });
     this.lease = lease;
-    const lost = () => {
+    const lost = (error?: unknown) => {
       if (this.closing || !this.healthy) return;
       this.healthy = false;
-      this.logError('Billing ownership connection lost; forwarding stopped');
+      this.logger.error(
+        `计费所有权连接中断，停止转发 ${JSON.stringify({
+          ownerId: this.ownerId,
+          activeRequests: this.active.size,
+          pendingRetries: this.pending.size,
+          ...(error === undefined ? {} : errorDetails(error)),
+        })}`,
+      );
       this.lostHandler?.();
     };
     lease.on('error', lost);
@@ -145,7 +183,8 @@ export class BillingService implements Disposable {
       const { rows } = await lease.query<{ locked: boolean }>('select pg_try_advisory_lock(1330138459) as locked');
       if (!rows[0].locked) throw new Error('Another ohmyapi instance owns billing for this database');
       this.healthy = true;
-      await this.recover();
+      this.logger.info(`计费所有权已获取 ${JSON.stringify({ ownerId: this.ownerId })}`);
+      await this.recover(true);
     } catch (error) {
       this.healthy = false;
       await lease.end().catch(() => {});
@@ -376,8 +415,7 @@ export class BillingService implements Disposable {
   async finish(id: string, summary: BillingSummary) {
     this.assertReady();
     try {
-      let settle = false;
-      await this.auth.db.transaction(async (tx) => {
+      const outcome = await this.auth.db.transaction<BillingOutcome | undefined>(async (tx) => {
         const [r] = await tx.select().from(requests).where(eq(requests.id, id)).for('update');
         if (!r || terminal.has(r.status) || r.status === 'needs_review') return;
         if (r.billingEnabled && r.ownerId !== this.ownerId) return;
@@ -393,32 +431,69 @@ export class BillingService implements Disposable {
         await tx.update(requests).set(metadata).where(eq(requests.id, id));
         if (!r.billingEnabled) {
           await tx.update(requests).set({ status: 'rejected' }).where(eq(requests.id, id));
-          return;
+          return { request: r, status: 'rejected', errorCode: summary.errorCode };
         }
         if (final) {
           await tx.update(requests).set({ status: 'settling' }).where(eq(requests.id, id));
-          settle = true;
-        } else if (summary.noExecution)
+          return { request: r, status: 'settling' };
+        } else if (summary.noExecution) {
           await this.release(tx, { ...r, ...metadata }, undefined, '上游未执行，释放预占');
-        else
+          return { request: { ...r, ...metadata }, status: 'released', chargedMicros: 0n };
+        } else {
           await tx
             .update(requests)
             .set({ status: 'needs_review', errorCode: summary.errorCode ?? 'usage_not_final' })
             .where(eq(requests.id, id));
+          return {
+            request: r,
+            status: 'needs_review',
+            errorCode: summary.errorCode ?? 'usage_not_final',
+            usageFinal: final,
+            blockSettlement: summary.blockSettlement,
+          };
+        }
       });
-      if (settle) await this.settleStored(id);
+      this.logOutcome(outcome);
+      const settled = outcome?.status === 'settling' ? await this.settleStored(id) : undefined;
+      const attempts = this.failures.get(id);
+      if (attempts)
+        this.logger.info(
+          `计费重试完成 ${JSON.stringify({
+            requestId: id,
+            previousFailures: attempts,
+            status: settled?.status ?? outcome?.status ?? 'unchanged',
+            pendingRetries: Math.max(0, this.pending.size - 1),
+          })}`,
+        );
       this.pending.delete(id);
       this.failures.delete(id);
     } catch (error) {
       this.pending.set(id, summary);
       const failures = (this.failures.get(id) ?? 0) + 1;
       this.failures.set(id, failures);
+      this.logger[failures >= 3 ? 'error' : 'warn'](
+        `计费处理失败 ${JSON.stringify({
+          requestId: id,
+          attempt: failures,
+          nextAction: failures >= 3 ? 'manual_review' : 'retry',
+          pendingRetries: this.pending.size,
+          ...errorDetails(error),
+        })}`,
+      );
       if (failures >= 3) {
         try {
           await this.reviewFailed(id, summary);
           this.pending.delete(id);
           this.failures.delete(id);
-        } catch {
+        } catch (reviewError) {
+          this.logger.error(
+            `计费人工核对状态保存失败 ${JSON.stringify({
+              requestId: id,
+              attempt: failures,
+              pendingRetries: this.pending.size,
+              ...errorDetails(reviewError),
+            })}`,
+          );
           // Keep evidence in memory until the database accepts it.
         }
       }
@@ -429,7 +504,7 @@ export class BillingService implements Disposable {
   }
 
   private async reviewFailed(id: string, summary?: BillingSummary) {
-    await this.auth.db.transaction(async (tx) => {
+    const outcome = await this.auth.db.transaction<BillingOutcome | undefined>(async (tx) => {
       const [r] = await tx.select().from(requests).where(eq(requests.id, id)).for('update');
       if (!r?.billingEnabled || terminal.has(r.status) || r.status === 'needs_review') return;
       if (summary?.usage && (summary.usageFinal || !r.usageFinal)) await this.writeUsage(tx, id, summary.usage);
@@ -444,8 +519,16 @@ export class BillingService implements Disposable {
           finishedAt: r.finishedAt ?? new Date(),
         })
         .where(eq(requests.id, id));
+      return {
+        request: r,
+        status: 'needs_review',
+        errorCode: 'billing_processing_failed',
+        usageFinal: summary?.blockSettlement ? false : Boolean(summary?.usageFinal && summary.usage) || r.usageFinal,
+        blockSettlement: summary?.blockSettlement,
+      };
     });
-    this.logError(`Billing requires manual review after financial processing failure: ${id}`);
+    this.logOutcome(outcome);
+    return outcome;
   }
 
   private async pinned(r: RequestRow, usage: Usage) {
@@ -523,7 +606,7 @@ export class BillingService implements Disposable {
 
   private async settleStored(id: string) {
     this.assertReady();
-    await this.auth.db.transaction(async (tx) => {
+    const outcome = await this.auth.db.transaction<BillingOutcome | undefined>(async (tx) => {
       const [r] = await tx.select().from(requests).where(eq(requests.id, id)).for('update');
       if (r?.status !== 'settling' || !r.billingEnabled || !r.usageFinal) return;
       const [usage] = await tx.select().from(requestUsage).where(eq(requestUsage.requestId, id));
@@ -532,7 +615,7 @@ export class BillingService implements Disposable {
           .update(requests)
           .set({ status: 'needs_review', errorCode: 'usage_missing' })
           .where(eq(requests.id, id));
-        return;
+        return { request: r, status: 'needs_review', errorCode: 'usage_missing' };
       }
       let priced: Awaited<ReturnType<BillingService['pinned']>>;
       try {
@@ -542,57 +625,82 @@ export class BillingService implements Disposable {
           .update(requests)
           .set({ status: 'needs_review', errorCode: 'price_unconfigured' })
           .where(eq(requests.id, id));
-        return;
+        return { request: r, status: 'needs_review', errorCode: 'price_unconfigured' };
       }
       await this.charge(tx, r, BigInt(priced.totalMicros), priced);
+      return { request: r, status: 'settled', chargedMicros: BigInt(priced.totalMicros) };
     });
+    this.logOutcome(outcome);
+    return outcome;
   }
 
-  private async recover() {
+  private async recover(startup = false) {
     this.assertReady();
     const rows = await this.auth.db
       .select()
       .from(requests)
       .where(and(eq(requests.billingEnabled, true), inArray(requests.status, ['reserved', 'forwarding', 'settling'])));
+    const counts = { scanned: rows.length, processed: 0, settled: 0, released: 0, needsReview: 0, failed: 0 };
     for (const r of rows) {
       if (this.active.has(r.id) || this.pending.has(r.id)) continue;
+      counts.processed++;
+      let outcome: BillingOutcome | undefined;
       try {
         if (r.status === 'settling') {
-          await this.settleStored(r.id);
-          continue;
+          outcome = await this.settleStored(r.id);
+        } else {
+          outcome = await this.auth.db.transaction<BillingOutcome | undefined>(async (tx) => {
+            const [current] = await tx.select().from(requests).where(eq(requests.id, r.id)).for('update');
+            if (
+              !current ||
+              !['reserved', 'forwarding'].includes(current.status) ||
+              this.active.has(r.id) ||
+              this.pending.has(r.id)
+            )
+              return;
+            if (current.status === 'reserved') {
+              await this.release(tx, current, undefined, '服务恢复：转发前中断，释放预占');
+              return { request: current, status: 'released', chargedMicros: 0n };
+            } else if (current.usageFinal) {
+              await tx
+                .update(requests)
+                .set({
+                  status: 'settling',
+                  errorCode: current.errorCode ?? 'process_interrupted',
+                  finishedAt: new Date(),
+                })
+                .where(eq(requests.id, current.id));
+              return { request: current, status: 'settling' };
+            } else {
+              await tx
+                .update(requests)
+                .set({ status: 'needs_review', errorCode: 'process_interrupted', finishedAt: new Date() })
+                .where(eq(requests.id, current.id));
+              return { request: current, status: 'needs_review', errorCode: 'process_interrupted' };
+            }
+          });
+          this.logOutcome(outcome);
+          outcome = (await this.settleStored(r.id)) ?? outcome;
         }
-        await this.auth.db.transaction(async (tx) => {
-          const [current] = await tx.select().from(requests).where(eq(requests.id, r.id)).for('update');
-          if (
-            !current ||
-            !['reserved', 'forwarding'].includes(current.status) ||
-            this.active.has(r.id) ||
-            this.pending.has(r.id)
-          )
-            return;
-          if (current.status === 'reserved')
-            await this.release(tx, current, undefined, '服务恢复：转发前中断，释放预占');
-          else if (current.usageFinal)
-            await tx
-              .update(requests)
-              .set({
-                status: 'settling',
-                errorCode: current.errorCode ?? 'process_interrupted',
-                finishedAt: new Date(),
-              })
-              .where(eq(requests.id, current.id));
-          else
-            await tx
-              .update(requests)
-              .set({ status: 'needs_review', errorCode: 'process_interrupted', finishedAt: new Date() })
-              .where(eq(requests.id, current.id));
-        });
-        await this.settleStored(r.id);
-      } catch {
+      } catch (error) {
+        counts.failed++;
+        this.logger.error(`历史计费恢复失败 ${JSON.stringify({ requestId: r.id, ...errorDetails(error) })}`);
         // Isolate a failed bill; database-wide failures still propagate if this write fails.
-        await this.reviewFailed(r.id);
+        outcome = await this.reviewFailed(r.id);
       }
+      if (outcome?.status === 'settled') counts.settled++;
+      else if (outcome?.status === 'released') counts.released++;
+      else if (outcome?.status === 'needs_review') counts.needsReview++;
     }
+    if (startup || counts.processed)
+      this.logger[counts.failed ? 'warn' : 'info'](
+        `计费恢复完成 ${JSON.stringify({
+          ownerId: this.ownerId,
+          startup,
+          ...counts,
+          pendingRetries: this.pending.size,
+        })}`,
+      );
   }
 
   async tick() {
@@ -601,10 +709,17 @@ export class BillingService implements Disposable {
     try {
       try {
         await this.lease?.query('select 1');
-      } catch {
+      } catch (error) {
         this.healthy = false;
         this.lostHandler?.();
-        this.logError('Billing ownership health check failed');
+        this.logger.error(
+          `计费所有权健康检查失败 ${JSON.stringify({
+            ownerId: this.ownerId,
+            activeRequests: this.active.size,
+            pendingRetries: this.pending.size,
+            ...errorDetails(error),
+          })}`,
+        );
         return;
       }
       if (this.active.size)
@@ -622,12 +737,18 @@ export class BillingService implements Disposable {
         try {
           await this.finish(id, summary);
         } catch {
-          this.logError(`Billing retry failed: ${id}`);
+          // finish 已记录失败次数、队列长度及安全错误字段。
         }
       }
       await this.recover();
-    } catch {
-      this.logError('Billing recovery failed');
+    } catch (error) {
+      this.logger.error(
+        `计费恢复任务失败 ${JSON.stringify({
+          activeRequests: this.active.size,
+          pendingRetries: this.pending.size,
+          ...errorDetails(error),
+        })}`,
+      );
     } finally {
       this.ticking = false;
     }

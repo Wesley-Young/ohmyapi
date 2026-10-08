@@ -22,7 +22,7 @@ export const GatewayPlugin = definePlugin({
       ctx.billing,
       ctx.catalog.vault,
       readGatewayConfig(),
-      (message) => ctx.logger.error(message),
+      ctx.logger,
     );
     ctx.provide(GatewayService, gateway);
     ctx.billing.onLeaseLost(() => {

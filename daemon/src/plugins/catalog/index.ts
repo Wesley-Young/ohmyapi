@@ -8,6 +8,6 @@ export const CatalogPlugin = definePlugin({
   provides: [CatalogService],
   apply(ctx) {
     const vault = new CredentialVault(process.env.CHANNEL_ENCRYPTION_KEY);
-    ctx.provide(CatalogService, new CatalogService(ctx.auth, vault));
+    ctx.provide(CatalogService, new CatalogService(ctx.auth, vault, ctx.logger));
   },
 });

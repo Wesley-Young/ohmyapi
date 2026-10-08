@@ -6,6 +6,7 @@ import { serialize } from 'hono/utils/cookie';
 
 import { readSessionConfig } from '../../config.js';
 import { definePlugin } from '../../kernel.js';
+import { errorDetails } from '../../logging.js';
 import { appRouter } from '../../trpc/router.js';
 import { AuthService } from '../auth/service.js';
 import { BillingService } from '../billing/service.js';
@@ -38,6 +39,20 @@ export const HttpPlugin = definePlugin({
     const sessionConfig = readSessionConfig();
     const cookieName: string = sessionConfig.secure ? '__Host-ohmyapi_session' : 'ohmyapi_session';
     const cookieOptions = { path: '/', httpOnly: true, sameSite: 'Strict' as const, secure: sessionConfig.secure };
+    const requestInfos = new WeakMap<Request, { requestId: string; startedAt: number }>();
+    const requestInfo = (req: Request) => {
+      let info = requestInfos.get(req);
+      if (!info) {
+        info = { requestId: crypto.randomUUID(), startedAt: Date.now() };
+        requestInfos.set(req, info);
+      }
+      return info;
+    };
+    let readiness: string | undefined;
+    app.use('/api/*', async (c, next) => {
+      c.header('x-request-id', requestInfo(c.req.raw).requestId);
+      await next();
+    });
 
     const rpcBodyLimit = bodyLimit({ maxSize: 64 * 1024 });
     const importBodyLimit = bodyLimit({ maxSize: 256 * 1024 });
@@ -59,11 +74,28 @@ export const HttpPlugin = definePlugin({
 
     app.get('/api/health', (c) => c.json({ name: 'ohmyapi', status: 'ok' }));
     app.get('/api/ready', async (c) => {
+      let dependency = 'database';
       try {
         await ctx.database.checkConnection();
+        dependency = 'billing';
         ctx.billing.assertReady();
+        if (readiness !== 'ready') {
+          ctx.logger.info(`服务就绪 ${JSON.stringify({ previousState: readiness ?? 'unknown' })}`);
+          readiness = 'ready';
+        }
         return c.json({ name: 'ohmyapi', status: 'ready' });
-      } catch {
+      } catch (error) {
+        const state = `${dependency}_unavailable`;
+        if (readiness !== state) {
+          ctx.logger.warn(
+            `服务未就绪 ${JSON.stringify({
+              dependency,
+              previousState: readiness ?? 'unknown',
+              ...errorDetails(error),
+            })}`,
+          );
+          readiness = state;
+        }
         return c.json({ name: 'ohmyapi', status: 'unavailable' }, 503);
       }
     });
@@ -76,6 +108,8 @@ export const HttpPlugin = definePlugin({
           const token = getCookie(c, cookieName);
           return {
             startedAt,
+            requestId: requestInfo(c.req.raw).requestId,
+            logger: ctx.logger,
             token,
             principal: await ctx.auth.resolve(token),
             auth: ctx.auth,
@@ -94,7 +128,19 @@ export const HttpPlugin = definePlugin({
         },
         responseMeta: () => ({ headers: { 'Cache-Control': 'no-store' } }),
         onError: ({ error, path }) => {
-          if (error.code === 'INTERNAL_SERVER_ERROR') ctx.logger.error(`RPC failed: ${path ?? 'unknown'}`);
+          if (error.code === 'INTERNAL_SERVER_ERROR') {
+            const info = requestInfo(c.req.raw);
+            ctx.logger.error(
+              `RPC 请求失败 ${JSON.stringify({
+                requestId: info.requestId,
+                procedure: path && /^[a-zA-Z][a-zA-Z0-9_.]{0,127}$/.test(path) ? path : 'unknown',
+                method: c.req.method,
+                durationMs: Date.now() - info.startedAt,
+                errorCode: error.code,
+                ...errorDetails(error.cause ?? error),
+              })}`,
+            );
+          }
         },
       }),
     );
@@ -110,8 +156,18 @@ export const HttpPlugin = definePlugin({
     }
     if (process.env.NODE_ENV === 'production') serveWeb(app);
     app.notFound((c) => c.json({ error: 'Not found' }, 404));
-    app.onError((_error, c) => {
-      ctx.logger.error('HTTP request failed');
+    app.onError((error, c) => {
+      const info = requestInfo(c.req.raw);
+      c.header('x-request-id', info.requestId);
+      ctx.logger.error(
+        `HTTP 请求失败 ${JSON.stringify({
+          requestId: info.requestId,
+          route: c.req.routePath,
+          method: c.req.method,
+          durationMs: Date.now() - info.startedAt,
+          ...errorDetails(error),
+        })}`,
+      );
       return c.json({ error: 'Internal server error' }, 500);
     });
   },
