@@ -98,6 +98,10 @@ export const HttpPlugin = definePlugin({
         },
       }),
     );
+    app.get('/v1/models', (c) => ctx.gateway.listModels(c.req.raw));
+    app.all('/v1/models', () =>
+      ctx.gateway.error('/v1/models', 405, 'method_not_allowed', 'Only GET is supported', crypto.randomUUID()),
+    );
     for (const endpoint of endpoints) {
       app.post(endpoint, (c) => ctx.gateway.forward(c.req.raw, endpoint));
       app.all(endpoint, () =>
