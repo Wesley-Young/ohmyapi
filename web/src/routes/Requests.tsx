@@ -248,11 +248,17 @@ export default function Requests() {
                       <Table.Cell>{r.model}</Table.Cell>
                       <Table.Cell minW="220px" maxW="320px">
                         {r.status === 'forwarding' ? (
-                          <ProgressCircle.Root value={null} size="xs" colorPalette="purple">
+                          <ProgressCircle.Root value={null} size="xs" colorPalette="gray" minH="12" alignItems="center">
                             <ProgressCircle.Label srOnly>请求正在转发</ProgressCircle.Label>
-                            <ProgressCircle.Circle _motionReduce={{ animation: 'none' }}>
-                              <ProgressCircle.Track />
-                              <ProgressCircle.Range _motionReduce={{ animation: 'none', strokeDasharray: '40, 100' }} />
+                            <ProgressCircle.Circle
+                              css={{ '--size': '20px', '--thickness': '2px' }}
+                              _motionReduce={{ animation: 'none' }}
+                            >
+                              <ProgressCircle.Track stroke="gray.200" />
+                              <ProgressCircle.Range
+                                stroke="gray.700"
+                                _motionReduce={{ animation: 'none', strokeDasharray: '40, 100' }}
+                              />
                             </ProgressCircle.Circle>
                           </ProgressCircle.Root>
                         ) : r.usage ? (
