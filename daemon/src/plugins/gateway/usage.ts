@@ -5,6 +5,15 @@ const object = (value: unknown): ObjectValue | undefined =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as ObjectValue) : undefined;
 const count = (value: unknown) =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? BigInt(value) : undefined;
+const responseTerminalStatuses = new Set(['completed', 'incomplete', 'failed', 'cancelled', 'canceled']);
+const responseTerminalEvents = new Set([
+  'response.completed',
+  'response.done',
+  'response.incomplete',
+  'response.failed',
+  'response.cancelled',
+  'response.canceled',
+]);
 // Keep numeric usage metadata only. Discard text, arrays and unbounded provider extensions.
 function usageNumbers(raw: ObjectValue, depth = 0): ObjectValue {
   const result: ObjectValue = {};
@@ -52,6 +61,11 @@ export class UsageCollector {
         : this.endpoint === '/v1/messages'
           ? (object(data.message) ?? data)
           : data;
+    if (this.endpoint === '/v1/responses') {
+      if (envelope.error || envelope.status === 'failed' || data.type === 'response.error') this.failed = true;
+      if (responseTerminalEvents.has(String(data.type)) || responseTerminalStatuses.has(String(envelope.status)))
+        this.complete = true;
+    }
     if (typeof envelope.id === 'string') this.upstreamId = envelope.id.slice(0, 256);
     const usage = object(envelope.usage);
     if (this.endpoint === '/v1/messages') {
@@ -65,20 +79,12 @@ export class UsageCollector {
       this.normalize(this.anthropic);
       if (this.complete && this.usage && !this.invalid) this.finalUsage = true;
     } else {
-      if (
-        data.type === 'response.completed' ||
-        data.type === 'response.incomplete' ||
-        (!data.type && ['completed', 'incomplete'].includes(String(data.status)))
-      )
-        this.complete = true;
       if (usage) {
         this.normalize(usage);
         if (
           this.usage &&
           !this.invalid &&
           (this.complete ||
-            data.type === 'response.failed' ||
-            data.status === 'failed' ||
             (this.endpoint === '/v1/chat/completions' &&
               (data.object === 'chat.completion' || (Array.isArray(data.choices) && data.choices.length === 0))))
         )
