@@ -274,7 +274,6 @@ export function BulkZeroBilling({
             }}
           >
             <Stack gap="5">
-              <Text fontSize="sm">将选中的 {ids.length} 个待核对请求按 0 结算，并释放全部冻结金额。</Text>
               <FormInput
                 label="核对依据"
                 value={reason}
@@ -291,7 +290,7 @@ export function BulkZeroBilling({
               )}
               <HStack>
                 <PrimaryButton type="submit" loading={task.isPending} disabled={!ids.length}>
-                  {operation.current ? '重试按 0 计费' : '确认按 0 计费'}
+                  {operation.current ? '重试按 0 计费' : '确认按 0 计费'} ({ids.length})
                 </PrimaryButton>
                 <Button variant="ghost" disabled={task.isPending} onClick={() => setOpen(false)}>
                   关闭

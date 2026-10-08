@@ -96,7 +96,7 @@ export default function Requests() {
           </Button>
         </HStack>
       )}
-      {admin && (
+      {admin && reviewOnly && (
         <HStack gap="3" flexWrap="wrap">
           <Text fontSize="sm" color="gray.600">
             已选 {selectedIds.length} / 100
@@ -133,7 +133,7 @@ export default function Requests() {
               <Table.Root size="sm">
                 <Table.Header>
                   <Table.Row>
-                    {admin && (
+                    {admin && reviewOnly && (
                       <Table.ColumnHeader width="10">
                         <Checkbox.Root
                           checked={
@@ -178,7 +178,7 @@ export default function Requests() {
                 <Table.Body>
                   {data.data.items.map((r) => (
                     <Table.Row key={r.id}>
-                      {admin && (
+                      {admin && reviewOnly && (
                         <Table.Cell>
                           <Checkbox.Root
                             checked={selectedIds.includes(r.id)}
