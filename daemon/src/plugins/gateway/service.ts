@@ -275,8 +275,9 @@ export class GatewayService implements Disposable {
     const disconnect = () => abort.abort('client_disconnected');
     req.signal.addEventListener('abort', disconnect, { once: true });
     let finalization: Promise<void> | undefined;
+    let stopResponse: (() => Promise<void>) | undefined;
     const onAbort = () => {
-      void finish(typeof abort.signal.reason === 'string' ? abort.signal.reason : 'upstream_disconnected');
+      void stopResponse?.();
     };
 
     // Collect upstream usage and build the billing summary.
@@ -497,79 +498,112 @@ export class GatewayService implements Disposable {
       const jsonChunks: Uint8Array[] = [];
       let jsonSize = 0;
       const reader = upstream.body.getReader();
-      abort.signal.addEventListener('abort', onAbort, { once: true });
+      let pullTask: Promise<void> | undefined;
+      let responseFinalization: Promise<void> | undefined;
+      let stoppingResponse: Promise<void> | undefined;
+      let responseController: ReadableStreamDefaultController<Uint8Array>;
+      const abortReason = () =>
+        typeof abort.signal.reason === 'string' ? abort.signal.reason : 'upstream_disconnected';
+      // 读取任务停止后汇总已收到的数据，再执行一次性计费收尾。
+      const finalizeResponse = (errorCode?: string): Promise<void> => {
+        responseFinalization ??= (async () => {
+          observer?.finish();
+          if (!isSse && jsonSize <= 8 * 1024 * 1024) {
+            try {
+              collector.observe(JSON.parse(Buffer.concat(jsonChunks).toString('utf8')));
+              if (endpoint === '/v1/chat/completions') collector.done();
+            } catch {
+              collector.invalid = true;
+            }
+          }
+          safeRejection =
+            !collector.usage &&
+            collector.failed &&
+            !collector.invalid &&
+            [400, 401, 403, 404, 405, 413, 415, 422, 429].includes(upstream.status);
+          reader.releaseLock();
+          await finish(errorCode);
+        })();
+        return responseFinalization;
+      };
+      stopResponse = () => {
+        stoppingResponse ??= (async () => {
+          await reader.cancel().catch(() => {});
+          await pullTask;
+          await finalizeResponse(abortReason());
+          responseController.error(new Error('Upstream stream interrupted'));
+        })();
+        return stoppingResponse;
+      };
       let finalCheckpoint = false;
       let blockedCheckpoint = false;
       const stream = new ReadableStream<Uint8Array>({
-        pull: async (controller) => {
-          try {
-            const { value, done } = await reader.read();
-            if (done) {
-              // Validate final usage and identify rejections that did not execute.
-              observer?.finish();
-              if (!isSse && jsonSize <= 8 * 1024 * 1024) {
+        start: (controller) => {
+          responseController = controller;
+        },
+        pull: (controller) => {
+          if (responseFinalization || stoppingResponse) return;
+          pullTask = (async () => {
+            try {
+              const { value, done } = await reader.read();
+              if (done) {
+                await finalizeResponse(
+                  abort.signal.aborted
+                    ? abortReason()
+                    : !upstream.ok
+                      ? 'upstream_http_error'
+                      : streaming !== isSse
+                        ? 'unexpected_response_type'
+                        : undefined,
+                );
+                if (abort.signal.aborted) controller.error(new Error('Upstream stream interrupted'));
+                else controller.close();
+                return;
+              }
+              observer?.push(value);
+
+              // Persist final usage or blocked settlement as soon as it is observed.
+              if (!finalCheckpoint && collector.finalUsage && !collector.invalid && !collector.unknownCosts) {
+                finalCheckpoint = true;
                 try {
-                  collector.observe(JSON.parse(Buffer.concat(jsonChunks).toString('utf8')));
-                  if (endpoint === '/v1/chat/completions') collector.done();
+                  await this.billing.checkpoint(id, summary());
                 } catch {
+                  this.logError(`Final usage checkpoint failed: ${id}`);
+                }
+              }
+              if (!blockedCheckpoint && (collector.invalid || collector.unknownCosts)) {
+                blockedCheckpoint = true;
+                try {
+                  await this.billing.checkpoint(id, summary());
+                } catch {
+                  this.logError(`Usage validation checkpoint failed: ${id}`);
+                }
+              }
+
+              // Limit JSON buffering to 8 MiB without limiting response forwarding.
+              if (!isSse) {
+                jsonSize += value.byteLength;
+                if (jsonSize <= 8 * 1024 * 1024) jsonChunks.push(value);
+                else {
+                  jsonChunks.length = 0;
                   collector.invalid = true;
                 }
               }
-              safeRejection =
-                !collector.usage &&
-                collector.failed &&
-                !collector.invalid &&
-                [400, 401, 403, 404, 405, 413, 415, 422, 429].includes(upstream.status);
-              await finish(
-                !upstream.ok ? 'upstream_http_error' : streaming !== isSse ? 'unexpected_response_type' : undefined,
-              );
-              controller.close();
-              reader.releaseLock();
-              return;
+              if (!abort.signal.aborted) controller.enqueue(value);
+            } catch {
+              abort.abort(abort.signal.reason ?? 'upstream_disconnected');
+              controller.error(new Error('Upstream stream interrupted'));
             }
-            observer?.push(value);
-
-            // Persist final usage or blocked settlement as soon as it is observed.
-            if (!finalCheckpoint && collector.finalUsage && !collector.invalid && !collector.unknownCosts) {
-              finalCheckpoint = true;
-              try {
-                await this.billing.checkpoint(id, summary());
-              } catch {
-                this.logError(`Final usage checkpoint failed: ${id}`);
-              }
-            }
-            if (!blockedCheckpoint && (collector.invalid || collector.unknownCosts)) {
-              blockedCheckpoint = true;
-              try {
-                await this.billing.checkpoint(id, summary());
-              } catch {
-                this.logError(`Usage validation checkpoint failed: ${id}`);
-              }
-            }
-
-            // Limit JSON buffering to 8 MiB without limiting response forwarding.
-            if (!isSse) {
-              jsonSize += value.byteLength;
-              if (jsonSize <= 8 * 1024 * 1024) jsonChunks.push(value);
-              else {
-                jsonChunks.length = 0;
-                collector.invalid = true;
-              }
-            }
-            controller.enqueue(value);
-          } catch {
-            abort.abort(abort.signal.reason ?? 'upstream_disconnected');
-            await reader.cancel().catch(() => {});
-            await finish(typeof abort.signal.reason === 'string' ? abort.signal.reason : 'upstream_disconnected');
-            controller.error(new Error('Upstream stream interrupted'));
-          }
+          })();
+          return pullTask;
         },
-        cancel: async () => {
+        cancel: () => {
           abort.abort('client_disconnected');
-          await reader.cancel().catch(() => {});
-          await finish('client_disconnected');
+          return stopResponse?.();
         },
       });
+      abort.signal.addEventListener('abort', onAbort, { once: true });
+      if (abort.signal.aborted) onAbort();
       return new Response(stream, { status: upstream.status, headers: responseHeaders });
     } catch (error) {
       // Normalize failures and finalize billing before returning a protocol error.
