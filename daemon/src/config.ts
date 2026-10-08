@@ -58,15 +58,25 @@ export function readSessionConfig(env: Environment = process.env) {
 }
 
 export function readGatewayConfig(env: Environment = process.env) {
-  if (env.GATEWAY_ENABLED !== undefined && !['true', 'false'].includes(env.GATEWAY_ENABLED))
-    throw new Error('GATEWAY_ENABLED must be true or false');
-  const enabled = env.GATEWAY_ENABLED === 'true';
-  if (enabled && !env.CHANNEL_ENCRYPTION_KEY)
-    throw new Error('CHANNEL_ENCRYPTION_KEY is required when the gateway is enabled');
+  if (!env.CHANNEL_ENCRYPTION_KEY) throw new Error('CHANNEL_ENCRYPTION_KEY is required');
+  if (!/^[a-fA-F0-9]{64}$/.test(env.CHANNEL_ENCRYPTION_KEY)) {
+    throw new Error('CHANNEL_ENCRYPTION_KEY must contain 64 hexadecimal characters');
+  }
   return {
-    enabled,
     maxBodyBytes: integerSetting(env, 'GATEWAY_MAX_BODY_BYTES', 4 * 1024 * 1024, 32 * 1024 * 1024),
     maxConcurrent: integerSetting(env, 'GATEWAY_USER_CONCURRENCY', 4, 100),
     requestsPerMinute: integerSetting(env, 'GATEWAY_USER_RPM', 60, 10_000),
   };
+}
+
+export function validateProductionConfig(env: Environment = process.env) {
+  readServerConfig(env);
+  readDatabaseConfig(env);
+  readBillingCurrency(env);
+  readGatewayConfig(env);
+  const session = readSessionConfig(env);
+  if (!session.origin) throw new Error('APP_ORIGIN is required for production deployment');
+  if (session.origin.startsWith('http:') && session.secure) {
+    throw new Error('HTTP deployments require SESSION_COOKIE_SECURE=false');
+  }
 }

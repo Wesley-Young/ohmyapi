@@ -16,6 +16,7 @@ import { KeyService } from '../keys/service.js';
 import { PricingService } from '../pricing/service.js';
 import { UserService } from '../users/service.js';
 import { WalletService } from '../wallet/service.js';
+import { serveWeb } from './web.js';
 
 export const HttpPlugin = definePlugin({
   name: 'ohmyapi-http',
@@ -103,6 +104,7 @@ export const HttpPlugin = definePlugin({
         ctx.gateway.error(endpoint, 405, 'method_not_allowed', 'Only POST is supported', crypto.randomUUID()),
       );
     }
+    if (process.env.NODE_ENV === 'production') serveWeb(app);
     app.notFound((c) => c.json({ error: 'Not found' }, 404));
     app.onError((_error, c) => {
       ctx.logger.error('HTTP request failed');

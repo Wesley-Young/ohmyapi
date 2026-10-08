@@ -11,7 +11,9 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @ohmyapi/daemon --filter @ohmyapi/web dev",
     "build": "pnpm -r build",
-    "start": "pnpm --filter @ohmyapi/daemon start",
+    "setup": "node scripts/deploy.mjs setup",
+    "deploy": "node scripts/deploy.mjs deploy",
+    "start": "node --env-file=.env scripts/start.mjs",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "format": "biome check --write .",

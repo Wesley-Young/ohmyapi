@@ -269,7 +269,6 @@ export class GatewayService implements Disposable {
     try {
       if (this.stopping) throw new GatewayError(503, 'server_stopping', 'Gateway is stopping');
       this.billing.assertReady();
-      if (!this.config.enabled) throw new GatewayError(503, 'gateway_disabled', 'Gateway is disabled');
       const identity = await this.identify(req, endpoint);
       release = this.acquire(identity.user.id);
 
