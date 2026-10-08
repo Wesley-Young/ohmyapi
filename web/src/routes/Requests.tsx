@@ -1,29 +1,72 @@
-import { Badge, Box, Button, Checkbox, HStack, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Checkbox, HStack, ProgressCircle, Stack, Table, Text } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
-import { DatabaseBackup, DatabaseZap, LogIn, LogOut } from 'lucide-react';
+import { ArrowDown, ArrowUp, Gauge, Package } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 
-import { BillingAction, BulkZeroBilling, RequestDetail, requestStatuses } from '../components/request-billing';
+import { BillingAction, BulkZeroBilling, RequestDetail } from '../components/request-billing';
 import { ErrorText, Loading, PageControls, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { formError, localDate } from '../lib/format';
 import { trpc } from '../lib/trpc';
 
 const usageKinds = {
-  input: { label: '输入', icon: LogIn },
-  output: { label: '输出', icon: LogOut },
-  cacheRead: { label: '缓存读', icon: DatabaseZap },
-  cacheWrite: { label: '缓存写', icon: DatabaseBackup },
+  input: { label: '输入', icon: ArrowDown },
+  output: { label: '输出', icon: ArrowUp },
+  cacheRead: { label: '缓存读', icon: Package },
+  tps: { label: 'TPS', icon: Gauge },
 } as const;
 
 function UsageBadge({ kind, value }: { kind: keyof typeof usageKinds; value: string }) {
   const { label, icon: Icon } = usageKinds[kind];
   return (
-    <Badge colorPalette="gray" gap="1.5" fontVariantNumeric="tabular-nums">
+    <Badge colorPalette="gray" gap="1.5" fontVariantNumeric="tabular-nums" aria-label={`${label} ${value}`}>
       <Icon size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
-      {label} {value}
+      {value}
     </Badge>
+  );
+}
+
+// 沿用 new-api 的耗时/吞吐分档及浅色主题状态色。
+const durationColors = {
+  success: 'oklch(0.596 0.145 163.225)',
+  warning: 'oklch(0.681 0.162 75.834)',
+  danger: 'oklch(0.577 0.245 27.325)',
+};
+
+function RequestDuration({ durationMs, output }: { durationMs: number | null; output?: string }) {
+  if (durationMs === null) return <Text color="gray.500">—</Text>;
+  const seconds = Math.max(0, durationMs) / 1000;
+  const tokens = Number(output ?? 0);
+  const throughput = seconds > 0 ? tokens / seconds : 0;
+  const tone =
+    tokens >= 100 && seconds > 0
+      ? throughput >= 30
+        ? 'success'
+        : throughput >= 15
+          ? 'warning'
+          : 'danger'
+      : seconds < 10
+        ? 'success'
+        : seconds < 30
+          ? 'warning'
+          : 'danger';
+  const color = durationColors[tone];
+  return (
+    <HStack gap="2" whiteSpace="nowrap">
+      <Box
+        w="1"
+        h="5"
+        flexShrink="0"
+        borderRadius="full"
+        bg={color}
+        opacity={tone === 'success' ? 0.9 : 0.8}
+        aria-hidden="true"
+      />
+      <Text color={color} fontVariantNumeric="tabular-nums">
+        {seconds.toFixed(1)}s
+      </Text>
+    </HStack>
   );
 }
 
@@ -166,8 +209,8 @@ export default function Requests() {
                       '时间',
                       ...(admin ? ['用户'] : []),
                       '模型',
-                      '状态',
                       'Token 用量',
+                      '耗时',
                       `扣费/冻结（${data.data.currency}）`,
                       '操作',
                     ].map((h) => (
@@ -203,35 +246,38 @@ export default function Requests() {
                       <Table.Cell>{localDate(r.receivedAt)}</Table.Cell>
                       {admin && <Table.Cell>{r.username}</Table.Cell>}
                       <Table.Cell>{r.model}</Table.Cell>
-                      <Table.Cell whiteSpace="nowrap">
-                        <HStack gap="2" flexWrap="wrap">
-                          <Badge colorPalette="gray">{requestStatuses[r.status]}</Badge>
-                          {r.usageEstimate && <Badge colorPalette="orange">估算</Badge>}
-                        </HStack>
-                        <Text fontSize="xs" color="gray.500">
-                          {r.durationMs === null ? '' : `${r.durationMs}ms`}
-                        </Text>
-                        {r.errorCode && (
-                          <Text fontSize="xs" color="orange.500">
-                            {r.errorCode}
-                          </Text>
-                        )}
-                      </Table.Cell>
                       <Table.Cell minW="220px" maxW="320px">
-                        {r.usage ? (
+                        {r.status === 'forwarding' ? (
+                          <ProgressCircle.Root value={null} size="xs" colorPalette="purple">
+                            <ProgressCircle.Label srOnly>请求正在转发</ProgressCircle.Label>
+                            <ProgressCircle.Circle _motionReduce={{ animation: 'none' }}>
+                              <ProgressCircle.Track />
+                              <ProgressCircle.Range _motionReduce={{ animation: 'none', strokeDasharray: '40, 100' }} />
+                            </ProgressCircle.Circle>
+                          </ProgressCircle.Root>
+                        ) : r.usage ? (
                           <Stack gap="2">
                             <HStack gap="2" flexWrap="wrap">
                               <UsageBadge kind="input" value={r.usage.input} />
                               <UsageBadge kind="output" value={r.usage.output} />
+                              {r.usageEstimate && <Badge colorPalette="orange">估算</Badge>}
                             </HStack>
                             <HStack gap="2" flexWrap="wrap">
                               <UsageBadge kind="cacheRead" value={r.usage.cacheRead} />
-                              <UsageBadge kind="cacheWrite" value={r.usage.cacheWrite} />
+                              {r.durationMs !== null && r.durationMs > 0 && (
+                                <UsageBadge
+                                  kind="tps"
+                                  value={`${Math.round((parseInt(r.usage.output, 10) / r.durationMs) * 1000)} tps`}
+                                />
+                              )}
                             </HStack>
                           </Stack>
                         ) : (
                           '—'
                         )}
+                      </Table.Cell>
+                      <Table.Cell>
+                        <RequestDuration durationMs={r.durationMs} output={r.usage?.output} />
                       </Table.Cell>
                       <Table.Cell>{r.chargedAmount || r.heldAmount}</Table.Cell>
                       <Table.Cell>
