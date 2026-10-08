@@ -93,6 +93,8 @@ export const requestUsage = pgTable(
     cacheReadTokens: tokenCount('cache_read_tokens').default(sql`0`).notNull(),
     cacheWriteTokens: tokenCount('cache_write_tokens').default(sql`0`).notNull(),
     contextTokens: tokenCount('context_tokens').notNull(),
+    webSearchCalls: tokenCount('web_search_calls').default(sql`0`).notNull(),
+    webSearchPreviewCalls: tokenCount('web_search_preview_calls').default(sql`0`).notNull(),
     rawUsage: jsonb('raw_usage').$type<Record<string, unknown>>().notNull(),
     createdAt: createdAt(),
   },
@@ -100,6 +102,10 @@ export const requestUsage = pgTable(
     check(
       'request_usage_nonnegative',
       sql`${table.inputTokens} >= 0 and ${table.outputTokens} >= 0 and ${table.cacheReadTokens} >= 0 and ${table.cacheWriteTokens} >= 0`,
+    ),
+    check(
+      'request_usage_search_bounds',
+      sql`${table.webSearchCalls} between 0 and 10000 and ${table.webSearchPreviewCalls} between 0 and 10000`,
     ),
     check(
       'request_usage_context_total',

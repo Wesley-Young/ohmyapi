@@ -28,6 +28,9 @@ export const priceRules = pgTable(
     // NULL means unsupported/unconfigured, not free.
     cacheReadPriceMicros: micros('cache_read_price_micros'),
     cacheWritePriceMicros: micros('cache_write_price_micros'),
+    // 搜索调用单价按每千次调用，NULL 表示尚未配置。
+    webSearchPriceMicros: micros('web_search_price_micros'),
+    webSearchPreviewPriceMicros: micros('web_search_preview_price_micros'),
     createdAt: createdAt(),
   },
   (table) => [
@@ -41,6 +44,10 @@ export const priceRules = pgTable(
       sql`(${table.kind} in ('time', 'combined') and ${table.weekdaysMask} is not null and ${table.weekdaysMask} between 1 and 127 and ${table.startMinute} is not null and ${table.startMinute} >= 0 and ${table.endMinute} is not null and ${table.endMinute} <= 1440 and ${table.endMinute} > ${table.startMinute}) or (${table.kind} in ('default', 'context') and ${table.weekdaysMask} is null and ${table.startMinute} is null and ${table.endMinute} is null)`,
     ),
     check('price_rules_timezone', sql`${table.timezone} = 'Asia/Shanghai'`),
+    check(
+      'price_rules_search_prices_nonnegative',
+      sql`(${table.webSearchPriceMicros} is null or ${table.webSearchPriceMicros} >= 0) and (${table.webSearchPreviewPriceMicros} is null or ${table.webSearchPreviewPriceMicros} >= 0)`,
+    ),
     check(
       'price_rules_prices_nonnegative',
       sql`${table.inputPriceMicros} >= 0 and ${table.outputPriceMicros} >= 0 and (${table.cacheReadPriceMicros} is null or ${table.cacheReadPriceMicros} >= 0) and (${table.cacheWritePriceMicros} is null or ${table.cacheWritePriceMicros} >= 0)`,

@@ -4,6 +4,7 @@ import { and, desc, eq, gt, isNull, or } from 'drizzle-orm';
 import type { readGatewayConfig } from '../../config.js';
 import { validateBillableRequest } from '../billing/admission.js';
 import { formatMoney } from '../billing/conventions.js';
+import { searchRequest } from '../billing/search.js';
 import type { BillingService, BillingSummary } from '../billing/service.js';
 import type { CredentialVault, Endpoint } from '../catalog/service.js';
 import type { Database } from '../database/client.js';
@@ -416,6 +417,7 @@ export class GatewayService implements Disposable {
       );
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
       const outputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
+      collector.configureSearch(searchRequest(parsed, endpoint));
       let upstreamBody = bytes;
       if (endpoint === '/v1/chat/completions' && streaming) {
         const options = parsed.stream_options;
@@ -688,6 +690,8 @@ export class GatewayService implements Disposable {
               cacheRead: u.cacheReadTokens.toString(),
               cacheWrite: u.cacheWriteTokens.toString(),
               context: u.contextTokens.toString(),
+              webSearchCalls: u.webSearchCalls.toString(),
+              webSearchPreviewCalls: u.webSearchPreviewCalls.toString(),
             }
           : null,
       })),

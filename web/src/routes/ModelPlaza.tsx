@@ -14,6 +14,8 @@ const categories = [
   ['outputPrice', '输出'],
   ['cacheReadPrice', '缓存读取'],
   ['cacheWritePrice', '缓存写入'],
+  ['webSearchPrice', '搜索 / 千次'],
+  ['webSearchPreviewPrice', '预览搜索 / 千次'],
 ] as const;
 const minuteText = (minute: number) =>
   `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;

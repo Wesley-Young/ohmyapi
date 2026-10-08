@@ -24,11 +24,12 @@ import {
 } from '../database/schema/index.js';
 import { GatewayError } from '../gateway/errors.js';
 import type { Usage } from '../gateway/usage.js';
-import { priceInput, tokenInput } from '../pricing/rules.js';
+import { priceInput, searchCountInput, tokenInput } from '../pricing/rules.js';
 import type { LockedPrice, PricingService } from '../pricing/service.js';
 import { reservationAmount } from './admission.js';
 import { formatMoney, parseMoney } from './conventions.js';
 import { estimateReservation } from './estimation.js';
+import { searchRequest } from './search.js';
 
 import { randomUUID } from 'node:crypto';
 
@@ -45,6 +46,8 @@ export const resolveBillInput = z.object({
       outputTokens: tokenInput,
       cacheReadTokens: tokenInput,
       cacheWriteTokens: tokenInput,
+      webSearchCalls: searchCountInput.default('0'),
+      webSearchPreviewCalls: searchCountInput.default('0'),
     })
     .optional(),
 });
@@ -71,6 +74,8 @@ const usageDto = (u: typeof requestUsage.$inferSelect) => ({
   cacheReadTokens: u.cacheReadTokens.toString(),
   cacheWriteTokens: u.cacheWriteTokens.toString(),
   contextTokens: u.contextTokens.toString(),
+  webSearchCalls: u.webSearchCalls.toString(),
+  webSearchPreviewCalls: u.webSearchPreviewCalls.toString(),
 });
 const bounds = (n: bigint) => {
   if (n < -9_223_372_036_854_775_808n || n > 9_223_372_036_854_775_807n) throw new Error('Wallet amount out of range');
@@ -196,7 +201,8 @@ export class BillingService implements Disposable {
       input.outputLimit,
       history.map((r) => r.outputTokens),
     );
-    const amount = reservationAmount(input.price, estimate.inputTokens, estimate.outputTokens);
+    const search = searchRequest(input.body, input.endpoint);
+    const amount = reservationAmount(input.price, estimate.inputTokens, estimate.outputTokens, search);
     this.active.add(input.requestId);
     try {
       await this.auth.db.transaction(async (tx) => {
@@ -293,6 +299,7 @@ export class BillingService implements Disposable {
               inputTokenLimit: input.inputLimit,
               outputTokenLimit: input.outputLimit,
               estimate,
+              search,
               amount: formatMoney(amount),
               strategy: 'request_content_recent_output',
             },
@@ -719,6 +726,8 @@ export class BillingService implements Disposable {
             outputTokens: BigInt(given.outputTokens),
             cacheReadTokens: BigInt(given.cacheReadTokens),
             cacheWriteTokens: BigInt(given.cacheWriteTokens),
+            webSearchCalls: BigInt(given.webSearchCalls),
+            webSearchPreviewCalls: BigInt(given.webSearchPreviewCalls),
             contextTokens: BigInt(given.inputTokens) + BigInt(given.cacheReadTokens) + BigInt(given.cacheWriteTokens),
             rawUsage: { ...originalUsage?.rawUsage, administratorConfirmed: given },
           };

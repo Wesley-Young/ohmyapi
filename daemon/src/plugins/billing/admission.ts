@@ -2,11 +2,13 @@ import type { Endpoint } from '../catalog/service.js';
 import { GatewayError } from '../gateway/errors.js';
 import { ruleTimeMatcher } from '../pricing/rules.js';
 import type { LockedPrice } from '../pricing/service.js';
+import { type SearchRequest, searchRequest, searchToolKind } from './search.js';
 
-function isClientTool(value: unknown, endpoint: Endpoint): boolean {
+function isBillableTool(value: unknown, endpoint: Endpoint): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const tool = value as Record<string, unknown>;
   if (tool.type === 'function' || tool.type === 'custom') return true;
+  if (searchToolKind(tool, endpoint)) return true;
   if (endpoint === '/v1/responses' && tool.type === 'namespace')
     return (
       typeof tool.name === 'string' &&
@@ -30,7 +32,12 @@ function isClientTool(value: unknown, endpoint: Endpoint): boolean {
 }
 
 /** Reserve against estimated usage and the most expensive reachable rule at receipt. */
-export function reservationAmount(price: LockedPrice, inputTokens: number, outputTokens: number) {
+export function reservationAmount(
+  price: LockedPrice,
+  inputTokens: number,
+  outputTokens: number,
+  search: SearchRequest,
+) {
   let numerator = 0n;
   const matchesTime = ruleTimeMatcher(price.receivedAt);
   for (const r of price.rules.filter(matchesTime)) {
@@ -38,8 +45,14 @@ export function reservationAmount(price: LockedPrice, inputTokens: number, outpu
     let inputPrice = 0n;
     for (const p of [r.inputPriceMicros, r.cacheReadPriceMicros, r.cacheWritePriceMicros])
       if (p !== null && p > inputPrice) inputPrice = p;
+    const searchPrice = search.kind === 'webSearchPreview' ? r.webSearchPreviewPriceMicros : r.webSearchPriceMicros;
+    if (search.kind && searchPrice === null)
+      throw new GatewayError(503, 'search_price_missing', 'Configure the web search price before using search');
     const candidate =
-      (BigInt(inputTokens) * inputPrice + BigInt(outputTokens) * r.outputPriceMicros) * price.multiplierMicros;
+      (BigInt(inputTokens) * inputPrice +
+        BigInt(outputTokens) * r.outputPriceMicros +
+        BigInt(search.estimatedCalls) * (searchPrice ?? 0n) * 1000n) *
+      price.multiplierMicros;
     if (candidate > numerator) numerator = candidate;
   }
   const amount = (numerator + 999_999_999_999n) / 1_000_000_000_000n;
@@ -70,16 +83,7 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
     );
   if (body.n !== undefined && body.n !== 1)
     throw new GatewayError(400, 'unsupported_billing_mode', 'Only one completion per request is supported');
-  if (
-    body.web_search_options != null ||
-    body.enable_search === true ||
-    (typeof body.model === 'string' && /(?:^|-)search-(?:preview|api)(?:-\d{4}-\d{2}-\d{2})?$/.test(body.model))
-  )
-    throw new GatewayError(
-      400,
-      'unsupported_billing_mode',
-      'Search options and search models with additional charges are not supported',
-    );
+  searchRequest(body, endpoint);
   for (const field of ['previous_response_id', 'conversation', 'prompt', 'audio', 'prediction'])
     if (body[field] !== undefined && body[field] !== null)
       throw new GatewayError(400, 'unsupported_billing_mode', `${field} is not supported for billing`);
@@ -87,11 +91,11 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
     throw new GatewayError(400, 'unsupported_billing_mode', 'Only text modalities are supported');
   if (body.tools !== undefined && body.tools !== null && !Array.isArray(body.tools))
     throw new GatewayError(400, 'invalid_request', 'tools must be an array');
-  if (Array.isArray(body.tools) && body.tools.some((tool) => !isClientTool(tool, endpoint)))
+  if (Array.isArray(body.tools) && body.tools.some((tool) => !isBillableTool(tool, endpoint)))
     throw new GatewayError(
       400,
       'unsupported_billing_mode',
-      'Hosted tools and their additional charges are not supported',
+      'Only client tools and web search tools are supported for billing',
     );
   const forbidden = new Set([
     'image',
@@ -105,8 +109,6 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
     'document',
     'video',
     'computer_use',
-    'web_search_tool_result',
-    'server_tool_use',
   ]);
   const stack: unknown[] = [];
   if (endpoint === '/v1/responses') stack.push(body.input);
@@ -131,7 +133,11 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
       continue;
     }
     const object = item as Record<string, unknown>;
-    if (typeof object.type === 'string' && forbidden.has(object.type))
+    if (
+      (typeof object.type === 'string' && forbidden.has(object.type)) ||
+      (object.type === 'server_tool_use' && (endpoint !== '/v1/messages' || object.name !== 'web_search')) ||
+      (object.type === 'web_search_tool_result' && endpoint !== '/v1/messages')
+    )
       throw new GatewayError(
         400,
         'unsupported_billing_mode',

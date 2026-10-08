@@ -22,6 +22,8 @@ const defaultRule: Rule = {
   outputPrice: '0',
   cacheReadPrice: null,
   cacheWritePrice: null,
+  webSearchPrice: null,
+  webSearchPreviewPrice: null,
 };
 const minuteText = (minute: number | null) =>
   minute === null ? '' : `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
@@ -162,7 +164,7 @@ function RuleForm({
             </>
           )}
           <Text fontSize="sm" color="gray.500">
-            单价按每百万 Token，最多六位小数。缓存价格留空表示尚未支持，填写 0 表示免费。
+            Token 单价按每百万，搜索单价按每千次调用，最多六位小数。可选单价留空表示尚未支持，填写 0 表示免费。
           </Text>
           <Grid templateColumns={{ base: '1fr', sm: '1fr 1fr' }} gap="4">
             {(
@@ -171,6 +173,8 @@ function RuleForm({
                 ['outputPrice', '输出单价'],
                 ['cacheReadPrice', '缓存读取单价'],
                 ['cacheWritePrice', '缓存写入单价'],
+                ['webSearchPrice', 'Web Search / 千次'],
+                ['webSearchPreviewPrice', 'Web Search Preview / 千次'],
               ] as const
             ).map(([key, label]) => (
               <FormInput
@@ -206,6 +210,8 @@ function Preview({ modelId }: { modelId: string }) {
     outputTokens: '0',
     cacheReadTokens: '0',
     cacheWriteTokens: '0',
+    webSearchCalls: '0',
+    webSearchPreviewCalls: '0',
   });
   const [channelId, setChannelId] = useState('');
   const [multiplier, setMultiplier] = useState('1');
@@ -248,6 +254,8 @@ function Preview({ modelId }: { modelId: string }) {
                   ['outputTokens', '输出 Token'],
                   ['cacheReadTokens', '缓存读取 Token'],
                   ['cacheWriteTokens', '缓存写入 Token'],
+                  ['webSearchCalls', 'Web Search 调用次数'],
+                  ['webSearchPreviewCalls', 'Web Search Preview 调用次数'],
                 ] as const
               ).map(([key, label]) => (
                 <FormInput
@@ -304,8 +312,8 @@ function Preview({ modelId }: { modelId: string }) {
                 <Table.Header>
                   <Table.Row>
                     <Table.ColumnHeader>类别</Table.ColumnHeader>
-                    <Table.ColumnHeader>Token</Table.ColumnHeader>
-                    <Table.ColumnHeader>单价 / 百万</Table.ColumnHeader>
+                    <Table.ColumnHeader>用量</Table.ColumnHeader>
+                    <Table.ColumnHeader>单价</Table.ColumnHeader>
                     <Table.ColumnHeader>金额</Table.ColumnHeader>
                   </Table.Row>
                 </Table.Header>
@@ -314,13 +322,22 @@ function Preview({ modelId }: { modelId: string }) {
                     <Table.Row key={item.category}>
                       <Table.Cell>
                         {
-                          { input: '普通输入', output: '输出', cacheRead: '缓存读', cacheWrite: '缓存写' }[
-                            item.category
-                          ]
+                          {
+                            input: '普通输入',
+                            output: '输出',
+                            cacheRead: '缓存读',
+                            cacheWrite: '缓存写',
+                            webSearch: 'Web Search',
+                            webSearchPreview: 'Web Search Preview',
+                          }[item.category]
                         }
                       </Table.Cell>
-                      <Table.Cell>{item.tokens}</Table.Cell>
-                      <Table.Cell>{item.price ?? '—'}</Table.Cell>
+                      <Table.Cell>
+                        {item.tokens} {item.unit === 'thousand_calls' ? '次' : 'Token'}
+                      </Table.Cell>
+                      <Table.Cell>
+                        {item.price ?? '—'} / {item.unit === 'thousand_calls' ? '千次' : '百万 Token'}
+                      </Table.Cell>
                       <Table.Cell title={item.amount}>{item.amount.replace(/0+$/, '').replace(/\.$/, '')}</Table.Cell>
                     </Table.Row>
                   ))}
@@ -430,7 +447,17 @@ export default function Pricing({
             <Table.Root size="sm">
               <Table.Header>
                 <Table.Row>
-                  {['规则名称', '条件', '输入', '输出', '缓存读', '缓存写', '操作'].map((h) => (
+                  {[
+                    '规则名称',
+                    '条件',
+                    '输入',
+                    '输出',
+                    '缓存读',
+                    '缓存写',
+                    '搜索 / 千次',
+                    '预览搜索 / 千次',
+                    '操作',
+                  ].map((h) => (
                     <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                   ))}
                 </Table.Row>
@@ -460,6 +487,8 @@ export default function Pricing({
                     <Table.Cell>{r.outputPrice}</Table.Cell>
                     <Table.Cell>{r.cacheReadPrice ?? '—'}</Table.Cell>
                     <Table.Cell>{r.cacheWritePrice ?? '—'}</Table.Cell>
+                    <Table.Cell>{r.webSearchPrice ?? '—'}</Table.Cell>
+                    <Table.Cell>{r.webSearchPreviewPrice ?? '—'}</Table.Cell>
                     <Table.Cell>
                       <HStack>
                         <Button

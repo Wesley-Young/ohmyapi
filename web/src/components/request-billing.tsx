@@ -105,8 +105,8 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                       <Table.Header>
                         <Table.Row>
                           <Table.ColumnHeader>类别</Table.ColumnHeader>
-                          <Table.ColumnHeader>Token</Table.ColumnHeader>
-                          <Table.ColumnHeader>单价 / 百万</Table.ColumnHeader>
+                          <Table.ColumnHeader>用量</Table.ColumnHeader>
+                          <Table.ColumnHeader>单价</Table.ColumnHeader>
                           <Table.ColumnHeader>金额</Table.ColumnHeader>
                         </Table.Row>
                       </Table.Header>
@@ -115,13 +115,30 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                           <Table.Row key={i.category}>
                             <Table.Cell>
                               {
-                                { input: '输入', output: '输出', cacheRead: '缓存读', cacheWrite: '缓存写' }[
-                                  i.category as 'input' | 'output' | 'cacheRead' | 'cacheWrite'
+                                {
+                                  input: '输入',
+                                  output: '输出',
+                                  cacheRead: '缓存读',
+                                  cacheWrite: '缓存写',
+                                  webSearch: 'Web Search',
+                                  webSearchPreview: 'Web Search Preview',
+                                }[
+                                  i.category as
+                                    | 'input'
+                                    | 'output'
+                                    | 'cacheRead'
+                                    | 'cacheWrite'
+                                    | 'webSearch'
+                                    | 'webSearchPreview'
                                 ]
                               }
                             </Table.Cell>
-                            <Table.Cell>{i.tokens}</Table.Cell>
-                            <Table.Cell>{i.price ?? '—'}</Table.Cell>
+                            <Table.Cell>
+                              {i.tokens} {i.unit === 'thousand_calls' ? '次' : 'Token'}
+                            </Table.Cell>
+                            <Table.Cell>
+                              {i.price ?? '—'} / {i.unit === 'thousand_calls' ? '千次' : '百万 Token'}
+                            </Table.Cell>
                             <Table.Cell>{displayMoney(i.amount)}</Table.Cell>
                           </Table.Row>
                         ))}
@@ -188,14 +205,15 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
   );
   const [reason, setReason] = useState(saved?.reason ?? '');
   const [amount, setAmount] = useState(saved?.amount ?? '');
-  const [usage, setUsage] = useState(
-    saved?.usage ?? {
-      inputTokens: r.usage?.inputTokens ?? '0',
-      outputTokens: r.usage?.outputTokens ?? '0',
-      cacheReadTokens: r.usage?.cacheReadTokens ?? '0',
-      cacheWriteTokens: r.usage?.cacheWriteTokens ?? '0',
-    },
-  );
+  const [usage, setUsage] = useState({
+    inputTokens: r.usage?.inputTokens ?? '0',
+    outputTokens: r.usage?.outputTokens ?? '0',
+    cacheReadTokens: r.usage?.cacheReadTokens ?? '0',
+    cacheWriteTokens: r.usage?.cacheWriteTokens ?? '0',
+    webSearchCalls: r.usage?.webSearchCalls ?? '0',
+    webSearchPreviewCalls: r.usage?.webSearchPreviewCalls ?? '0',
+    ...saved?.usage,
+  });
   const task = useMutation(
     trpc.admin.billing.resolve.mutationOptions({
       onMutate: (input) => {
@@ -257,6 +275,8 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
                   ['outputTokens', '输出 Token'],
                   ['cacheReadTokens', '缓存读取 Token'],
                   ['cacheWriteTokens', '缓存写入 Token'],
+                  ['webSearchCalls', 'Web Search 调用次数'],
+                  ['webSearchPreviewCalls', 'Web Search Preview 调用次数'],
                 ] as const
               ).map(([key, label]) => (
                 <FormInput

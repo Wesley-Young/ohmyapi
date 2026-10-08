@@ -61,6 +61,8 @@ export function buildImportRules(prices: ImportPrices, preset: ImportPreset): Ru
     weekdaysMask: null,
     startMinute: null,
     endMinute: null,
+    webSearchPrice: null,
+    webSearchPreviewPrice: null,
   };
   if (preset === 'none') return [base];
   const doubled = {

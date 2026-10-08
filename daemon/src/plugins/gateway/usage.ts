@@ -1,4 +1,6 @@
+import type { SearchRequest } from '../billing/search.js';
 import type { Endpoint } from '../catalog/service.js';
+import { SearchUsageCollector } from './search-usage.js';
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue | undefined =>
@@ -33,6 +35,8 @@ export type Usage = {
   cacheReadTokens: bigint;
   cacheWriteTokens: bigint;
   contextTokens: bigint;
+  webSearchCalls: bigint;
+  webSearchPreviewCalls: bigint;
   rawUsage: ObjectValue;
 };
 
@@ -47,9 +51,23 @@ export class UsageCollector {
   invalid = false;
   observationIncomplete = false;
   private anthropic: ObjectValue = {};
+  private readonly search = new SearchUsageCollector();
   private readonly endpoint: Endpoint;
   constructor(endpoint: Endpoint) {
     this.endpoint = endpoint;
+  }
+
+  configureSearch(request: SearchRequest) {
+    this.search.configure(request);
+  }
+
+  private syncSearchUsage() {
+    this.invalid ||= this.search.invalid;
+    this.unknownCosts ||= this.search.unknownCosts;
+    if (this.usage) {
+      this.usage.webSearchCalls = this.search.webSearchCalls;
+      this.usage.webSearchPreviewCalls = this.search.webSearchPreviewCalls;
+    }
   }
 
   observe(value: unknown) {
@@ -72,6 +90,8 @@ export class UsageCollector {
     if (this.endpoint === '/v1/messages') {
       if (data.type === 'message_stop' || ((!data.type || data.type === 'message') && data.stop_reason))
         this.complete = true;
+      this.search.observe(this.endpoint, data, envelope, usage, this.complete);
+      this.syncSearchUsage();
       if (!usage) {
         if (this.complete && this.usage && !this.invalid) this.finalUsage = true;
         return;
@@ -80,6 +100,8 @@ export class UsageCollector {
       this.normalize(this.anthropic);
       if (this.complete && this.usage && !this.invalid) this.finalUsage = true;
     } else {
+      this.search.observe(this.endpoint, data, envelope, usage, this.complete);
+      this.syncSearchUsage();
       if (usage) {
         this.normalize(usage);
         if (
@@ -131,13 +153,15 @@ export class UsageCollector {
       this.usage = undefined;
       return;
     }
-    this.invalid = false;
+    this.invalid = this.search.invalid;
     this.usage = {
       inputTokens: anthropic ? input : input - read - write,
       outputTokens: output,
       cacheReadTokens: read,
       cacheWriteTokens: write,
       contextTokens: anthropic ? input + read + write : input,
+      webSearchCalls: this.search.webSearchCalls,
+      webSearchPreviewCalls: this.search.webSearchPreviewCalls,
       rawUsage: usageNumbers(raw),
     };
   }

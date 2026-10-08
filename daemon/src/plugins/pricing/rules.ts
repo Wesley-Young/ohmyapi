@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { billingConventions, formatMoney, parseMoney } from '../billing/conventions.js';
+import { maxSearchCalls } from '../billing/search.js';
 
 const maxInteger = 9_223_372_036_854_775_807n;
 export const tokenInput = z
@@ -17,6 +18,10 @@ export const priceInput = z
       return false;
     }
   }, '单价需为非负金额，最多六位小数');
+export const searchCountInput = tokenInput.refine(
+  (s) => /^(0|[1-9]\d{0,18})$/.test(s) && BigInt(s) <= BigInt(maxSearchCalls),
+  '搜索调用数超出范围',
+);
 export const multiplierInput = priceInput.refine((s) => {
   try {
     return parseMoney(s) <= 1_000_000_000n;
@@ -37,6 +42,8 @@ export const ruleInput = z
     outputPrice: priceInput,
     cacheReadPrice: priceInput.nullable(),
     cacheWritePrice: priceInput.nullable(),
+    webSearchPrice: priceInput.nullable().default(null),
+    webSearchPreviewPrice: priceInput.nullable().default(null),
   })
   .superRefine((rule, ctx) => {
     const context = ['context', 'combined'].includes(rule.kind);
@@ -75,6 +82,8 @@ export type Rule = {
   outputPriceMicros: bigint;
   cacheReadPriceMicros: bigint | null;
   cacheWritePriceMicros: bigint | null;
+  webSearchPriceMicros: bigint | null;
+  webSearchPreviewPriceMicros: bigint | null;
 };
 export function expandRules(inputs: RuleInput[]) {
   return inputs.flatMap((r) => {
@@ -90,6 +99,8 @@ export function expandRules(inputs: RuleInput[]) {
       outputPriceMicros: parseMoney(r.outputPrice),
       cacheReadPriceMicros: r.cacheReadPrice === null ? null : parseMoney(r.cacheReadPrice),
       cacheWritePriceMicros: r.cacheWritePrice === null ? null : parseMoney(r.cacheWritePrice),
+      webSearchPriceMicros: r.webSearchPrice === null ? null : parseMoney(r.webSearchPrice),
+      webSearchPreviewPriceMicros: r.webSearchPreviewPrice === null ? null : parseMoney(r.webSearchPreviewPrice),
     };
     if (r.startMinute !== null && r.endMinute !== null && r.weekdaysMask !== null && r.endMinute < r.startMinute) {
       const legs: (typeof rule)[] = [{ ...rule, endMinute: 1440 }];
@@ -140,6 +151,8 @@ export type Quantities = {
   cacheReadTokens: bigint;
   cacheWriteTokens: bigint;
   contextTokens: bigint;
+  webSearchCalls: bigint;
+  webSearchPreviewCalls: bigint;
 };
 export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicros: bigint) {
   const matchesTime = ruleTimeMatcher(at);
@@ -159,25 +172,69 @@ export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicr
     usage.outputTokens < 0n ||
     usage.cacheReadTokens < 0n ||
     usage.cacheWriteTokens < 0n ||
-    usage.contextTokens !== usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens
+    usage.contextTokens !== usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens ||
+    usage.webSearchCalls < 0n ||
+    usage.webSearchCalls > BigInt(maxSearchCalls) ||
+    usage.webSearchPreviewCalls < 0n ||
+    usage.webSearchPreviewCalls > BigInt(maxSearchCalls)
   )
-    throw new Error('Token 用量无效');
+    throw new Error('计费用量无效');
   const items = [
-    { category: 'input', tokens: usage.inputTokens, price: rule.inputPriceMicros },
-    { category: 'output', tokens: usage.outputTokens, price: rule.outputPriceMicros },
-    { category: 'cacheRead', tokens: usage.cacheReadTokens, price: rule.cacheReadPriceMicros },
-    { category: 'cacheWrite', tokens: usage.cacheWriteTokens, price: rule.cacheWritePriceMicros },
-  ];
+    { category: 'input', tokens: usage.inputTokens, price: rule.inputPriceMicros, unit: 'million_tokens', scale: 1n },
+    {
+      category: 'output',
+      tokens: usage.outputTokens,
+      price: rule.outputPriceMicros,
+      unit: 'million_tokens',
+      scale: 1n,
+    },
+    {
+      category: 'cacheRead',
+      tokens: usage.cacheReadTokens,
+      price: rule.cacheReadPriceMicros,
+      unit: 'million_tokens',
+      scale: 1n,
+    },
+    {
+      category: 'cacheWrite',
+      tokens: usage.cacheWriteTokens,
+      price: rule.cacheWritePriceMicros,
+      unit: 'million_tokens',
+      scale: 1n,
+    },
+    {
+      category: 'webSearch',
+      tokens: usage.webSearchCalls,
+      price: rule.webSearchPriceMicros,
+      unit: 'thousand_calls',
+      scale: 1000n,
+    },
+    {
+      category: 'webSearchPreview',
+      tokens: usage.webSearchPreviewCalls,
+      price: rule.webSearchPreviewPriceMicros,
+      unit: 'thousand_calls',
+      scale: 1000n,
+    },
+  ] as const;
+  const labels = {
+    input: '输入',
+    output: '输出',
+    cacheRead: '缓存读取',
+    cacheWrite: '缓存写入',
+    webSearch: 'Web Search',
+    webSearchPreview: 'Web Search Preview',
+  };
   let numerator = 0n;
-  const details = items.map(({ category, tokens, price }) => {
-    if (tokens > 0n && price === null)
-      throw new Error(`${category === 'cacheRead' ? '缓存读取' : '缓存写入'}单价尚未配置`);
-    const itemNumerator = tokens * (price ?? 0n) * multiplierMicros;
+  const details = items.map(({ category, tokens, price, unit, scale }) => {
+    if (tokens > 0n && price === null) throw new Error(`${labels[category]}单价尚未配置`);
+    const itemNumerator = tokens * (price ?? 0n) * multiplierMicros * scale;
     numerator += itemNumerator;
     const whole = itemNumerator / 1_000_000_000_000_000_000n;
     const fraction = (itemNumerator % 1_000_000_000_000_000_000n).toString().padStart(18, '0');
     return {
       category,
+      unit,
       tokens: tokens.toString(),
       price: price === null ? null : formatMoney(price),
       amount: `${whole}.${fraction}`,

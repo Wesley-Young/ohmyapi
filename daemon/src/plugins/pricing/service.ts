@@ -14,6 +14,7 @@ import {
   quote,
   type Rule,
   ruleInput,
+  searchCountInput,
   tokenInput,
   validateRules,
 } from './rules.js';
@@ -27,6 +28,8 @@ export const previewInput = priceScope.extend({
   outputTokens: tokenInput,
   cacheReadTokens: tokenInput,
   cacheWriteTokens: tokenInput,
+  webSearchCalls: searchCountInput.default('0'),
+  webSearchPreviewCalls: searchCountInput.default('0'),
   multiplier: multiplierInput.optional(),
 });
 const serializeRule = (r: Rule) => ({
@@ -42,6 +45,8 @@ const serializeRule = (r: Rule) => ({
   outputPrice: formatMoney(r.outputPriceMicros),
   cacheReadPrice: r.cacheReadPriceMicros === null ? null : formatMoney(r.cacheReadPriceMicros),
   cacheWritePrice: r.cacheWritePriceMicros === null ? null : formatMoney(r.cacheWritePriceMicros),
+  webSearchPrice: r.webSearchPriceMicros === null ? null : formatMoney(r.webSearchPriceMicros),
+  webSearchPreviewPrice: r.webSearchPreviewPriceMicros === null ? null : formatMoney(r.webSearchPreviewPriceMicros),
 });
 const snapshotInput = z.object({
   modelId: z.uuid(),
@@ -113,6 +118,8 @@ export class PricingService {
                   outputPrice: scaledPrice(rule.outputPriceMicros, row.multiplierMicros) as string,
                   cacheReadPrice: scaledPrice(rule.cacheReadPriceMicros, row.multiplierMicros),
                   cacheWritePrice: scaledPrice(rule.cacheWritePriceMicros, row.multiplierMicros),
+                  webSearchPrice: scaledPrice(rule.webSearchPriceMicros, row.multiplierMicros),
+                  webSearchPreviewPrice: scaledPrice(rule.webSearchPreviewPriceMicros, row.multiplierMicros),
                 })),
             }));
           return {
@@ -259,6 +266,8 @@ export class PricingService {
       outputTokens: BigInt(input.outputTokens),
       cacheReadTokens: BigInt(input.cacheReadTokens),
       cacheWriteTokens: BigInt(input.cacheWriteTokens),
+      webSearchCalls: BigInt(input.webSearchCalls),
+      webSearchPreviewCalls: BigInt(input.webSearchPreviewCalls),
       contextTokens: BigInt(input.inputTokens) + BigInt(input.cacheReadTokens) + BigInt(input.cacheWriteTokens),
     };
     if (usage.contextTokens > 9_223_372_036_854_775_807n)
