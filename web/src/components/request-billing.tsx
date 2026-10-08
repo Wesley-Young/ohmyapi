@@ -36,6 +36,7 @@ const definitive = (error: unknown) =>
 type Detail = RouterOutputs['requestDetail'];
 type Resolution = RouterInputs['admin']['billing']['resolve'];
 type Correction = RouterInputs['admin']['billing']['correct'];
+type ZeroResolution = RouterInputs['admin']['billing']['resolveZero'];
 
 export function RequestDetail({ requestId, close }: { requestId: string; close: () => void }) {
   const data = useQuery(
@@ -82,10 +83,21 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                   </Box>
                 ))}
               </Grid>
-              {r.errorCode && (
-                <Text fontSize="sm" color="gray.500">
-                  {r.errorCode}
-                </Text>
+              {(r.errorCode || r.errorMessage) && (
+                <Box borderWidth="1px" borderColor="gray.200" borderRadius="lg" p="4">
+                  <Stack gap="2">
+                    <Heading size="sm">错误信息</Heading>
+                    <HStack gap="2" flexWrap="wrap">
+                      {r.errorCode && <Badge colorPalette="orange">{r.errorCode}</Badge>}
+                      {r.httpStatus !== null && <Badge colorPalette="gray">HTTP {r.httpStatus}</Badge>}
+                    </HStack>
+                    {r.errorMessage && (
+                      <Text fontSize="sm" whiteSpace="pre-wrap" overflowWrap="anywhere">
+                        {r.errorMessage}
+                      </Text>
+                    )}
+                  </Stack>
+                </Box>
               )}
               {r.preview && (
                 <Stack gap="2">
@@ -185,6 +197,111 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
         )}
       </Stack>
     </FormDialog>
+  );
+}
+
+export function BulkZeroBilling({
+  requestIds,
+  onSuccess,
+}: {
+  requestIds: string[];
+  onSuccess: (count: number) => void;
+}) {
+  const { data: actor } = useAuth();
+  const storageKey = `ohmyapi:resolve-zero:${actor?.id}`;
+  const [saved] = useState<ZeroResolution | undefined>(() => {
+    try {
+      const value = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null');
+      return Array.isArray(value?.requestIds) && value.requestIds.length && typeof value.idempotencyKey === 'string'
+        ? value
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const operation = useRef<ZeroResolution | undefined>(saved);
+  const [open, setOpen] = useState(Boolean(saved));
+  const [ids, setIds] = useState<string[]>(saved?.requestIds ?? []);
+  const [reason, setReason] = useState(saved?.reason ?? '管理员批量确认按 0 计费');
+  const task = useMutation(
+    trpc.admin.billing.resolveZero.mutationOptions({
+      onMutate: (input) => sessionStorage.setItem(storageKey, JSON.stringify(input)),
+      onError: (error) => {
+        if (definitive(error)) {
+          operation.current = undefined;
+          sessionStorage.removeItem(storageKey);
+          void queryClient.invalidateQueries(trpc.admin.requests.pathFilter());
+        }
+      },
+      onSuccess: async (result) => {
+        operation.current = undefined;
+        sessionStorage.removeItem(storageKey);
+        onSuccess(result.count);
+        await Promise.all([
+          ...result.userIds.map(invalidateUser),
+          queryClient.invalidateQueries(trpc.requests.pathFilter()),
+          queryClient.invalidateQueries(trpc.admin.requests.pathFilter()),
+          queryClient.invalidateQueries(trpc.requestDetail.pathFilter()),
+          queryClient.invalidateQueries(trpc.admin.billing.reconcile.pathFilter()),
+          queryClient.invalidateQueries(trpc.admin.stats.pathFilter()),
+        ]);
+        setOpen(false);
+      },
+    }),
+  );
+  const locked = task.isPending || Boolean(operation.current);
+  return (
+    <>
+      <PrimaryButton
+        size="sm"
+        disabled={!requestIds.length && !operation.current}
+        onClick={() => {
+          setIds(operation.current?.requestIds ?? [...requestIds]);
+          task.reset();
+          setOpen(true);
+        }}
+      >
+        {operation.current ? '重试按 0 计费' : '全部按 0 计费'}
+      </PrimaryButton>
+      {open && (
+        <FormDialog open title="批量按 0 计费" busy={task.isPending} onClose={() => setOpen(false)}>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (task.isPending) return;
+              operation.current ??= { requestIds: ids, reason, idempotencyKey: crypto.randomUUID() };
+              task.mutate(operation.current);
+            }}
+          >
+            <Stack gap="5">
+              <Text fontSize="sm">将选中的 {ids.length} 个待核对请求按 0 结算，并释放全部冻结金额。</Text>
+              <FormInput
+                label="核对依据"
+                value={reason}
+                required
+                maxLength={500}
+                disabled={locked}
+                onChange={(event) => setReason(event.target.value)}
+              />
+              <ErrorText>{formError(task.error)?.message}</ErrorText>
+              {operation.current && !task.isPending && (
+                <Text fontSize="sm" color="gray.500">
+                  上次结果尚未确认，请用相同内容重试。
+                </Text>
+              )}
+              <HStack>
+                <PrimaryButton type="submit" loading={task.isPending} disabled={!ids.length}>
+                  {operation.current ? '重试按 0 计费' : '确认按 0 计费'}
+                </PrimaryButton>
+                <Button variant="ghost" disabled={task.isPending} onClick={() => setOpen(false)}>
+                  关闭
+                </Button>
+              </HStack>
+            </Stack>
+          </form>
+        </FormDialog>
+      )}
+    </>
   );
 }
 

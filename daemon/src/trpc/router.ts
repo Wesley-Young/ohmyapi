@@ -4,7 +4,12 @@ import { z } from 'zod';
 import type { EventLogger } from '../logging.js';
 import type { AuthService, Principal } from '../plugins/auth/service.js';
 import { parseMoney } from '../plugins/billing/conventions.js';
-import { type BillingService, correctBillInput, resolveBillInput } from '../plugins/billing/service.js';
+import {
+  type BillingService,
+  correctBillInput,
+  resolveBillInput,
+  resolveZeroBillsInput,
+} from '../plugins/billing/service.js';
 import {
   type CatalogService,
   channelInput,
@@ -160,6 +165,9 @@ export const appRouter = t.router({
       resolve: adminProcedure
         .input(resolveBillInput)
         .mutation(({ ctx, input }) => ctx.billing.resolve(ctx.principal, input)),
+      resolveZero: adminProcedure
+        .input(resolveZeroBillsInput)
+        .mutation(({ ctx, input }) => ctx.billing.resolveZero(ctx.principal, input)),
       correct: adminProcedure
         .input(correctBillInput)
         .mutation(({ ctx, input }) => ctx.billing.correct(ctx.principal, input)),

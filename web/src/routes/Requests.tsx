@@ -1,10 +1,10 @@
-import { Badge, Box, Button, HStack, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Checkbox, HStack, Stack, Table, Text } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { DatabaseBackup, DatabaseZap, LogIn, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 
-import { BillingAction, RequestDetail, requestStatuses } from '../components/request-billing';
+import { BillingAction, BulkZeroBilling, RequestDetail, requestStatuses } from '../components/request-billing';
 import { ErrorText, Loading, PageControls, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { formError, localDate } from '../lib/format';
@@ -34,6 +34,8 @@ export default function Requests() {
   const [action, setAction] = useState<{ requestId: string; kind: 'resolve' | 'correct' }>();
   const [reviewOnly, setReviewOnly] = useState(params.get('reviewOnly') === 'true');
   const [page, setPage] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [resolvedCount, setResolvedCount] = useState(0);
   const admin = user?.role === 'admin';
   const own = useQuery(
     trpc.requests.queryOptions(
@@ -54,6 +56,9 @@ export default function Requests() {
     ),
   );
   const data = admin ? all : own;
+  const selectable = data.data?.items.filter((r) => r.billingEnabled && r.status === 'needs_review') ?? [];
+  const pageIds = selectable.map((r) => r.id);
+  const selectedOnPage = pageIds.filter((id) => selectedIds.includes(id)).length;
   return (
     <Stack gap="7">
       <Title
@@ -66,13 +71,14 @@ export default function Requests() {
         请求记录
       </Title>
       {admin && (
-        <HStack>
+        <HStack flexWrap="wrap">
           <Button
             size="sm"
             variant={reviewOnly ? 'outline' : 'solid'}
             onClick={() => {
               setReviewOnly(false);
               setPage(0);
+              setSelectedIds([]);
             }}
           >
             全部请求
@@ -83,10 +89,36 @@ export default function Requests() {
             onClick={() => {
               setReviewOnly(true);
               setPage(0);
+              setSelectedIds([]);
             }}
           >
             待核对
           </Button>
+        </HStack>
+      )}
+      {admin && (
+        <HStack gap="3" flexWrap="wrap">
+          <Text fontSize="sm" color="gray.600">
+            已选 {selectedIds.length} / 100
+          </Text>
+          <BulkZeroBilling
+            key={user.id}
+            requestIds={selectedIds}
+            onSuccess={(count) => {
+              setSelectedIds([]);
+              setResolvedCount(count);
+            }}
+          />
+          {selectedIds.length > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
+              清空选择
+            </Button>
+          )}
+          {resolvedCount > 0 && (
+            <Text fontSize="sm" color="gray.600" role="status">
+              已将 {resolvedCount} 个请求按 0 结算
+            </Text>
+          )}
         </HStack>
       )}
       {detailId && <RequestDetail requestId={detailId} close={() => setDetailId(undefined)} />}
@@ -101,6 +133,35 @@ export default function Requests() {
               <Table.Root size="sm">
                 <Table.Header>
                   <Table.Row>
+                    {admin && (
+                      <Table.ColumnHeader width="10">
+                        <Checkbox.Root
+                          checked={
+                            pageIds.length > 0 && selectedOnPage === pageIds.length
+                              ? true
+                              : selectedOnPage > 0
+                                ? 'indeterminate'
+                                : false
+                          }
+                          disabled={
+                            !pageIds.length ||
+                            (selectedOnPage < pageIds.length &&
+                              selectedIds.length + pageIds.length - selectedOnPage > 100)
+                          }
+                          onCheckedChange={(event) => {
+                            setResolvedCount(0);
+                            setSelectedIds((ids) =>
+                              event.checked === true
+                                ? [...new Set([...ids, ...pageIds])].slice(0, 100)
+                                : ids.filter((id) => !pageIds.includes(id)),
+                            );
+                          }}
+                        >
+                          <Checkbox.HiddenInput aria-label="选择当前页的待核对请求" />
+                          <Checkbox.Control />
+                        </Checkbox.Root>
+                      </Table.ColumnHeader>
+                    )}
                     {[
                       '时间',
                       ...(admin ? ['用户'] : []),
@@ -117,6 +178,28 @@ export default function Requests() {
                 <Table.Body>
                   {data.data.items.map((r) => (
                     <Table.Row key={r.id}>
+                      {admin && (
+                        <Table.Cell>
+                          <Checkbox.Root
+                            checked={selectedIds.includes(r.id)}
+                            disabled={
+                              !selectedIds.includes(r.id) &&
+                              (!r.billingEnabled || r.status !== 'needs_review' || selectedIds.length >= 100)
+                            }
+                            onCheckedChange={(event) => {
+                              setResolvedCount(0);
+                              setSelectedIds((ids) =>
+                                event.checked === true
+                                  ? [...new Set([...ids, r.id])].slice(0, 100)
+                                  : ids.filter((id) => id !== r.id),
+                              );
+                            }}
+                          >
+                            <Checkbox.HiddenInput aria-label={`选择请求 ${r.id}`} />
+                            <Checkbox.Control />
+                          </Checkbox.Root>
+                        </Table.Cell>
+                      )}
                       <Table.Cell>{localDate(r.receivedAt)}</Table.Cell>
                       {admin && <Table.Cell>{r.username}</Table.Cell>}
                       <Table.Cell>{r.model}</Table.Cell>

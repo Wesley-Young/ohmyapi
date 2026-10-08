@@ -2,6 +2,7 @@ import type { readGatewayConfig } from '../../config.js';
 import { type EventLogger, errorDetails, type LogFields } from '../../logging.js';
 import type { BillingService, BillingSummary } from '../billing/service.js';
 import type { Endpoint } from '../catalog/service.js';
+import { requestErrorMessage } from './errors.js';
 import { UsageCollector } from './usage.js';
 
 type Options = {
@@ -39,6 +40,24 @@ export class ForwardBillingSession {
 
   summary(errorCode?: string): BillingSummary {
     const { collector, httpStatus, dispatched, safeRejection } = this;
+    const code =
+      errorCode ??
+      (collector.observationIncomplete
+        ? 'usage_observation_limit'
+        : collector.unknownCosts
+          ? 'unsupported_usage'
+          : collector.failed
+            ? 'upstream_error'
+            : collector.invalid
+              ? 'invalid_usage'
+              : !collector.usage
+                ? 'usage_missing'
+                : !collector.finalUsage
+                  ? 'usage_not_final'
+                  : undefined);
+    const failureMessage = [this.failureDetails.errorMessage, this.failureDetails.causeMessage]
+      .filter((value) => typeof value === 'string' && value)
+      .join('\n');
     return {
       usage: collector.usage,
       usageFinal:
@@ -47,21 +66,10 @@ export class ForwardBillingSession {
       httpStatus,
       upstreamRequestId: collector.upstreamId,
       noExecution: !dispatched || safeRejection,
-      errorCode:
-        errorCode ??
-        (collector.observationIncomplete
-          ? 'usage_observation_limit'
-          : collector.unknownCosts
-            ? 'unsupported_usage'
-            : collector.failed
-              ? 'upstream_error'
-              : collector.invalid
-                ? 'invalid_usage'
-                : !collector.usage
-                  ? 'usage_missing'
-                  : !collector.finalUsage
-                    ? 'usage_not_final'
-                    : undefined),
+      errorCode: code,
+      errorMessage:
+        [requestErrorMessage(code), failureMessage, collector.errorMessage].filter(Boolean).join('\n').slice(0, 4096) ||
+        undefined,
     };
   }
 

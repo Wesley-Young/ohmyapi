@@ -60,6 +60,7 @@ export const requests = pgTable(
     pricingSnapshot: jsonb('pricing_snapshot').$type<Record<string, unknown>>(),
     upstreamRequestId: text('upstream_request_id'),
     errorCode: text('error_code'),
+    errorMessage: text('error_message'),
     httpStatus: integer('http_status'),
     streaming: boolean('streaming').default(false).notNull(),
     createdAt: createdAt(),

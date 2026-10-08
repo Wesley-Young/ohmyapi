@@ -104,6 +104,12 @@ export function errorDetails(error: unknown): LogFields {
   return fields;
 }
 
+export function safeErrorMessage(error: unknown): string | undefined {
+  const fields = errorDetails(error);
+  const messages = [fields.errorMessage, fields.causeMessage].filter((value) => typeof value === 'string' && value);
+  return messages.length ? messages.join('\n').slice(0, 4096) : undefined;
+}
+
 export function createLogSampler() {
   const nextLogs = new Map<string, number>();
   return (category: string) => {

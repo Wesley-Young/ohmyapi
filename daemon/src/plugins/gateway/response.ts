@@ -1,4 +1,5 @@
 import type { readGatewayConfig } from '../../config.js';
+import { safeErrorMessage } from '../../logging.js';
 import type { Endpoint } from '../catalog/service.js';
 import { GatewayError } from './errors.js';
 import type { RequestLifecycle } from './lifecycle.js';
@@ -58,8 +59,9 @@ export async function forwardResponse(options: Options): Promise<Response> {
         try {
           collector.observe(JSON.parse(Buffer.concat(jsonChunks).toString('utf8')));
           if (endpoint === '/v1/chat/completions') collector.done();
-        } catch {
+        } catch (error) {
           collector.invalid = true;
+          collector.errorMessage = safeErrorMessage(error);
         }
       }
       const safeRejection =

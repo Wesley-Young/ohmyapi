@@ -1,3 +1,4 @@
+import { safeErrorMessage } from '../../logging.js';
 import type { SearchRequest } from '../billing/search.js';
 import type { Endpoint } from '../catalog/service.js';
 import { SearchUsageCollector } from './search-usage.js';
@@ -40,10 +41,11 @@ export type Usage = {
   rawUsage: ObjectValue;
 };
 
-/** Observe only usage envelopes; never persist prompts, response bodies or arbitrary event data. */
+/** 仅保留用量元数据和脱敏后的错误消息。 */
 export class UsageCollector {
   usage?: Usage;
   upstreamId?: string;
+  errorMessage?: string;
   complete = false;
   finalUsage = false;
   unknownCosts = false;
@@ -80,6 +82,13 @@ export class UsageCollector {
         : this.endpoint === '/v1/messages'
           ? (object(data.message) ?? data)
           : data;
+    const upstreamError = data.error ?? envelope.error;
+    const message =
+      typeof upstreamError === 'string'
+        ? upstreamError
+        : (object(upstreamError)?.message ??
+          (['error', 'response.error'].includes(String(data.type)) ? data.message : undefined));
+    if (typeof message === 'string') this.errorMessage = safeErrorMessage(message);
     if (this.endpoint === '/v1/responses') {
       if (envelope.error || envelope.status === 'failed' || data.type === 'response.error') this.failed = true;
       if (responseTerminalEvents.has(String(data.type)) || responseTerminalStatuses.has(String(envelope.status)))
@@ -243,8 +252,9 @@ export class SseObserver {
       else {
         try {
           this.collector.observe(JSON.parse(raw));
-        } catch {
+        } catch (error) {
           this.collector.invalid = true;
+          this.collector.errorMessage = safeErrorMessage(error);
         }
       }
     }

@@ -5,7 +5,7 @@ import { Client } from 'pg';
 import { z } from 'zod';
 
 import type { DatabaseConfig } from '../../config.js';
-import { type EventLogger, errorDetails } from '../../logging.js';
+import { type EventLogger, errorDetails, safeErrorMessage } from '../../logging.js';
 import type { AuthService, Principal, Transaction } from '../auth/service.js';
 import {
   adminAuditLogs,
@@ -23,7 +23,7 @@ import {
   walletLedger,
   wallets,
 } from '../database/schema/index.js';
-import { GatewayError } from '../gateway/errors.js';
+import { GatewayError, requestErrorMessage } from '../gateway/errors.js';
 import type { Usage } from '../gateway/usage.js';
 import { priceInput, searchCountInput, tokenInput } from '../pricing/rules.js';
 import type { LockedPrice, PricingService } from '../pricing/service.js';
@@ -58,6 +58,13 @@ export const correctBillInput = z.object({
   reason: z.string().trim().min(1, '请填写修正依据').max(500),
   idempotencyKey: z.uuid(),
 });
+export const resolveZeroBillsInput = resolveBillInput.pick({ reason: true, idempotencyKey: true }).extend({
+  requestIds: z
+    .array(requestId)
+    .min(1, '请先选择待核对请求')
+    .max(100, '每批最多核对 100 个请求')
+    .refine((ids) => new Set(ids).size === ids.length, '请求标识不能重复'),
+});
 type RequestRow = typeof requests.$inferSelect;
 type BillingOutcome = {
   request: RequestRow;
@@ -74,6 +81,7 @@ export type BillingSummary = {
   httpStatus?: number;
   upstreamRequestId?: string;
   errorCode?: string;
+  errorMessage?: string;
   noExecution: boolean;
 };
 const terminal = new Set(['settled', 'released', 'rejected', 'completed']);
@@ -406,6 +414,7 @@ export class BillingService implements Disposable {
         .set({
           usageFinal: summary.blockSettlement ? false : summary.usageFinal || r.usageFinal,
           errorCode: summary.blockSettlement ? (summary.errorCode ?? 'invalid_usage') : undefined,
+          errorMessage: summary.errorMessage,
           heartbeatAt: new Date(),
           httpStatus: summary.httpStatus ?? r.httpStatus,
           upstreamRequestId: summary.upstreamRequestId ?? r.upstreamRequestId,
@@ -427,6 +436,7 @@ export class BillingService implements Disposable {
           httpStatus: summary.httpStatus ?? r.httpStatus,
           upstreamRequestId: summary.upstreamRequestId ?? r.upstreamRequestId,
           errorCode: summary.errorCode ?? null,
+          errorMessage: summary.errorMessage ?? r.errorMessage,
           finishedAt: r.finishedAt ?? new Date(),
           usageFinal: final,
         };
@@ -484,7 +494,7 @@ export class BillingService implements Disposable {
       );
       if (failures >= 3) {
         try {
-          await this.reviewFailed(id, summary);
+          await this.reviewFailed(id, summary, error);
           this.pending.delete(id);
           this.failures.delete(id);
         } catch (reviewError) {
@@ -505,7 +515,7 @@ export class BillingService implements Disposable {
     }
   }
 
-  private async reviewFailed(id: string, summary?: BillingSummary) {
+  private async reviewFailed(id: string, summary?: BillingSummary, error?: unknown) {
     const outcome = await this.auth.db.transaction<BillingOutcome | undefined>(async (tx) => {
       const [r] = await tx.select().from(requests).where(eq(requests.id, id)).for('update');
       if (!r?.billingEnabled || terminal.has(r.status) || r.status === 'needs_review') return;
@@ -515,6 +525,11 @@ export class BillingService implements Disposable {
         .set({
           status: 'needs_review',
           errorCode: 'billing_processing_failed',
+          errorMessage:
+            [safeErrorMessage(error), summary?.errorMessage ?? r.errorMessage]
+              .filter(Boolean)
+              .join('\n')
+              .slice(0, 4096) || requestErrorMessage('billing_processing_failed'),
           usageFinal: summary?.blockSettlement ? false : Boolean(summary?.usageFinal && summary.usage) || r.usageFinal,
           httpStatus: summary?.httpStatus ?? r.httpStatus,
           upstreamRequestId: summary?.upstreamRequestId ?? r.upstreamRequestId,
@@ -622,10 +637,10 @@ export class BillingService implements Disposable {
       let priced: Awaited<ReturnType<BillingService['pinned']>>;
       try {
         priced = await this.pinned(r, usage);
-      } catch {
+      } catch (error) {
         await tx
           .update(requests)
-          .set({ status: 'needs_review', errorCode: 'price_unconfigured' })
+          .set({ status: 'needs_review', errorCode: 'price_unconfigured', errorMessage: safeErrorMessage(error) })
           .where(eq(requests.id, id));
         return { request: r, status: 'needs_review', errorCode: 'price_unconfigured' };
       }
@@ -688,7 +703,7 @@ export class BillingService implements Disposable {
         counts.failed++;
         this.logger.error(`历史计费恢复失败 ${JSON.stringify({ requestId: r.id, ...errorDetails(error) })}`);
         // Isolate a failed bill; database-wide failures still propagate if this write fails.
-        outcome = await this.reviewFailed(r.id);
+        outcome = await this.reviewFailed(r.id, undefined, error);
       }
       if (outcome?.status === 'settled') counts.settled++;
       else if (outcome?.status === 'released') counts.released++;
@@ -792,6 +807,11 @@ export class BillingService implements Disposable {
       charged: r.chargedMicros === null ? null : formatMoney(r.chargedMicros),
       currency: this.pricing.currency,
       errorCode: r.errorCode,
+      errorMessage:
+        r.errorMessage ??
+        requestErrorMessage(r.errorCode) ??
+        (r.status === 'needs_review' ? '该历史请求未保存具体错误消息，请通过请求 ID 查询服务日志。' : null),
+      httpStatus: r.httpStatus,
       upstreamRequestId: r.upstreamRequestId,
       pricing: r.pricingSnapshot,
       reservation: r.reservationSnapshot,
@@ -819,79 +839,115 @@ export class BillingService implements Disposable {
       throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写确认后的用量' });
     if (input.action === 'settle_amount' && input.amount === undefined)
       throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写确认后的费用' });
+    return this.auth.authorized(principal, { admin: true }, (tx, actor) =>
+      this.resolveInTransaction(tx, actor.id, input),
+    );
+  }
+
+  async resolveZero(principal: Principal, input: z.infer<typeof resolveZeroBillsInput>) {
+    this.assertReady();
+    const ids = [...input.requestIds].sort();
+    return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
+      // 按固定顺序锁定请求和钱包，整批结算在同一事务中完成。
+      const rows = await tx.select().from(requests).where(inArray(requests.id, ids)).orderBy(requests.id).for('update');
+      const userIds = [...new Set(rows.map((r) => r.userId))].sort();
+      if (userIds.length)
+        await tx.select().from(wallets).where(inArray(wallets.userId, userIds)).orderBy(wallets.userId).for('update');
+      for (const id of ids)
+        await this.resolveInTransaction(
+          tx,
+          actor.id,
+          {
+            requestId: id,
+            action: 'settle_amount',
+            amount: '0',
+            reason: input.reason,
+            idempotencyKey: input.idempotencyKey,
+          },
+          ids,
+        );
+      return { success: true, count: ids.length, userIds };
+    });
+  }
+
+  private async resolveInTransaction(
+    tx: Transaction,
+    actorId: string,
+    input: z.infer<typeof resolveBillInput>,
+    batchRequestIds?: string[],
+  ) {
     const key = `resolve:${input.requestId}:${input.idempotencyKey}`;
     const payload = {
-      actorId: principal.user.id,
+      actorId,
       action: input.action,
       reason: input.reason,
       amount: input.action === 'settle_amount' ? formatMoney(parseMoney(input.amount as string)) : null,
       usage: input.action === 'settle_usage' ? input.usage : null,
+      ...(batchRequestIds ? { batchRequestIds } : {}),
     };
-    return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
-      const [r] = await tx.select().from(requests).where(eq(requests.id, input.requestId)).for('update');
-      if (!r) throw new TRPCError({ code: 'NOT_FOUND', message: '请求不存在' });
-      if (r.resolutionKey === key) {
-        if (canonical(r.resolutionPayload) !== canonical(payload))
-          throw new TRPCError({ code: 'CONFLICT', message: '核对标识已用于不同内容' });
-        return { success: true, userId: r.userId };
-      }
-      if (!r.billingEnabled || r.status !== 'needs_review')
-        throw new TRPCError({ code: 'CONFLICT', message: '仅核对待处理的计费请求' });
-      const [originalUsage] = await tx.select().from(requestUsage).where(eq(requestUsage.requestId, r.id));
-      if (input.action === 'release') await this.release(tx, r, actor.id, input.reason);
-      else {
-        let snapshot: Record<string, unknown>;
-        let amount: bigint;
-        if (input.action === 'settle_usage') {
-          const given = input.usage as NonNullable<typeof input.usage>;
-          const usage: Usage = {
-            inputTokens: BigInt(given.inputTokens),
-            outputTokens: BigInt(given.outputTokens),
-            cacheReadTokens: BigInt(given.cacheReadTokens),
-            cacheWriteTokens: BigInt(given.cacheWriteTokens),
-            webSearchCalls: BigInt(given.webSearchCalls),
-            webSearchPreviewCalls: BigInt(given.webSearchPreviewCalls),
-            contextTokens: BigInt(given.inputTokens) + BigInt(given.cacheReadTokens) + BigInt(given.cacheWriteTokens),
-            rawUsage: { ...originalUsage?.rawUsage, administratorConfirmed: given },
-          };
-          if (usage.contextTokens > 9_223_372_036_854_775_807n)
-            throw new TRPCError({ code: 'BAD_REQUEST', message: '上下文用量超出范围' });
-          try {
-            snapshot = { ...(await this.pinned(r, usage)), source: 'administrator_usage', reason: input.reason };
-          } catch {
-            throw new TRPCError({ code: 'BAD_REQUEST', message: '保存的价格无法计算该用量，请核对价格或确认费用' });
-          }
-          amount = BigInt(snapshot.totalMicros as string);
-          await this.writeUsage(tx, r.id, usage);
-          await tx.update(requests).set({ usageFinal: true }).where(eq(requests.id, r.id));
-        } else {
-          amount = parseMoney(input.amount as string);
-          snapshot = {
-            ...r.pricingSnapshot,
-            total: formatMoney(amount),
-            totalMicros: amount.toString(),
-            source: 'administrator_amount',
-            reason: input.reason,
-            currency: this.pricing.currency,
-          };
-        }
-        await this.charge(tx, r, amount, snapshot, actor.id, input.reason);
-      }
-      await tx.update(requests).set({ resolutionKey: key, resolutionPayload: payload }).where(eq(requests.id, r.id));
-      await tx.insert(adminAuditLogs).values({
-        actorId: actor.id,
-        action: 'billing.resolve',
-        targetType: 'request',
-        targetId: r.id,
-        metadata: {
-          ...payload,
-          idempotencyKey: input.idempotencyKey,
-          observedUsage: originalUsage ? usageDto(originalUsage) : null,
-          heldBefore: formatMoney(r.heldMicros),
-        },
-      });
+    const [r] = await tx.select().from(requests).where(eq(requests.id, input.requestId)).for('update');
+    if (!r) throw new TRPCError({ code: 'NOT_FOUND', message: '请求不存在' });
+    if (r.resolutionKey === key) {
+      if (canonical(r.resolutionPayload) !== canonical(payload))
+        throw new TRPCError({ code: 'CONFLICT', message: '核对标识已用于不同内容' });
       return { success: true, userId: r.userId };
+    }
+    if (!r.billingEnabled || r.status !== 'needs_review')
+      throw new TRPCError({ code: 'CONFLICT', message: `请求 ${r.id} 已发生状态变化，请刷新后重新选择待核对请求` });
+    const [originalUsage] = await tx.select().from(requestUsage).where(eq(requestUsage.requestId, r.id));
+    if (input.action === 'release') await this.release(tx, r, actorId, input.reason);
+    else {
+      let snapshot: Record<string, unknown>;
+      let amount: bigint;
+      if (input.action === 'settle_usage') {
+        const given = input.usage as NonNullable<typeof input.usage>;
+        const usage: Usage = {
+          inputTokens: BigInt(given.inputTokens),
+          outputTokens: BigInt(given.outputTokens),
+          cacheReadTokens: BigInt(given.cacheReadTokens),
+          cacheWriteTokens: BigInt(given.cacheWriteTokens),
+          webSearchCalls: BigInt(given.webSearchCalls),
+          webSearchPreviewCalls: BigInt(given.webSearchPreviewCalls),
+          contextTokens: BigInt(given.inputTokens) + BigInt(given.cacheReadTokens) + BigInt(given.cacheWriteTokens),
+          rawUsage: { ...originalUsage?.rawUsage, administratorConfirmed: given },
+        };
+        if (usage.contextTokens > 9_223_372_036_854_775_807n)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '上下文用量超出范围' });
+        try {
+          snapshot = { ...(await this.pinned(r, usage)), source: 'administrator_usage', reason: input.reason };
+        } catch {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '保存的价格无法计算该用量，请核对价格或确认费用' });
+        }
+        amount = BigInt(snapshot.totalMicros as string);
+        await this.writeUsage(tx, r.id, usage);
+        await tx.update(requests).set({ usageFinal: true }).where(eq(requests.id, r.id));
+      } else {
+        amount = parseMoney(input.amount as string);
+        snapshot = {
+          ...r.pricingSnapshot,
+          total: formatMoney(amount),
+          totalMicros: amount.toString(),
+          source: 'administrator_amount',
+          reason: input.reason,
+          currency: this.pricing.currency,
+        };
+      }
+      await this.charge(tx, r, amount, snapshot, actorId, input.reason);
+    }
+    await tx.update(requests).set({ resolutionKey: key, resolutionPayload: payload }).where(eq(requests.id, r.id));
+    await tx.insert(adminAuditLogs).values({
+      actorId,
+      action: 'billing.resolve',
+      targetType: 'request',
+      targetId: r.id,
+      metadata: {
+        ...payload,
+        idempotencyKey: input.idempotencyKey,
+        observedUsage: originalUsage ? usageDto(originalUsage) : null,
+        heldBefore: formatMoney(r.heldMicros),
+      },
     });
+    return { success: true, userId: r.userId };
   }
 
   async correct(principal: Principal, input: z.infer<typeof correctBillInput>) {
