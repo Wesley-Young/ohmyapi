@@ -218,7 +218,9 @@
 
   代码：[config.ts](../daemon/src/config.ts)：`readGatewayConfig`；[.env.example](../.env.example)；[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)、[usage.ts](../daemon/src/plugins/gateway/usage.ts)。
 
-- **超时**：请求体读取固定 `30s`；渠道缺省 `120s`，表单范围 `100–600,000ms`；渠道超时用于等待响应，SSE 收到响应后改用空闲超时，缺省 `300s`、配置最大 `3,600s`。
+- **超时**：三个推理端点的请求体读取总超时由 `GATEWAY_BODY_TIMEOUT_MS` 配置，缺省 `120s`，范围 `1–600,000ms`，显式配置优先；鉴权和并发准入完成后开始计时，收到数据时不重置，超时返回 `408 body_timeout`。渠道缺省 `120s`，表单范围 `100–600,000ms`；渠道超时用于等待响应，SSE 收到响应后改用空闲超时，缺省 `300s`、配置最大 `3,600s`。
+
+  依据与核对日期：`2026-10-08`，用户反馈放宽请求体大小后触发 `Request body was not completed before admission`，代码核对确认原固定 `30s` 读取总超时触发该错误。按本次长上下文上传需求将缺省改为 `120s`，配置最大值采用 `600s`；这些是项目约定，与渠道超时、SSE 空闲超时独立。等待上传期间仍占用用户并发名额。修改后需构建并重启服务；线上长请求上传效果未验证。
 
   代码：[gateway/service.ts](../daemon/src/plugins/gateway/service.ts)、[config.ts](../daemon/src/config.ts)、[catalog/service.ts](../daemon/src/plugins/catalog/service.ts)、[schema/catalog.ts](../daemon/src/plugins/database/schema/catalog.ts)、[Catalog.tsx](../web/src/routes/Catalog.tsx)、[.env.example](../.env.example)。
 

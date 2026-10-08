@@ -338,7 +338,7 @@ export class GatewayService implements Disposable {
       release = this.acquire(identity.user.id);
 
       // Read and validate the request body with an admission timeout.
-      const bodyTimer = setTimeout(() => abort.abort('body_timeout'), 30000);
+      const bodyTimer = setTimeout(() => abort.abort('body_timeout'), this.config.bodyTimeoutMs);
       let payload: Awaited<ReturnType<GatewayService['body']>>;
       try {
         payload = await this.body(req, abort.signal);
