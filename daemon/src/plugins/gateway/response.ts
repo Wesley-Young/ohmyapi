@@ -54,7 +54,8 @@ export async function forwardResponse(options: Options): Promise<Response> {
   // 读取任务停止后汇总已收到的数据，再执行一次性计费收尾。
   const finalizeResponse = (errorCode?: string): Promise<void> => {
     responseFinalization ??= (async () => {
-      observer?.finish();
+      observer?.finish(errorCode === 'client_disconnected');
+      if (isSse && upstream.ok && errorCode === 'client_disconnected') collector.estimateDisconnected();
       if (!isSse && !collector.observationIncomplete) {
         try {
           collector.observe(JSON.parse(Buffer.concat(jsonChunks).toString('utf8')));

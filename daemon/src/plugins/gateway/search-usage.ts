@@ -1,3 +1,4 @@
+import type { UsageEstimate } from '../billing/estimation.js';
 import { maxSearchCalls, type SearchKind, type SearchRequest } from '../billing/search.js';
 import type { Endpoint } from '../catalog/service.js';
 
@@ -11,11 +12,13 @@ export class SearchUsageCollector {
   webSearchPreviewCalls = 0n;
   invalid = false;
   unknownCosts = false;
+  incomplete = false;
   private request: SearchRequest = { implicit: false, estimatedCalls: 0 };
   private reported = false;
   private serverSearch = false;
   private serverSearchReported = false;
   private readonly seen = new Set<string>();
+  private readonly searchResults = new Set<string>();
 
   configure(request: SearchRequest) {
     this.request = request;
@@ -30,7 +33,7 @@ export class SearchUsageCollector {
     else this.webSearchPreviewCalls = BigInt(value);
   }
 
-  private observeItem(value: unknown, index?: unknown) {
+  private observeItem(value: unknown, index?: unknown, completed = true) {
     if (this.invalid) return;
     const item = object(value);
     if (!item) return;
@@ -42,7 +45,7 @@ export class SearchUsageCollector {
       this.unknownCosts = true;
       return;
     }
-    if (item.type !== 'web_search_call' || this.reported) return;
+    if (!completed || item.type !== 'web_search_call' || this.reported) return;
     if (item.status != null && item.status !== 'completed') return;
     const action = object(item.action);
     // OpenAI 仅对 search 收取调用费，open_page 和 find 仍计入模型 Token。
@@ -76,6 +79,7 @@ export class SearchUsageCollector {
 
   observe(endpoint: Endpoint, data: Data, envelope: Data, usage: Data | undefined, terminal: boolean) {
     if (endpoint === '/v1/responses') {
+      if (data.type === 'response.output_item.added') this.observeItem(data.item, data.output_index, false);
       if (data.type === 'response.output_item.done') this.observeItem(data.item, data.output_index);
       if (terminal && Array.isArray(envelope.output))
         envelope.output.forEach((item, index) => {
@@ -85,6 +89,19 @@ export class SearchUsageCollector {
     const blocks = Array.isArray(envelope.content) ? envelope.content : [data.content_block];
     for (const value of blocks) {
       const block = object(value);
+      if (block?.type === 'web_search_tool_result' && Array.isArray(block.content)) {
+        const id = block.tool_use_id;
+        if (
+          typeof id !== 'string' ||
+          !id ||
+          id.length > 256 ||
+          (!this.searchResults.has(id) && this.searchResults.size >= maxSearchCalls)
+        ) {
+          this.invalid = true;
+        } else if (!block.content.some((item) => object(item)?.type === 'web_search_tool_result_error')) {
+          this.searchResults.add(id);
+        }
+      }
       if (block?.type !== 'server_tool_use') continue;
       if (block.name === 'web_search') {
         this.serverSearch = true;
@@ -108,6 +125,17 @@ export class SearchUsageCollector {
     } else if (usage && this.request.implicit && !this.reported) {
       this.setCount(this.request.kind as SearchKind, 1);
     }
-    if (endpoint === '/v1/messages' && terminal && this.serverSearch && !this.serverSearchReported) this.invalid = true;
+    if (endpoint === '/v1/messages' && terminal && this.serverSearch && !this.serverSearchReported)
+      this.incomplete = true;
+  }
+
+  estimate(endpoint: Endpoint): UsageEstimate['searchSource'] {
+    if (this.reported) return 'upstream';
+    if (this.request.implicit) {
+      this.setCount(this.request.kind as SearchKind, 1);
+      return 'request';
+    }
+    if (endpoint === '/v1/messages') this.setCount('webSearch', this.searchResults.size);
+    return this.request.kind || this.serverSearch || this.searchResults.size ? 'observed' : 'none';
   }
 }

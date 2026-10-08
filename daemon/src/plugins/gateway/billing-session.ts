@@ -52,7 +52,7 @@ export class ForwardBillingSession {
               ? 'invalid_usage'
               : !collector.usage
                 ? 'usage_missing'
-                : !collector.finalUsage
+                : collector.searchIncomplete || !collector.finalUsage
                   ? 'usage_not_final'
                   : undefined);
     const failureMessage = [this.failureDetails.errorMessage, this.failureDetails.causeMessage]
@@ -61,8 +61,17 @@ export class ForwardBillingSession {
     return {
       usage: collector.usage,
       usageFinal:
-        collector.finalUsage && !collector.invalid && !collector.unknownCosts && !collector.observationIncomplete,
-      blockSettlement: collector.invalid || collector.unknownCosts || collector.observationIncomplete,
+        collector.finalUsage &&
+        !collector.invalid &&
+        !collector.unknownCosts &&
+        !collector.observationIncomplete &&
+        !collector.searchIncomplete,
+      usageEstimate: collector.usageEstimate,
+      blockSettlement:
+        collector.invalid ||
+        collector.unknownCosts ||
+        collector.observationIncomplete ||
+        (collector.searchIncomplete && !collector.usageEstimate),
       httpStatus,
       upstreamRequestId: collector.upstreamId,
       noExecution: !dispatched || safeRejection,
@@ -152,6 +161,7 @@ export class ForwardBillingSession {
           bodyBytes: bodyStats.bytes,
           errorCode: code,
           usageFinal: result.usageFinal,
+          usageEstimate: result.usageEstimate,
           blockSettlement: result.blockSettlement,
           maxBodyBytes: code === 'request_too_large' ? config.maxBodyBytes : undefined,
           timeoutMs:

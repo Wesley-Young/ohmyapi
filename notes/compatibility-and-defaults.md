@@ -50,6 +50,10 @@
 
   代码：[protocol.ts](../daemon/src/plugins/gateway/protocol.ts)：`upstreamBody`；[usage.ts](../daemon/src/plugins/gateway/usage.ts)。维护时核对：兼容供应商是否支持该选项，末尾 usage 与结束标志格式是否变化。
 
+- **断连用量估算**：Chat 观察文本、拒绝、推理和函数调用参数增量；Responses 观察文本、函数/自定义工具输入、可见推理及拒绝增量，没有增量时使用 response envelope 中的输出。用量报告含明确输出数时保存该累计值，仅估算后续增量；最终用量和显式 `0` 优先。搜索明确计数优先，缺失时 Responses 使用已完成搜索项，Chat 隐式搜索估算一次。具体准入、图像及持久化规则见跨供应商断连估算条目。
+
+  依据与核对日期：`2026-10-09`，参考本地 `../new-api/service/responses_usage.go`、`relay/channel/openai/relay-openai.go` 和 `relay/common/tool_usage.go`。这是项目结算策略，估算值不代表供应商最终账单。代码：[usage-estimate.ts](../daemon/src/plugins/gateway/usage-estimate.ts)、[usage.ts](../daemon/src/plugins/gateway/usage.ts)、[search-usage.ts](../daemon/src/plugins/gateway/search-usage.ts)。
+
 - **Responses 终态**：接受状态 `completed`、`incomplete`、`failed`、`cancelled`、`canceled`；事件接受对应 `response.*` 及 `response.done`。终态与错误标记、最终 usage 分开记录。
 
   代码：[usage.ts](../daemon/src/plugins/gateway/usage.ts)：`responseTerminalStatuses`、`responseTerminalEvents`、`observe`。维护时核对：新终态、事件别名或 usage 出现时机变化。
@@ -88,6 +92,10 @@
 
   代码：[usage.ts](../daemon/src/plugins/gateway/usage.ts)：`observe`。维护时核对：起始/增量事件字段、usage 是累计值还是增量值发生变化。
 
+- **Messages 断连估算**：保留 `message_start` 和后续 usage 中的输入、缓存读写与输出计数；仅估算缺失输入及最近一次输出报告之后收到的文本、thinking、工具名和 JSON 参数。搜索没有明确报告时，按已收到的成功 `web_search_tool_result` 的 `tool_use_id` 去重计数；错误结果和未完成搜索不计调用费，明确报告的 `0` 优先。缺少终态也可估算结算，保留估算来源。
+
+  依据与核对日期：`2026-10-09`，参考本地 `../new-api/relay/channel/claude/relay-claude.go` 保留缓存并补齐缺失用量的做法；按成功搜索结果兜底是本项目为减少人工核对采用的策略。代码：[usage-estimate.ts](../daemon/src/plugins/gateway/usage-estimate.ts)、[usage.ts](../daemon/src/plugins/gateway/usage.ts)、[search-usage.ts](../daemon/src/plugins/gateway/search-usage.ts)。
+
 - **Token 与缓存口径**：使用 `input_tokens`、`output_tokens`，缓存读写取独立字段 `cache_read_input_tokens`、`cache_creation_input_tokens`；上下文总量为输入加缓存读写。
 
   代码：[usage.ts](../daemon/src/plugins/gateway/usage.ts)：`normalize`。维护时核对：缓存拆分字段、输入是否含缓存以及长上下文计算口径。
@@ -106,7 +114,7 @@
 
   代码：[billing/search.ts](../daemon/src/plugins/billing/search.ts)：`searchToolKind`、`searchRequest`；[admission.ts](../daemon/src/plugins/billing/admission.ts)：`reservationAmount`。维护时核对：工具版本命名、`max_uses` 含义及供应商搜索调用费。
 
-- **搜索用量与未知费用**：服务端搜索调用数取 `usage.server_tool_use.web_search_requests`。确认用了搜索但终态缺少此计数时阻止自动结算；其他服务端工具和非零未知服务端工具用量也会阻止自动结算。
+- **搜索用量与未知费用**：服务端搜索调用数取 `usage.server_tool_use.web_search_requests`。确认用了搜索但终态缺少此计数时标记搜索用量不完整；客户端断连时可按上述成功结果估算，正常结束仍需核对。其他服务端工具和非零未知服务端工具用量阻止自动结算。
 
   代码：[search-usage.ts](../daemon/src/plugins/gateway/search-usage.ts)：`observe`。维护时核对：报告字段、累计方式及新增托管工具收费。
 
@@ -206,9 +214,19 @@
 
   代码：[search-usage.ts](../daemon/src/plugins/gateway/search-usage.ts)：`observe`；[billing/search.ts](../daemon/src/plugins/billing/search.ts)：`searchRequest`。维护时核对：兼容渠道的扩展报告字段、计数含义和新增搜索模式。
 
-- **未知用量与人工核对**：正数音频、视频 Token、输出图像或顶层未标明方向的图像 Token、未知收费工具、无效或不完整 usage 会阻止自动结算；输入明细中的图像 Token 已包含在输入总量中，校验通过后可自动结算。无法确认完整费用的响应进入 `needs_review`。
+- **未知用量与人工核对**：正数音频、视频 Token、输出图像或顶层未标明方向的图像 Token、未知收费工具、无效 usage 或观察超限会阻止自动结算；输入明细中的图像 Token 已包含在输入总量中。客户端断连且已有执行证据时，缺失用量按下述策略估算；其他缺失或不完整用量进入 `needs_review`。
 
   代码：[usage.ts](../daemon/src/plugins/gateway/usage.ts)；[search-usage.ts](../daemon/src/plugins/gateway/search-usage.ts)；[billing-session.ts](../daemon/src/plugins/gateway/billing-session.ts)：`summary`、`checkpoint`；[response.ts](../daemon/src/plugins/gateway/response.ts)：`forwardResponse`。维护时核对：同时检查准入、请求预占、SSE/JSON 观察、快照、结算及人工核对入口，保留计费证据。
+
+- **客户端断连估算结算**：仅在 2xx SSE 响应以 `client_disconnected` 收尾、已观察到生成事件或有效的非空用量报告，且没有明确上游失败、用量损坏、未知费用或观察超限时使用。立即取消上游，完整有效的最终 usage 优先；丢弃断连末尾尚未完成的 SSE 事件。输入采用上游报告，缺失时取请求序列化的文本 Token 估算加模型图像估算，不使用预占余量和历史输出 P95。输出采用累计报告加报告后的可见内容估算；使用 `o200k_base`，每 `4096` 个 UTF-16 字符分块，保留代理对，内存仅留尾块。未报告缓存按 `0`，已报告缓存和明确 `0` 保留。隐藏推理、尚未收到的输出和未知缓存命中会导致估算与上游账单存在差额。
+
+  搜索优先使用明确报告（含 `0`），Responses 缺报告时按已完成搜索项计数，Messages 按成功搜索结果计数，Chat 隐式搜索按一次；未观察到的显式搜索按 `0`，不使用请求里的调用上限收费。估算依据持久化为 `requests.usage_estimate`；`usage_final` 保持 `false`，状态进入 `settling` / `settled`，价格沿用请求锁定快照，账单及流水保存 `estimated_usage` 来源，扣费和释放剩余预占沿用事务与幂等键。重试和服务恢复可继续已持久化的估算结算；估算账单不进入最终用量历史采样。列表及详情用独立 Badge 显示“估算”。历史待核对请求不回填。
+
+  依据与核对日期：`2026-10-09`，用户要求参考本地 `../new-api` 实现，并尽量减少图像与搜索请求进入待核对；参考其 `relay/helper/stream_scanner.go`、`service/responses_usage.go`、`relay/channel/claude/relay-claude.go`、`relay/common/tool_usage.go`。这是项目策略，适用于本次新增字段之后的新请求。代码：[estimation.ts](../daemon/src/plugins/billing/estimation.ts)、[usage-estimate.ts](../daemon/src/plugins/gateway/usage-estimate.ts)、[usage.ts](../daemon/src/plugins/gateway/usage.ts)、[response.ts](../daemon/src/plugins/gateway/response.ts)、[billing-session.ts](../daemon/src/plugins/gateway/billing-session.ts)、[billing/service.ts](../daemon/src/plugins/billing/service.ts)、[schema/requests.ts](../daemon/src/plugins/database/schema/requests.ts)、[0003_disconnected_usage_estimate.sql](../daemon/drizzle/0003_disconnected_usage_estimate.sql)、[Requests.tsx](../web/src/routes/Requests.tsx)、[request-billing.tsx](../web/src/components/request-billing.tsx)。
+
+- **断连图像估算默认值**：仅对缺少上游输入计数的请求使用。所有图像来源按 `1024×1024`，不下载 URL、不解码 Base64、不保存图像内容；按去除 `/` 命名空间后的模型名和图像 `detail` 选择规则。普通图块模型按四个 512px 块估算，`low` 仅基础数；GPT-5 基础/每块为 `70/140`，GPT-4o mini 为 `2833/5667`，o1/o3 为 `75/150`，其余识别到的 GPT-4 为 `85/170`。Patch 模型缺省 `1024` 块，GPT-5.5+ / GPT-6+ 的 `low` 为 `256`，GPT-5.5+ 的 `high` 为 `576`；GPT-5.2+、GPT-5 mini 乘 `1.2`，GPT-5 nano 乘 `1.5`，GPT-4.1 mini/nano 乘 `1.62/2.46`，o4 mini 乘 `1.72`，乘数按 float32 转换后向上取整。Claude 缺省 `37×37 + 4`，4.7+ 或无版本号为 `37×37 + 3`；Gemini 1/2 为 `1290`，3+ 或无版本号缺省 `1120`，media resolution low/medium/ultra_high 为 `280/560/2240`；未知模型每张 `520`。
+
+  依据与核对日期：`2026-10-09`，移植本地 `../new-api/tokenkit/image.go` 和 `service/token_counter.go` 未测量尺寸时的默认路径，作为本项目估算约定。未独立验证供应商实时价格或真实尺寸用量；这些值与下述每张 `4096` 的预占估算分开，实际输入报告始终优先。代码：[image-estimation.ts](../daemon/src/plugins/billing/image-estimation.ts)、[estimation.ts](../daemon/src/plugins/billing/estimation.ts)、[usage.ts](../daemon/src/plugins/gateway/usage.ts)。维护时核对模型版本、detail、默认尺寸及别名；新生成图片仍需独立定价与准入，不按输入图像兜底收费。
 
 - **模型容量缺省**：输入 `1,000,000`、输出 `128,000` Token；用于手动创建、渠道占位和外部数据缺失时的回退。输入容量作为元数据保存，不用作 JSON 字节上限，也不裁剪输入预占估算；输出上限用于准入和估算。
 
@@ -268,7 +286,7 @@
 
   代码：[conventions.ts](../daemon/src/plugins/billing/conventions.ts)、[pricing/rules.ts](../daemon/src/plugins/pricing/rules.ts)、[config.ts](../daemon/src/config.ts)、[database/bootstrap.ts](../daemon/src/plugins/database/bootstrap.ts)、[database/index.ts](../daemon/src/plugins/database/index.ts)、[schema/identity.ts](../daemon/src/plugins/database/schema/identity.ts)。
 
-- **时区和规则语义**：固定 `Asia/Shanghai` / `+08:00`；上下文档位对整次请求定价，优先级 `combined → context → time → default`；用量缺失转 `needs_review`。钱包趋势为包含当天的七个上海自然日。
+- **时区和规则语义**：固定 `Asia/Shanghai` / `+08:00`；上下文档位对整次请求定价，优先级 `combined → context → time → default`；用量缺失且不满足断连估算条件时转 `needs_review`。钱包趋势为包含当天的七个上海自然日。
 
   代码：[conventions.ts](../daemon/src/plugins/billing/conventions.ts)、[pricing/rules.ts](../daemon/src/plugins/pricing/rules.ts)、[wallet/service.ts](../daemon/src/plugins/wallet/service.ts)、[Pricing.tsx](../web/src/routes/Pricing.tsx)、[schema/identity.ts](../daemon/src/plugins/database/schema/identity.ts)。
 

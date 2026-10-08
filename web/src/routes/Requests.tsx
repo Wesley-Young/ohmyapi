@@ -204,7 +204,10 @@ export default function Requests() {
                       {admin && <Table.Cell>{r.username}</Table.Cell>}
                       <Table.Cell>{r.model}</Table.Cell>
                       <Table.Cell whiteSpace="nowrap">
-                        <Text>{requestStatuses[r.status]}</Text>
+                        <HStack gap="2" flexWrap="wrap">
+                          <Badge colorPalette="gray">{requestStatuses[r.status]}</Badge>
+                          {r.usageEstimate && <Badge colorPalette="orange">估算</Badge>}
+                        </HStack>
                         <Text fontSize="xs" color="gray.500">
                           {r.durationMs === null ? '' : `${r.durationMs}ms`}
                         </Text>

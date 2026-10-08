@@ -1,7 +1,9 @@
 import { safeErrorMessage } from '../../logging.js';
+import type { UsageEstimate } from '../billing/estimation.js';
 import type { SearchRequest } from '../billing/search.js';
 import type { Endpoint } from '../catalog/service.js';
 import { SearchUsageCollector } from './search-usage.js';
+import { StreamUsageEstimate } from './usage-estimate.js';
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue | undefined =>
@@ -52,7 +54,11 @@ export class UsageCollector {
   failed = false;
   invalid = false;
   observationIncomplete = false;
-  private anthropic: ObjectValue = {};
+  usageEstimate?: UsageEstimate;
+  readonly estimate = new StreamUsageEstimate();
+  private reportedUsage: ObjectValue = {};
+  private reportedOutput?: bigint;
+  private malformed = false;
   private readonly search = new SearchUsageCollector();
   private readonly endpoint: Endpoint;
   constructor(endpoint: Endpoint) {
@@ -61,6 +67,68 @@ export class UsageCollector {
 
   configureSearch(request: SearchRequest) {
     this.search.configure(request);
+  }
+
+  markInvalid(error: unknown) {
+    this.invalid = true;
+    this.malformed = true;
+    this.errorMessage = safeErrorMessage(error);
+  }
+
+  get searchIncomplete() {
+    return this.search.incomplete;
+  }
+
+  estimateDisconnected() {
+    if (
+      this.usageEstimate ||
+      (this.finalUsage && !this.searchIncomplete) ||
+      this.invalid ||
+      this.malformed ||
+      this.unknownCosts ||
+      this.observationIncomplete ||
+      this.failed ||
+      !this.estimate.started ||
+      !this.estimate.input
+    )
+      return;
+    const raw = this.reportedUsage;
+    const inputKey = this.endpoint === '/v1/chat/completions' ? 'prompt_tokens' : 'input_tokens';
+    const outputKey = this.endpoint === '/v1/chat/completions' ? 'completion_tokens' : 'output_tokens';
+    const reportedInput = count(raw[inputKey]);
+    const tail = this.estimate.output.count();
+    const output = (this.reportedOutput ?? 0n) + tail;
+    if (output > BigInt(Number.MAX_SAFE_INTEGER)) return;
+    const searchSource = this.search.estimate(this.endpoint);
+    this.normalize({
+      ...raw,
+      [inputKey]:
+        reportedInput === undefined
+          ? this.estimate.input.inputContentTokens + this.estimate.input.settlementImageTokens
+          : Number(reportedInput),
+      [outputKey]: Number(output),
+    });
+    if (!this.usage || this.invalid || this.unknownCosts) return;
+    // 合成用量用于计价，rawUsage 仍只保存真实的上游报告。
+    this.usage.rawUsage = usageNumbers(raw);
+    this.finalUsage = false;
+    this.usageEstimate = {
+      method: 'o200k_base_v1',
+      reason: 'client_disconnected',
+      inputSource: reportedInput === undefined ? 'request_estimate' : 'upstream',
+      outputSource:
+        this.reportedOutput === undefined
+          ? 'observed_estimate'
+          : tail > 0n
+            ? 'upstream_with_observed_tail'
+            : 'upstream',
+      reportedOutputTokens: this.reportedOutput?.toString() ?? null,
+      observedTailTokens: tail.toString(),
+      inputImageCount: this.estimate.input.inputImageCount,
+      inputImageTokens: reportedInput === undefined ? this.estimate.input.settlementImageTokens : 0,
+      imageMethod: 'model_default_1024_v1',
+      searchSource,
+    };
   }
 
   private syncSearchUsage() {
@@ -75,6 +143,7 @@ export class UsageCollector {
   observe(value: unknown) {
     const data = object(value);
     if (!data) return;
+    this.estimate.observe(this.endpoint, data);
     if (data.error || data.type === 'error' || data.type === 'response.failed') this.failed = true;
     const envelope =
       this.endpoint === '/v1/responses'
@@ -96,6 +165,18 @@ export class UsageCollector {
     }
     if (typeof envelope.id === 'string') this.upstreamId = envelope.id.slice(0, 256);
     const usage = object(envelope.usage);
+    if (usage) {
+      const reportedInput = count(usage[this.endpoint === '/v1/chat/completions' ? 'prompt_tokens' : 'input_tokens']);
+      const reportedOutput = count(
+        usage[this.endpoint === '/v1/chat/completions' ? 'completion_tokens' : 'output_tokens'],
+      );
+      if (reportedInput !== undefined || reportedOutput !== undefined) this.estimate.started = true;
+      if (reportedOutput !== undefined) {
+        if (this.reportedOutput !== undefined && reportedOutput < this.reportedOutput) this.malformed = true;
+        this.reportedOutput = reportedOutput;
+        this.estimate.output.reset();
+      }
+    }
     if (this.endpoint === '/v1/messages') {
       if (data.type === 'message_stop' || ((!data.type || data.type === 'message') && data.stop_reason))
         this.complete = true;
@@ -105,14 +186,18 @@ export class UsageCollector {
         if (this.complete && this.usage && !this.invalid) this.finalUsage = true;
         return;
       }
-      this.anthropic = { ...this.anthropic, ...usage };
-      this.normalize(this.anthropic);
+      this.normalize({ ...this.reportedUsage, ...usage });
       if (this.complete && this.usage && !this.invalid) this.finalUsage = true;
     } else {
       this.search.observe(this.endpoint, data, envelope, usage, this.complete);
       this.syncSearchUsage();
       if (usage) {
-        this.normalize(usage);
+        const detailsKey = this.endpoint === '/v1/chat/completions' ? 'prompt_tokens_details' : 'input_tokens_details';
+        this.normalize({
+          ...this.reportedUsage,
+          ...usage,
+          [detailsKey]: { ...object(this.reportedUsage[detailsKey]), ...object(usage[detailsKey]) },
+        });
         if (
           this.usage &&
           !this.invalid &&
@@ -133,6 +218,7 @@ export class UsageCollector {
   }
 
   private normalize(raw: ObjectValue) {
+    this.reportedUsage = usageNumbers(raw);
     const isChat = this.endpoint === '/v1/chat/completions';
     const anthropic = this.endpoint === '/v1/messages';
     const input = count(raw[isChat ? 'prompt_tokens' : 'input_tokens']);
@@ -155,19 +241,24 @@ export class UsageCollector {
     const write = writeValue === undefined ? 0n : count(writeValue);
     const image = details?.image_tokens === undefined ? 0n : count(details.image_tokens);
     if (
-      input === undefined ||
-      output === undefined ||
+      (raw[isChat ? 'prompt_tokens' : 'input_tokens'] !== undefined && input === undefined) ||
+      (raw[isChat ? 'completion_tokens' : 'output_tokens'] !== undefined && output === undefined) ||
       read === undefined ||
       write === undefined ||
       image === undefined ||
-      image > (anthropic ? input + read + write : input) ||
-      (!anthropic && input < read + write)
+      (input !== undefined && image > (anthropic ? input + read + write : input)) ||
+      (!anthropic && input !== undefined && input < read + write)
     ) {
       this.invalid = true;
+      this.malformed = true;
       this.usage = undefined;
       return;
     }
     this.invalid = this.search.invalid;
+    if (input === undefined || output === undefined) {
+      this.usage = undefined;
+      return;
+    }
     this.usage = {
       inputTokens: anthropic ? input : input - read - write,
       outputTokens: output,
@@ -201,7 +292,13 @@ export class SseObserver {
     this.consume(this.decoder.decode(chunk, { stream: true }));
   }
 
-  finish() {
+  finish(interrupted = false) {
+    // 断连时末尾可能只有半个事件，只用此前已完整解析的事件估算。
+    if (interrupted) {
+      this.line = '';
+      this.data = [];
+      return;
+    }
     this.consume(this.decoder.decode());
     if (this.line) this.endLine();
     this.event();
@@ -253,8 +350,7 @@ export class SseObserver {
         try {
           this.collector.observe(JSON.parse(raw));
         } catch (error) {
-          this.collector.invalid = true;
-          this.collector.errorMessage = safeErrorMessage(error);
+          this.collector.markInvalid(error);
         }
       }
     }

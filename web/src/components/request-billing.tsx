@@ -63,7 +63,41 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
               <HStack gap="2" flexWrap="wrap">
                 <Text overflowWrap="anywhere">{r.model}</Text>
                 <Badge colorPalette="gray">{requestStatuses[r.status]}</Badge>
+                {r.usageEstimate && <Badge colorPalette="orange">估算</Badge>}
               </HStack>
+              {r.usageEstimate && (
+                <Stack gap="2">
+                  <Text fontSize="sm" color="gray.600">
+                    客户端断连，用量按上游报告和已收到的内容估算，可能与上游最终账单存在差异。
+                  </Text>
+                  <HStack gap="2" flexWrap="wrap">
+                    <Badge colorPalette="gray">
+                      输入：{r.usageEstimate.inputSource === 'upstream' ? '上游报告' : '请求估算'}
+                    </Badge>
+                    <Badge colorPalette="gray">
+                      输出：
+                      {r.usageEstimate.outputSource === 'upstream'
+                        ? '上游报告'
+                        : r.usageEstimate.outputSource === 'upstream_with_observed_tail'
+                          ? '上游报告与后续输出估算'
+                          : '已收到内容估算'}
+                    </Badge>
+                    {r.usageEstimate.inputImageTokens > 0 && (
+                      <Badge colorPalette="gray">图像估算：{r.usageEstimate.inputImageTokens} Token</Badge>
+                    )}
+                    {r.usageEstimate.searchSource !== 'none' && (
+                      <Badge colorPalette="gray">
+                        搜索：
+                        {
+                          { upstream: '上游报告', observed: '已观察调用', request: '请求估算' }[
+                            r.usageEstimate.searchSource
+                          ]
+                        }
+                      </Badge>
+                    )}
+                  </HStack>
+                </Stack>
+              )}
               {r.upstreamRequestId && (
                 <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
                   上游请求 ID：{r.upstreamRequestId}
@@ -102,7 +136,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
               {r.preview && (
                 <Stack gap="2">
                   <Heading as="h3" fontSize="sm">
-                    保存用量的价格明细{!r.usageFinal && '（用量未最终确认）'}
+                    保存用量的价格明细{r.usageEstimate ? '（估算）' : !r.usageFinal && '（用量未最终确认）'}
                   </Heading>
                   <HStack gap="2" flexWrap="wrap">
                     <Text fontSize="sm" fontWeight="600">

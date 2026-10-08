@@ -29,7 +29,7 @@ import { priceInput, searchCountInput, tokenInput } from '../pricing/rules.js';
 import type { LockedPrice, PricingService } from '../pricing/service.js';
 import { reservationAmount } from './admission.js';
 import { formatMoney, parseMoney } from './conventions.js';
-import { estimateReservation } from './estimation.js';
+import { estimateReservation, type UsageEstimate } from './estimation.js';
 import { searchRequest } from './search.js';
 
 import { randomUUID } from 'node:crypto';
@@ -77,6 +77,7 @@ type BillingOutcome = {
 export type BillingSummary = {
   usage?: Usage;
   usageFinal: boolean;
+  usageEstimate?: UsageEstimate;
   blockSettlement?: boolean;
   httpStatus?: number;
   upstreamRequestId?: string;
@@ -149,6 +150,7 @@ export class BillingService implements Disposable {
         chargedAmount: outcome.chargedMicros === undefined ? undefined : formatMoney(outcome.chargedMicros),
         currency: this.pricing.currency,
         usageFinal: outcome.usageFinal ?? r.usageFinal,
+        usageEstimate: r.usageEstimate,
         blockSettlement: outcome.blockSettlement,
       })}`,
     );
@@ -377,7 +379,7 @@ export class BillingService implements Disposable {
       this.active.delete(input.requestId);
       throw error;
     }
-    return amount;
+    return { amount, estimate };
   }
 
   async forwarding(id: string) {
@@ -413,6 +415,7 @@ export class BillingService implements Disposable {
         .update(requests)
         .set({
           usageFinal: summary.blockSettlement ? false : summary.usageFinal || r.usageFinal,
+          usageEstimate: null,
           errorCode: summary.blockSettlement ? (summary.errorCode ?? 'invalid_usage') : undefined,
           errorMessage: summary.errorMessage,
           heartbeatAt: new Date(),
@@ -432,6 +435,8 @@ export class BillingService implements Disposable {
         if (r.billingEnabled && r.ownerId !== this.ownerId) return;
         if (summary.usage && (summary.usageFinal || !r.usageFinal)) await this.writeUsage(tx, id, summary.usage);
         const final = !summary.blockSettlement && ((summary.usageFinal && Boolean(summary.usage)) || r.usageFinal);
+        const usageEstimate =
+          summary.blockSettlement || final ? null : (summary.usage && summary.usageEstimate) || r.usageEstimate;
         const metadata = {
           httpStatus: summary.httpStatus ?? r.httpStatus,
           upstreamRequestId: summary.upstreamRequestId ?? r.upstreamRequestId,
@@ -439,13 +444,14 @@ export class BillingService implements Disposable {
           errorMessage: summary.errorMessage ?? r.errorMessage,
           finishedAt: r.finishedAt ?? new Date(),
           usageFinal: final,
+          usageEstimate,
         };
         await tx.update(requests).set(metadata).where(eq(requests.id, id));
         if (!r.billingEnabled) {
           await tx.update(requests).set({ status: 'rejected' }).where(eq(requests.id, id));
           return { request: r, status: 'rejected', errorCode: summary.errorCode };
         }
-        if (final) {
+        if (final || usageEstimate) {
           await tx.update(requests).set({ status: 'settling' }).where(eq(requests.id, id));
           return { request: r, status: 'settling' };
         } else if (summary.noExecution) {
@@ -531,6 +537,10 @@ export class BillingService implements Disposable {
               .join('\n')
               .slice(0, 4096) || requestErrorMessage('billing_processing_failed'),
           usageFinal: summary?.blockSettlement ? false : Boolean(summary?.usageFinal && summary.usage) || r.usageFinal,
+          usageEstimate:
+            summary?.blockSettlement || summary?.usageFinal || r.usageFinal
+              ? null
+              : (summary?.usage && summary.usageEstimate) || r.usageEstimate,
           httpStatus: summary?.httpStatus ?? r.httpStatus,
           upstreamRequestId: summary?.upstreamRequestId ?? r.upstreamRequestId,
           finishedAt: r.finishedAt ?? new Date(),
@@ -625,7 +635,7 @@ export class BillingService implements Disposable {
     this.assertReady();
     const outcome = await this.auth.db.transaction<BillingOutcome | undefined>(async (tx) => {
       const [r] = await tx.select().from(requests).where(eq(requests.id, id)).for('update');
-      if (r?.status !== 'settling' || !r.billingEnabled || !r.usageFinal) return;
+      if (r?.status !== 'settling' || !r.billingEnabled || (!r.usageFinal && !r.usageEstimate)) return;
       const [usage] = await tx.select().from(requestUsage).where(eq(requestUsage.requestId, id));
       if (!usage) {
         await tx
@@ -644,7 +654,17 @@ export class BillingService implements Disposable {
           .where(eq(requests.id, id));
         return { request: r, status: 'needs_review', errorCode: 'price_unconfigured' };
       }
-      await this.charge(tx, r, BigInt(priced.totalMicros), priced);
+      const snapshot = r.usageEstimate
+        ? { ...priced, source: 'estimated_usage', usageEstimate: r.usageEstimate }
+        : priced;
+      await this.charge(
+        tx,
+        r,
+        BigInt(priced.totalMicros),
+        snapshot,
+        undefined,
+        r.usageEstimate ? '断连估算结算' : '结算',
+      );
       return { request: r, status: 'settled', chargedMicros: BigInt(priced.totalMicros) };
     });
     this.logOutcome(outcome);
@@ -678,7 +698,7 @@ export class BillingService implements Disposable {
             if (current.status === 'reserved') {
               await this.release(tx, current, undefined, '服务恢复：转发前中断，释放预占');
               return { request: current, status: 'released', chargedMicros: 0n };
-            } else if (current.usageFinal) {
+            } else if (current.usageFinal || current.usageEstimate) {
               await tx
                 .update(requests)
                 .set({
@@ -802,6 +822,7 @@ export class BillingService implements Disposable {
       endpoint: r.endpoint,
       billingEnabled: r.billingEnabled,
       usageFinal: r.usageFinal,
+      usageEstimate: r.usageEstimate,
       reserved: formatMoney(r.reservedMicros),
       held: formatMoney(r.heldMicros),
       charged: r.chargedMicros === null ? null : formatMoney(r.chargedMicros),
@@ -920,7 +941,7 @@ export class BillingService implements Disposable {
         }
         amount = BigInt(snapshot.totalMicros as string);
         await this.writeUsage(tx, r.id, usage);
-        await tx.update(requests).set({ usageFinal: true }).where(eq(requests.id, r.id));
+        await tx.update(requests).set({ usageFinal: true, usageEstimate: null }).where(eq(requests.id, r.id));
       } else {
         amount = parseMoney(input.amount as string);
         snapshot = {

@@ -402,7 +402,7 @@ export class GatewayService implements Disposable {
       const credential = this.vault.decrypt(channel.credentialEncrypted);
       const headers = upstreamHeaders(req, endpoint, streaming, credential);
 
-      await this.billing.reserve({
+      const reservation = await this.billing.reserve({
         requestId: id,
         userId: identity.user.id,
         keyId: identity.key.id,
@@ -414,6 +414,7 @@ export class GatewayService implements Disposable {
         body: parsed,
         endpoint,
       });
+      session.collector.estimate.input = reservation.estimate;
       lifecycle.syncClientAbort();
       if (abort.signal.aborted)
         throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
@@ -491,6 +492,7 @@ export class GatewayService implements Disposable {
         status: r.status,
         billingEnabled: r.billingEnabled,
         usageFinal: r.usageFinal,
+        usageEstimate: r.usageEstimate,
         reservedAmount: formatMoney(r.reservedMicros),
         heldAmount: formatMoney(r.heldMicros),
         chargedAmount: r.chargedMicros === null ? null : formatMoney(r.chargedMicros),

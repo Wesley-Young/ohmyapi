@@ -14,6 +14,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import type { UsageEstimate } from '../../billing/estimation.js';
 import { channels, models } from './catalog.js';
 import { createdAt, endpoint, id, micros, tokenCount } from './common.js';
 import { apiKeys, users } from './identity.js';
@@ -53,6 +54,7 @@ export const requests = pgTable(
     heldMicros: micros('held_micros').default(sql`0`).notNull(),
     ownerId: uuid('owner_id'),
     usageFinal: boolean('usage_final').default(false).notNull(),
+    usageEstimate: jsonb('usage_estimate').$type<UsageEstimate>(),
     reservationSnapshot: jsonb('reservation_snapshot').$type<Record<string, unknown>>(),
     resolutionKey: text('resolution_key').unique(),
     resolutionPayload: jsonb('resolution_payload').$type<Record<string, unknown>>(),
