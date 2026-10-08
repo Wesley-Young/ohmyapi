@@ -411,13 +411,7 @@ export class GatewayService implements Disposable {
         route.override === null ? 'channel' : 'model',
       );
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
-      const outputLimit = validateBillableRequest(
-        parsed,
-        bytes.byteLength,
-        endpoint,
-        model.inputTokenLimit,
-        model.outputTokenLimit,
-      );
+      const outputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
 
       // Build upstream authentication and protocol headers.
       const credential = this.vault.decrypt(route.channel.credentialEncrypted);

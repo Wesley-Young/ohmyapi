@@ -48,13 +48,7 @@ export function reservationAmount(price: LockedPrice, inputTokens: number, outpu
   return amount;
 }
 
-export function validateBillableRequest(
-  body: Record<string, unknown>,
-  bytes: number,
-  endpoint: Endpoint,
-  inputLimit: number,
-  outputLimit: number,
-) {
+export function validateBillableRequest(body: Record<string, unknown>, endpoint: Endpoint, outputLimit: number) {
   const fields =
     endpoint === '/v1/responses'
       ? ['max_output_tokens']
@@ -121,13 +115,6 @@ export function validateBillableRequest(
       );
     for (const value of Object.values(object)) stack.push(value);
   }
-  // This bounds local payload size separately from the usage estimate used for reservation.
-  if (bytes > inputLimit)
-    throw new GatewayError(
-      413,
-      'input_limit_exceeded',
-      `JSON body exceeds this model's ${inputLimit}-byte admission limit`,
-    );
   if (endpoint === '/v1/chat/completions' && body.stream === true) {
     const options = body.stream_options as Record<string, unknown> | undefined;
     if (options?.include_usage !== true)
