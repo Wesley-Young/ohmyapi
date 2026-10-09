@@ -28,11 +28,8 @@ export function ChannelGrants({ userId }: { userId: string }) {
     <Panel>
       <Stack gap="5">
         <Heading as="h2" fontSize="lg">
-          渠道授权
+          非公开渠道授权
         </Heading>
-        <Text fontSize="sm" color="gray.500">
-          公开渠道对所有用户开放。授权非公开渠道后，可使用该渠道下的全部可用模型。
-        </Text>
         <ErrorText>{formError(catalog.error ?? grants.error ?? task.error)?.message}</ErrorText>
         {catalog.isPending || grants.isPending ? (
           <Loading />

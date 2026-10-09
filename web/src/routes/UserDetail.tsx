@@ -1,4 +1,4 @@
-import { Badge, Box, Heading, HStack, Link, Stack, Text } from '@chakra-ui/react';
+import { Badge, Heading, HStack, Link, Stack, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router';
@@ -99,6 +99,16 @@ export default function UserDetail() {
                 <HStack gap="3" flexWrap="wrap">
                   {user.data.role === 'user' && !user.data.deleted && (
                     <>
+                      {user.data.role === 'user' && !user.data.deleted && (
+                        <ConfirmAction
+                          label="退出所有会话"
+                          description="该用户需要重新登录，API Key 不受影响。"
+                          action={async () => {
+                            await trpcClient.admin.users.revokeSessions.mutate({ userId });
+                            await invalidateUser(userId);
+                          }}
+                        />
+                      )}
                       <ConfirmAction
                         label={user.data.status === 'active' ? '禁用' : '启用'}
                         description={
@@ -140,27 +150,14 @@ export default function UserDetail() {
               </HStack>
             </Title>
             <WalletSummary wallet={wallet.data} />
-            <Box>
-              <WalletReconciliation userId={userId} />
-            </Box>
             {user.data.role === 'user' && !user.data.deleted && <ResetPassword key={userId} userId={userId} />}
             {user.data.role === 'user' && !user.data.deleted && <ChannelGrants key={userId} userId={userId} />}
-            {user.data.role === 'user' && !user.data.deleted && (
-              <Box>
-                <ConfirmAction
-                  label="退出所有会话"
-                  description="该用户需要重新登录，API Key 不受影响。"
-                  action={async () => {
-                    await trpcClient.admin.users.revokeSessions.mutate({ userId });
-                    await invalidateUser(userId);
-                  }}
-                />
-              </Box>
-            )}
             <Stack gap="4">
-              <Heading as="h2" fontSize="lg">
-                资金流水
-              </Heading>
+              <Title action={<WalletReconciliation userId={userId} />}>
+                <Heading as="h2" fontSize="lg" letterSpacing="normal">
+                  资金流水
+                </Heading>
+              </Title>
               <Ledger items={ledger.data.items} />
               <PageControls page={page} hasMore={ledger.data.hasMore} onPage={setPage} />
             </Stack>
