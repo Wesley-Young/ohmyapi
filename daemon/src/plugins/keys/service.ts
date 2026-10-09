@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import type { AuthService, Principal, Transaction } from '../auth/service.js';
+import { supportedChannelTypes } from '../catalog/channel-types.js';
 import type { Database } from '../database/client.js';
 import {
   adminAuditLogs,
@@ -64,6 +65,7 @@ export class KeyService {
       .where(
         and(
           eq(channels.enabled, true),
+          inArray(channels.type, [...supportedChannelTypes]),
           eq(models.enabled, true),
           isNull(channels.deletedAt),
           isNull(models.deletedAt),
@@ -122,6 +124,7 @@ export class KeyService {
           isNull(apiKeys.revokedAt),
           or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
           eq(channels.enabled, true),
+          inArray(channels.type, [...supportedChannelTypes]),
           isNull(channels.deletedAt),
           eq(models.enabled, true),
           isNull(models.deletedAt),

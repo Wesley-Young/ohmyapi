@@ -6,7 +6,7 @@ import type { RequestLifecycle } from './lifecycle.js';
 import { responseHeaders } from './protocol.js';
 import { SseObserver, type UsageCollector } from './usage.js';
 
-type Options = {
+export type ForwardResponseOptions = {
   upstream: Response;
   endpoint: Endpoint;
   streaming: boolean;
@@ -18,7 +18,7 @@ type Options = {
   onError: (error: unknown) => void;
 };
 
-export async function forwardResponse(options: Options): Promise<Response> {
+export async function forwardResponse(options: ForwardResponseOptions): Promise<Response> {
   const { upstream, endpoint, streaming, lifecycle, collector, config, onCheckpoint, onFinish, onError } = options;
   const { id, abort } = lifecycle;
   if (upstream.status >= 300 && upstream.status < 400) {

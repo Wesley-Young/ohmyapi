@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   integer,
+  pgEnum,
   pgTable,
   primaryKey,
   text,
@@ -12,6 +13,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { channelTypes } from '../../catalog/channel-types.js';
 import { createdAt, endpoint, id } from './common.js';
 import { apiKeys, users } from './identity.js';
 
@@ -32,14 +34,17 @@ export const models = pgTable(
   ],
 );
 
+export const channelType = pgEnum('channel_type', channelTypes);
+
 export const channels = pgTable(
   'channels',
   {
     id: id(),
     name: text('name').notNull(),
-    baseUrl: text('base_url').notNull(),
-    // An authenticated encrypted envelope, never the upstream key in plaintext.
-    credentialEncrypted: text('credential_encrypted').notNull(),
+    type: channelType('type').default('api').notNull(),
+    baseUrl: text('base_url'),
+    // API 渠道的凭据使用认证加密保存；其他类型由各自的账号或成员配置提供连接信息。
+    credentialEncrypted: text('credential_encrypted'),
     enabled: boolean('enabled').default(true).notNull(),
     isPublic: boolean('is_public').default(true).notNull(),
     timeoutMs: integer('timeout_ms').default(120_000).notNull(),
@@ -50,6 +55,10 @@ export const channels = pgTable(
   (table) => [
     uniqueIndex('channels_name_unique').on(table.name).where(sql`${table.deletedAt} is null`),
     check('channels_timeout_positive', sql`${table.timeoutMs} > 0`),
+    check(
+      'channels_connection_config',
+      sql`(${table.type} = 'api' and ${table.baseUrl} is not null and ${table.credentialEncrypted} is not null) or (${table.type} <> 'api' and ${table.baseUrl} is null and ${table.credentialEncrypted} is null)`,
+    ),
     check('channels_multiplier_range', sql`${table.multiplierMicros} between 0 and 1000000000`),
   ],
 );

@@ -12,6 +12,12 @@ import { queryClient, trpc, trpcClient } from '../lib/trpc';
 export const endpoints = ['/v1/chat/completions', '/v1/responses', '/v1/messages'] as const;
 export type Endpoint = (typeof endpoints)[number];
 type CatalogData = RouterOutputs['admin']['catalog']['list'];
+const channelTypeLabels = {
+  api: 'API 渠道',
+  subscription: '订阅渠道',
+  aggregate: '聚合渠道',
+} satisfies Record<CatalogData['channels'][number]['type'], string>;
+
 export const refreshCatalog = () =>
   Promise.all([
     queryClient.invalidateQueries(trpc.admin.catalog.list.queryFilter()),
@@ -20,6 +26,7 @@ export const refreshCatalog = () =>
     queryClient.invalidateQueries(trpc.keys.list.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
   ]);
+
 export function EndpointFields({ value, onChange }: { value: Endpoint[]; onChange: (value: Endpoint[]) => void }) {
   return (
     <Box as="fieldset">
@@ -42,6 +49,7 @@ export function EndpointFields({ value, onChange }: { value: Endpoint[]; onChang
     </Box>
   );
 }
+
 function Enabled({ value, onChange }: { value: boolean; onChange: (value: boolean) => void }) {
   return (
     <Checkbox.Root checked={value} onCheckedChange={(e) => onChange(e.checked === true)}>
@@ -51,6 +59,7 @@ function Enabled({ value, onChange }: { value: boolean; onChange: (value: boolea
     </Checkbox.Root>
   );
 }
+
 export function SelectField({
   label,
   value,
@@ -81,6 +90,7 @@ export function SelectField({
     </Field.Root>
   );
 }
+
 function ChannelForm({
   initial,
   data,
@@ -147,6 +157,7 @@ function ChannelForm({
             task.mutate({
               id: initial?.id,
               name,
+              type: initial?.type ?? 'api',
               baseUrl,
               credential: credential || undefined,
               timeoutMs: Number(timeout),
@@ -161,6 +172,21 @@ function ChannelForm({
         <fieldset disabled={busy} style={{ border: 0, padding: 0, minWidth: 0 }}>
           <Stack gap="5">
             <FormInput label="名称" value={name} onChange={(e) => setName(e.target.value)} required maxLength={128} />
+            <Field.Root>
+              <Field.Label>渠道类型</Field.Label>
+              <NativeSelect.Root disabled={Boolean(initial)}>
+                <NativeSelect.Field aria-label="渠道类型" defaultValue={initial?.type ?? 'api'}>
+                  <option value="api">API 渠道</option>
+                  <option value="subscription" disabled>
+                    订阅渠道
+                  </option>
+                  <option value="aggregate" disabled>
+                    聚合渠道
+                  </option>
+                </NativeSelect.Field>
+                <NativeSelect.Indicator />
+              </NativeSelect.Root>
+            </Field.Root>
             <FormInput
               label="Base URL"
               value={baseUrl}
@@ -363,7 +389,7 @@ export default function Catalog() {
               <Table.Root size="sm">
                 <Table.Header>
                   <Table.Row>
-                    {['名称', 'Base URL / 端点', '可用模型', '状态', '操作'].map((h) => (
+                    {['名称', '类型', '可用模型', '状态', '操作'].map((h) => (
                       <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                     ))}
                   </Table.Row>
@@ -371,22 +397,11 @@ export default function Catalog() {
                 <Table.Body>
                   {data.data.channels.map((c) => (
                     <Table.Row key={c.id}>
-                      <Table.Cell>{c.name}</Table.Cell>
                       <Table.Cell>
-                        <Text overflowWrap="anywhere">{c.baseUrl}</Text>
-                        <HStack gap="2" flexWrap="wrap" mt="2">
-                          {c.endpoints.map((e) => (
-                            <Badge
-                              key={e}
-                              colorPalette="gray"
-                              fontFamily="mono"
-                              whiteSpace="normal"
-                              overflowWrap="anywhere"
-                            >
-                              {e}
-                            </Badge>
-                          ))}
-                        </HStack>
+                        <Text>{c.name}</Text>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <Text>{channelTypeLabels[c.type]}</Text>
                       </Table.Cell>
                       <Table.Cell>
                         <Stack gap="2">

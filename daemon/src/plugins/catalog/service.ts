@@ -17,6 +17,7 @@ import {
   users,
 } from '../database/schema/index.js';
 import { expandRules, multiplierInput, ruleInput, validateRules } from '../pricing/rules.js';
+import { channelTypes, isSupportedChannelType } from './channel-types.js';
 
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
@@ -27,6 +28,7 @@ const modelName = name.regex(/^[A-Za-z0-9][A-Za-z0-9_./:-]*$/, '模型名称格�
 export const channelInput = z.object({
   id: z.uuid().optional(),
   name,
+  type: z.enum(channelTypes).default('api'),
   baseUrl: z.url().refine((value) => {
     const url = new URL(value);
     return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
@@ -127,6 +129,7 @@ export class CatalogService {
         .select({
           id: channels.id,
           name: channels.name,
+          type: channels.type,
           baseUrl: channels.baseUrl,
           enabled: channels.enabled,
           isPublic: channels.isPublic,
@@ -183,8 +186,10 @@ export class CatalogService {
             .where(and(eq(channels.id, input.id), isNull(channels.deletedAt)))
         : [];
       if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在' });
+      if (existing && !isSupportedChannelType(existing.type))
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '该渠道类型暂不支持拉取模型' });
       if (input.credential) return input.credential;
-      if (existing) return this.vault.decrypt(existing.credentialEncrypted);
+      if (existing?.credentialEncrypted) return this.vault.decrypt(existing.credentialEncrypted);
       throw new TRPCError({ code: 'BAD_REQUEST', message: '请先填写上游凭据' });
     });
     const base = input.baseUrl.replace(/\/+$/, '');
@@ -304,6 +309,10 @@ export class CatalogService {
             .for('update')
         : [];
       if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在' });
+      if (!isSupportedChannelType(input.type))
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '订阅渠道和聚合渠道尚未开放' });
+      if (existing && existing.type !== input.type)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道类型创建后不可更改，请新建渠道' });
       if (!existing && !input.credential) throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写上游凭据' });
       const [duplicate] = await tx
         .select({ id: channels.id })
@@ -340,6 +349,7 @@ export class CatalogService {
       }));
       const values = {
         name: input.name,
+        type: input.type,
         baseUrl: input.baseUrl.replace(/\/+$/, ''),
         enabled: input.enabled,
         isPublic: input.isPublic,
@@ -370,6 +380,7 @@ export class CatalogService {
         );
       await this.audit(tx, actor.id, 'channel.save', row.id, {
         name: input.name,
+        type: input.type,
         endpoints: input.endpoints,
         enabled: input.enabled,
         isPublic: input.isPublic,

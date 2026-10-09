@@ -25,11 +25,10 @@ import {
 } from '../database/schema/index.js';
 import type { PricingService } from '../pricing/service.js';
 import { pageSize } from '../users/service.js';
+import { channelAdapter } from './adapters.js';
 import { ForwardBillingSession } from './billing-session.js';
 import { GatewayError } from './errors.js';
 import { RequestLifecycle } from './lifecycle.js';
-import { upstreamBody, upstreamHeaders, upstreamUrl } from './protocol.js';
-import { forwardResponse } from './response.js';
 
 import { randomUUID } from 'node:crypto';
 
@@ -163,10 +162,11 @@ export class GatewayService implements Disposable {
       if (!identity.channelId)
         throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
       const [channel] = await this.db
-        .select({ isPublic: channels.isPublic })
+        .select({ isPublic: channels.isPublic, type: channels.type })
         .from(channels)
         .where(and(eq(channels.id, identity.channelId), eq(channels.enabled, true), isNull(channels.deletedAt)));
       if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
+      channelAdapter(channel.type);
       const available = await this.db
         .selectDistinct({ name: models.name, createdAt: models.createdAt })
         .from(models)
@@ -389,6 +389,7 @@ export class GatewayService implements Disposable {
       });
       session.recorded = true;
       const { model, channel, override } = await this.resolveRoute(identity, parsed.model as string, endpoint, session);
+      const adapter = channelAdapter(channel.type);
       const lockedPrice = await this.pricing.lock(
         model.id,
         receivedAt,
@@ -398,9 +399,14 @@ export class GatewayService implements Disposable {
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
       const outputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
       session.collector.configureSearch(searchRequest(parsed, endpoint));
-      const body = upstreamBody(endpoint, parsed, bytes);
-      const credential = this.vault.decrypt(channel.credentialEncrypted);
-      const headers = upstreamHeaders(req, endpoint, streaming, credential);
+      const { url, body, headers } = adapter.prepareRequest({
+        channel,
+        request: req,
+        endpoint,
+        parsed,
+        bytes,
+        vault: this.vault,
+      });
 
       const reservation = await this.billing.reserve({
         requestId: id,
@@ -422,9 +428,8 @@ export class GatewayService implements Disposable {
 
       lifecycle.setTimeout('upstream_timeout', channel.timeoutMs);
       lifecycle.syncClientAbort();
-      const target = upstreamUrl(channel.baseUrl, endpoint);
       session.dispatched = true;
-      const upstream = await fetch(target, {
+      const upstream = await fetch(url, {
         method: 'POST',
         headers,
         body,
@@ -433,7 +438,7 @@ export class GatewayService implements Disposable {
       });
       session.httpStatus = upstream.status;
       session.upstreamStatus = upstream.status;
-      return await forwardResponse({
+      return await adapter.forwardResponse({
         upstream,
         endpoint,
         streaming,
