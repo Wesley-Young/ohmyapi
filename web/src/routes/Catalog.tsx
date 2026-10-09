@@ -1,7 +1,20 @@
-import { Badge, Box, Button, Checkbox, Field, HStack, Link, NativeSelect, Stack, Table, Text } from '@chakra-ui/react';
+import {
+  Badge,
+  Box,
+  Button,
+  Checkbox,
+  Field,
+  HStack,
+  Link,
+  NativeSelect,
+  Stack,
+  Table,
+  Text,
+  Textarea,
+} from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
@@ -11,8 +24,9 @@ import { ConfirmAction, ErrorText, FormDialog, FormInput, Loading, PrimaryButton
 import { formError } from '../lib/format';
 import { queryClient, trpc, trpcClient } from '../lib/trpc';
 
-export const endpoints = ['/v1/chat/completions', '/v1/responses', '/v1/messages'] as const;
+export const endpoints = ['/v1/chat/completions', '/v1/responses', '/v1/messages', '/v1/responses/compact'] as const;
 export type Endpoint = (typeof endpoints)[number];
+const responsesEndpoints: Endpoint[] = ['/v1/responses', '/v1/responses/compact'];
 type CatalogData = RouterOutputs['admin']['catalog']['list'];
 const channelTypeLabels = {
   api: 'API 渠道',
@@ -29,24 +43,45 @@ export const refreshCatalog = () =>
     queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
   ]);
 
-export function EndpointFields({ value, onChange }: { value: Endpoint[]; onChange: (value: Endpoint[]) => void }) {
+export function EndpointFields({
+  value,
+  onChange,
+  subscription = false,
+}: {
+  value: Endpoint[];
+  onChange: (value: Endpoint[]) => void;
+  subscription?: boolean;
+}) {
   return (
     <Box as="fieldset">
       <Text as="legend" fontSize="sm" fontWeight="500" mb="2">
         支持的端点
       </Text>
       <Stack gap="3">
-        {endpoints.map((endpoint) => (
-          <Checkbox.Root
-            key={endpoint}
-            checked={value.includes(endpoint)}
-            onCheckedChange={(e) => onChange(e.checked ? [...value, endpoint] : value.filter((v) => v !== endpoint))}
-          >
-            <Checkbox.HiddenInput />
-            <Checkbox.Control />
-            <Checkbox.Label fontSize="sm">{endpoint}</Checkbox.Label>
-          </Checkbox.Root>
-        ))}
+        {endpoints
+          .filter((endpoint) => endpoint !== '/v1/responses/compact' && (!subscription || endpoint === '/v1/responses'))
+          .map((endpoint) => (
+            <Checkbox.Root
+              key={endpoint}
+              checked={
+                endpoint === '/v1/responses'
+                  ? responsesEndpoints.some((item) => value.includes(item))
+                  : value.includes(endpoint)
+              }
+              onCheckedChange={(e) => {
+                const group = endpoint === '/v1/responses' ? responsesEndpoints : [endpoint];
+                onChange(
+                  e.checked === true
+                    ? [...new Set([...value, ...group])]
+                    : value.filter((item) => !group.includes(item)),
+                );
+              }}
+            >
+              <Checkbox.HiddenInput />
+              <Checkbox.Control />
+              <Checkbox.Label fontSize="sm">{endpoint}</Checkbox.Label>
+            </Checkbox.Root>
+          ))}
       </Stack>
     </Box>
   );
@@ -105,12 +140,22 @@ function ChannelForm({
   onSaved: (result: RouterOutputs['admin']['catalog']['saveChannel']) => void;
 }) {
   const [name, setName] = useState(initial?.name ?? '');
+  const [type, setType] = useState(initial?.type ?? 'api');
+  const [maximum, setMaximum] = useState(String(initial?.subscription?.maxConcurrent ?? 5));
+  const [mode, setMode] = useState('import');
+  const [credentials, setCredentials] = useState('');
+  const [callback, setCallback] = useState('');
+  const startOAuth = useMutation(trpc.admin.catalog.startSubscriptionOAuth.mutationOptions());
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? '');
   const [credential, setCredential] = useState('');
   const [timeout, setTimeout] = useState(String(initial?.timeoutMs ?? 120000));
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
   const [isPublic, setIsPublic] = useState(initial?.isPublic ?? true);
-  const [scopes, setScopes] = useState<Endpoint[]>(initial?.endpoints ?? []);
+  const [scopes, setScopes] = useState<Endpoint[]>(
+    initial?.endpoints.some((endpoint) => responsesEndpoints.includes(endpoint))
+      ? [...new Set([...initial.endpoints, ...responsesEndpoints])]
+      : (initial?.endpoints ?? []),
+  );
   const [multiplier, setMultiplier] = useState(initial?.multiplier ?? '1');
   const [available, setAvailable] = useState<ChannelModel[]>(
     initial?.availableModels.flatMap((entry) => {
@@ -120,36 +165,39 @@ function ChannelForm({
   );
   const [fetchNotice, setFetchNotice] = useState<string>();
   const [fetchError, setFetchError] = useState<string>();
-  const fetchModels = useMutation(
-    trpc.admin.catalog.fetchChannelModels.mutationOptions({
-      onMutate: () => {
-        setFetchNotice(undefined);
-        setFetchError(undefined);
-      },
-      onSuccess: (result) => {
-        const additions = result.names.filter((name) => !available.some((model) => model.name === name));
-        if (available.length + additions.length > 1000) {
-          setFetchError('合并后超过 1000 个模型，请先移除部分模型');
-          return;
-        }
-        setAvailable([...available, ...additions.map((name) => ({ name, multiplier: null }))]);
-        setFetchNotice(
-          `已拉取 ${result.names.length} 个模型，新增 ${additions.length} 个${result.ignored ? `，忽略 ${result.ignored} 个无效名称` : ''}`,
-        );
-      },
-    }),
-  );
+  const fetchOptions = {
+    onMutate: () => {
+      setFetchNotice(undefined);
+      setFetchError(undefined);
+    },
+    onSuccess: (result: { names: string[]; ignored: number }) => {
+      const additions = result.names.filter((name) => !available.some((model) => model.name === name));
+      if (available.length + additions.length > 1000) {
+        setFetchError('合并后超过 1000 个模型，请先移除部分模型');
+        return;
+      }
+      setAvailable([...available, ...additions.map((name) => ({ name, multiplier: null }))]);
+      setFetchNotice(
+        `已拉取 ${result.names.length} 个模型，新增 ${additions.length} 个${result.ignored ? `，忽略 ${result.ignored} 个无效名称` : ''}`,
+      );
+    },
+  };
+  const fetchModels = useMutation(trpc.admin.catalog.fetchChannelModels.mutationOptions(fetchOptions));
+  const fetchSubscriptionModels = useMutation(trpc.admin.catalog.fetchSubscriptionModels.mutationOptions(fetchOptions));
   const task = useMutation(
     trpc.admin.catalog.saveChannel.mutationOptions({
       onSuccess: async (result) => {
         setCredential('');
+        setCredentials('');
+        setCallback('');
         await refreshCatalog();
         onSaved(result);
         close();
       },
     }),
   );
-  const busy = task.isPending || fetchModels.isPending;
+  const fetching = fetchModels.isPending || fetchSubscriptionModels.isPending;
+  const busy = task.isPending || fetching || startOAuth.isPending;
   return (
     <FormDialog open title={initial ? '编辑渠道' : '添加渠道'} onClose={close} busy={busy} size="xl">
       <form
@@ -159,9 +207,17 @@ function ChannelForm({
             task.mutate({
               id: initial?.id,
               name,
-              type: initial?.type ?? 'api',
-              baseUrl,
-              credential: credential || undefined,
+              type,
+              baseUrl: type === 'api' ? baseUrl : undefined,
+              credential: type === 'api' ? credential || undefined : undefined,
+              subscription:
+                type === 'subscription'
+                  ? {
+                      maxConcurrent: Number(maximum),
+                      credentials: mode === 'import' ? credentials || undefined : undefined,
+                      callbackUrl: mode === 'oauth' ? callback : undefined,
+                    }
+                  : undefined,
               timeoutMs: Number(timeout),
               enabled,
               isPublic,
@@ -177,11 +233,18 @@ function ChannelForm({
             <Field.Root>
               <Field.Label>渠道类型</Field.Label>
               <NativeSelect.Root disabled={Boolean(initial)}>
-                <NativeSelect.Field aria-label="渠道类型" defaultValue={initial?.type ?? 'api'}>
+                <NativeSelect.Field
+                  aria-label="渠道类型"
+                  value={type}
+                  onChange={(e) => {
+                    setType(e.target.value as typeof type);
+                    setScopes(e.target.value === 'subscription' ? [...responsesEndpoints] : []);
+                    setAvailable([]);
+                    setFetchNotice(undefined);
+                  }}
+                >
                   <option value="api">API 渠道</option>
-                  <option value="subscription" disabled>
-                    订阅渠道
-                  </option>
+                  <option value="subscription">订阅渠道</option>
                   <option value="aggregate" disabled>
                     聚合渠道
                   </option>
@@ -189,23 +252,109 @@ function ChannelForm({
                 <NativeSelect.Indicator />
               </NativeSelect.Root>
             </Field.Root>
-            <FormInput
-              label="Base URL"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              type="url"
-              required
-              helper="支持服务根地址或以 /v1 结尾的 SDK 地址"
-            />
-            <FormInput
-              label={initial ? '替换凭据（留空保留）' : '上游凭据'}
-              type="password"
-              autoComplete="new-password"
-              value={credential}
-              onChange={(e) => setCredential(e.target.value)}
-              required={!initial}
-              maxLength={4096}
-            />
+            {type === 'subscription' ? (
+              <Stack gap="5">
+                <Field.Root>
+                  <Field.Label>订阅平台</Field.Label>
+                  <NativeSelect.Root>
+                    <NativeSelect.Field aria-label="订阅平台" defaultValue="openai">
+                      <option value="openai">OpenAI</option>
+                    </NativeSelect.Field>
+                    <NativeSelect.Indicator />
+                  </NativeSelect.Root>
+                </Field.Root>
+                {initial?.subscription && (
+                  <Text fontSize="sm" color="gray.500" overflowWrap="anywhere">
+                    账号：{initial.subscription.accountId}
+                  </Text>
+                )}
+                <FormInput
+                  label="并发上限"
+                  type="number"
+                  value={maximum}
+                  onChange={(e) => setMaximum(e.target.value)}
+                  min={1}
+                  max={100}
+                  required
+                />
+                <SelectField
+                  label="接入方式"
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { id: 'import', name: '导入凭据' },
+                    { id: 'oauth', name: 'OAuth 授权' },
+                  ]}
+                />
+                {mode === 'import' ? (
+                  <Field.Root>
+                    <Field.Label>{initial ? '替换凭据（留空保留）' : '账号凭据'}</Field.Label>
+                    <Textarea
+                      aria-label="账号凭据"
+                      value={credentials}
+                      onChange={(e) => setCredentials(e.target.value)}
+                      rows={7}
+                      maxLength={60000}
+                      required={!initial}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <Field.HelperText>
+                      粘贴 Codex auth.json 或包含 access_token、refresh_token、account_id 和 expires_at 的
+                      JSON。凭据加密保存。
+                    </Field.HelperText>
+                  </Field.Root>
+                ) : (
+                  <Stack gap="3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setCallback('');
+                        startOAuth.mutate();
+                      }}
+                      loading={startOAuth.isPending}
+                    >
+                      生成授权链接
+                    </Button>
+                    {startOAuth.data && (
+                      <Link href={startOAuth.data.url} target="_blank" rel="noreferrer" color="#635bff">
+                        打开 OpenAI 授权页面
+                      </Link>
+                    )}
+                    <FormInput
+                      label="授权回调地址"
+                      value={callback}
+                      onChange={(e) => setCallback(e.target.value)}
+                      type="url"
+                      required
+                      autoComplete="off"
+                      helper="完成授权后，复制浏览器中完整的 localhost:1455/auth/callback 地址；该页面可能显示无法访问。"
+                    />
+                  </Stack>
+                )}
+              </Stack>
+            ) : (
+              <>
+                <FormInput
+                  label="Base URL"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  type="url"
+                  required
+                  helper="支持服务根地址或以 /v1 结尾的 SDK 地址"
+                />
+                <FormInput
+                  label={initial ? '替换凭据（留空保留）' : '上游凭据'}
+                  type="password"
+                  autoComplete="new-password"
+                  value={credential}
+                  onChange={(e) => setCredential(e.target.value)}
+                  required={!initial}
+                  maxLength={4096}
+                />
+              </>
+            )}
             <FormInput
               label="超时（毫秒）"
               value={timeout}
@@ -215,7 +364,7 @@ function ChannelForm({
               onChange={(e) => setTimeout(e.target.value)}
               required
             />
-            <EndpointFields value={scopes} onChange={setScopes} />
+            <EndpointFields value={scopes} onChange={setScopes} subscription={type === 'subscription'} />
             <FormInput
               label="整体扣费倍率"
               value={multiplier}
@@ -229,9 +378,15 @@ function ChannelForm({
               onChange={setAvailable}
               models={data.models}
               disabled={busy}
-              fetching={fetchModels.isPending}
-              onFetch={() => fetchModels.mutate({ id: initial?.id, baseUrl, credential: credential || undefined })}
-              fetchError={fetchError ?? formError(fetchModels.error)?.message}
+              fetching={fetching}
+              onFetch={() =>
+                type === 'subscription'
+                  ? initial
+                    ? fetchSubscriptionModels.mutate({ channelId: initial.id })
+                    : setFetchError('请先保存订阅渠道，再编辑并拉取模型；也可以直接填写模型名称')
+                  : fetchModels.mutate({ id: initial?.id, baseUrl, credential: credential || undefined })
+              }
+              fetchError={fetchError ?? formError(fetchModels.error ?? fetchSubscriptionModels.error)?.message}
               fetchNotice={fetchNotice}
             />
             <Stack gap="2">
@@ -245,11 +400,11 @@ function ChannelForm({
               </Text>
             </Stack>
             <Enabled value={enabled} onChange={setEnabled} />
-            <ErrorText>{formError(task.error)?.message}</ErrorText>
+            <ErrorText>{formError(task.error ?? startOAuth.error)?.message}</ErrorText>
           </Stack>
         </fieldset>
         <HStack mt="5">
-          <PrimaryButton type="submit" loading={task.isPending} disabled={fetchModels.isPending}>
+          <PrimaryButton type="submit" loading={task.isPending} disabled={fetching || startOAuth.isPending}>
             保存渠道
           </PrimaryButton>
           <Button type="button" variant="ghost" disabled={busy} onClick={close}>
@@ -333,6 +488,12 @@ export function ModelForm({
 }
 export default function Catalog() {
   const data = useQuery(trpc.admin.catalog.list.queryOptions());
+  const renew = useMutation(
+    trpc.admin.catalog.refreshSubscription.mutationOptions({
+      onSuccess: refreshCatalog,
+      onError: refreshCatalog,
+    }),
+  );
   const [edit, setEdit] = useState<{ id?: string }>();
   const [saved, setSaved] = useState<RouterOutputs['admin']['catalog']['saveChannel']>();
   const close = () => setEdit(undefined);
@@ -353,7 +514,7 @@ export default function Catalog() {
       >
         渠道
       </Title>
-      <ErrorText>{formError(data.error)?.message}</ErrorText>
+      <ErrorText>{formError(data.error ?? renew.error)?.message}</ErrorText>
       {saved && saved.unpricedModels.length > 0 && (
         <Stack gap="3" borderWidth="1px" borderColor="gray.200" borderRadius="lg" p="4" role="status">
           <Text fontSize="sm">
@@ -401,6 +562,11 @@ export default function Catalog() {
                     <Table.Row key={c.id}>
                       <Table.Cell>
                         <Text>{c.name}</Text>
+                        {c.subscription && (
+                          <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
+                            {c.subscription.accountId}
+                          </Text>
+                        )}
                       </Table.Cell>
                       <Table.Cell>
                         <Text>{channelTypeLabels[c.type]}</Text>
@@ -426,10 +592,36 @@ export default function Catalog() {
                         <Stack gap="2" align="start">
                           <Badge colorPalette={c.enabled ? 'green' : 'gray'}>{c.enabled ? '启用' : '禁用'}</Badge>
                           <Badge colorPalette="gray">{c.isPublic ? '公开' : '非公开'}</Badge>
+                          {c.subscription && (
+                            <>
+                              <Badge>
+                                并发 {c.subscription.active} / {c.subscription.maxConcurrent}
+                              </Badge>
+                              {c.subscription.errorCode && <Badge colorPalette="red">需要重新授权</Badge>}
+                              {c.subscription.cooldownUntil &&
+                                new Date(c.subscription.cooldownUntil).getTime() > Date.now() && (
+                                  <Badge colorPalette="orange">限流冷却中</Badge>
+                                )}
+                              <Text fontSize="xs" color="gray.500">
+                                令牌到期：{new Date(c.subscription.expiresAt).toLocaleString()}
+                              </Text>
+                            </>
+                          )}
                         </Stack>
                       </Table.Cell>
                       <Table.Cell>
-                        <HStack gap="1">
+                        <HStack gap="1" flexWrap="wrap">
+                          {c.subscription && (
+                            <IconButton
+                              aria-label="刷新订阅令牌"
+                              variant="ghost"
+                              size="sm"
+                              disabled={!c.enabled || renew.isPending}
+                              onClick={() => renew.mutate({ channelId: c.id })}
+                            >
+                              <RefreshCw size={16} />
+                            </IconButton>
+                          )}
                           <IconButton
                             aria-label="编辑渠道"
                             variant="ghost"

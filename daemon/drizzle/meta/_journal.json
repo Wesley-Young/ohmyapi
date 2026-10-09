@@ -50,6 +50,13 @@
       "when": 1791546881512,
       "tag": "0006_user_channel_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791556212051,
+      "tag": "0007_openai_subscriptions",
+      "breakpoints": true
     }
   ]
 }

@@ -11,7 +11,7 @@ export type SearchRequest = {
 
 export function searchToolKind(tool: Record<string, unknown>, endpoint: Endpoint): SearchKind | undefined {
   if (typeof tool.type !== 'string') return;
-  if (endpoint === '/v1/responses') {
+  if (endpoint.startsWith('/v1/responses')) {
     if (/^web_search(?:_\d{4}_\d{2}_\d{2})?$/.test(tool.type)) return 'webSearch';
     if (/^web_search_preview(?:_\d{4}_\d{2}_\d{2})?$/.test(tool.type)) return 'webSearchPreview';
   }
@@ -57,7 +57,7 @@ export function searchRequest(body: Record<string, unknown>, endpoint: Endpoint)
     kind = candidate;
     estimatedCalls += endpoint === '/v1/messages' ? callLimit(tool.max_uses, 'max_uses') : 1;
   }
-  if (kind && endpoint === '/v1/responses') estimatedCalls = callLimit(body.max_tool_calls, 'max_tool_calls');
+  if (kind && endpoint.startsWith('/v1/responses')) estimatedCalls = callLimit(body.max_tool_calls, 'max_tool_calls');
   if (estimatedCalls > maxSearchCalls)
     throw new GatewayError(400, 'invalid_search_limit', `Combined search limits must not exceed ${maxSearchCalls}`);
   return { kind, implicit: false, estimatedCalls };

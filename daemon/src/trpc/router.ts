@@ -20,6 +20,7 @@ import {
 import type { GatewayService } from '../plugins/gateway/service.js';
 import type { KeyService } from '../plugins/keys/service.js';
 import { type PricingService, previewInput, priceScope, savePriceInput } from '../plugins/pricing/service.js';
+import type { SubscriptionService } from '../plugins/subscription/service.js';
 import type { UserService } from '../plugins/users/service.js';
 import type { WalletService } from '../plugins/wallet/service.js';
 
@@ -34,6 +35,7 @@ export interface RpcContext {
   users: UserService;
   wallet: WalletService;
   catalog: CatalogService;
+  subscription: SubscriptionService;
   gateway: GatewayService;
   pricing: PricingService;
   billing: BillingService;
@@ -180,6 +182,13 @@ export const appRouter = t.router({
       preview: adminProcedure.input(previewInput).mutation(({ ctx, input }) => ctx.pricing.preview(input)),
     }),
     catalog: t.router({
+      startSubscriptionOAuth: adminProcedure.mutation(({ ctx }) => ctx.subscription.startOAuth(ctx.principal)),
+      refreshSubscription: adminProcedure
+        .input(z.object({ channelId: z.uuid() }))
+        .mutation(({ ctx, input }) => ctx.subscription.refresh(ctx.principal, input.channelId)),
+      fetchSubscriptionModels: adminProcedure
+        .input(z.object({ channelId: z.uuid() }))
+        .mutation(({ ctx, input }) => ctx.subscription.models(ctx.principal, input.channelId)),
       list: adminProcedure.query(({ ctx }) => ctx.catalog.list()),
       fetchChannelModels: adminProcedure
         .input(fetchChannelModelsInput)

@@ -18,7 +18,7 @@ export class StreamUsageEstimate {
   }
 
   observe(endpoint: Endpoint, data: Data) {
-    if (endpoint === '/v1/responses') {
+    if (endpoint.startsWith('/v1/responses')) {
       const type = String(data.type);
       if (['response.created', 'response.in_progress'].includes(type) && object(data.response)) this.started = true;
       if (

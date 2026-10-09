@@ -820,6 +820,7 @@ export class BillingService implements Disposable {
       status: r.status,
       model: r.requestedModel,
       endpoint: r.endpoint,
+      subscriptionAccountId: principal.user.role === 'admin' ? r.subscriptionAccountId : null,
       billingEnabled: r.billingEnabled,
       usageFinal: r.usageFinal,
       usageEstimate: r.usageEstimate,

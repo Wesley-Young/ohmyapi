@@ -78,7 +78,7 @@ export class SearchUsageCollector {
   }
 
   observe(endpoint: Endpoint, data: Data, envelope: Data, usage: Data | undefined, terminal: boolean) {
-    if (endpoint === '/v1/responses') {
+    if (endpoint.startsWith('/v1/responses')) {
       if (data.type === 'response.output_item.added') this.observeItem(data.item, data.output_index, false);
       if (data.type === 'response.output_item.done') this.observeItem(data.item, data.output_index);
       if (terminal && Array.isArray(envelope.output))

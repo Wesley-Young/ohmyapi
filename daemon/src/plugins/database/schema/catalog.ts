@@ -16,6 +16,7 @@ import {
 import { channelTypes } from '../../catalog/channel-types.js';
 import { createdAt, endpoint, id } from './common.js';
 import { apiKeys, users } from './identity.js';
+import { subscriptionAccounts } from './subscription.js';
 
 export const models = pgTable(
   'models',
@@ -45,6 +46,7 @@ export const channels = pgTable(
     baseUrl: text('base_url'),
     // API 渠道的凭据使用认证加密保存；其他类型由各自的账号或成员配置提供连接信息。
     credentialEncrypted: text('credential_encrypted'),
+    subscriptionAccountId: uuid('subscription_account_id').references(() => subscriptionAccounts.id),
     enabled: boolean('enabled').default(true).notNull(),
     isPublic: boolean('is_public').default(true).notNull(),
     timeoutMs: integer('timeout_ms').default(120_000).notNull(),
@@ -54,7 +56,14 @@ export const channels = pgTable(
   },
   (table) => [
     uniqueIndex('channels_name_unique').on(table.name).where(sql`${table.deletedAt} is null`),
+    uniqueIndex('channels_subscription_account_unique')
+      .on(table.subscriptionAccountId)
+      .where(sql`${table.deletedAt} is null`),
     check('channels_timeout_positive', sql`${table.timeoutMs} > 0`),
+    check(
+      'channels_subscription_config',
+      sql`(${table.type} = 'subscription' and ${table.subscriptionAccountId} is not null) or (${table.type} <> 'subscription' and ${table.subscriptionAccountId} is null)`,
+    ),
     check(
       'channels_connection_config',
       sql`(${table.type} = 'api' and ${table.baseUrl} is not null and ${table.credentialEncrypted} is not null) or (${table.type} <> 'api' and ${table.baseUrl} is null and ${table.credentialEncrypted} is null)`,

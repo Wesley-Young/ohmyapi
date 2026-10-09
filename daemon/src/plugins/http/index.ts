@@ -15,6 +15,7 @@ import { DatabaseService } from '../database/index.js';
 import { GatewayService } from '../gateway/service.js';
 import { KeyService } from '../keys/service.js';
 import { PricingService } from '../pricing/service.js';
+import { SubscriptionService } from '../subscription/service.js';
 import { UserService } from '../users/service.js';
 import { WalletService } from '../wallet/service.js';
 import { serveWeb } from './web.js';
@@ -30,6 +31,7 @@ export const HttpPlugin = definePlugin({
     pricing: PricingService,
     billing: BillingService,
     keys: KeyService,
+    subscription: SubscriptionService,
     users: UserService,
     wallet: WalletService,
   },
@@ -114,6 +116,7 @@ export const HttpPlugin = definePlugin({
             principal: await ctx.auth.resolve(token),
             auth: ctx.auth,
             catalog: ctx.catalog,
+            subscription: ctx.subscription,
             gateway: ctx.gateway,
             pricing: ctx.pricing,
             billing: ctx.billing,

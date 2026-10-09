@@ -145,12 +145,11 @@ export class UsageCollector {
     if (!data) return;
     this.estimate.observe(this.endpoint, data);
     if (data.error || data.type === 'error' || data.type === 'response.failed') this.failed = true;
-    const envelope =
-      this.endpoint === '/v1/responses'
-        ? (object(data.response) ?? data)
-        : this.endpoint === '/v1/messages'
-          ? (object(data.message) ?? data)
-          : data;
+    const envelope = this.endpoint.startsWith('/v1/responses')
+      ? (object(data.response) ?? data)
+      : this.endpoint === '/v1/messages'
+        ? (object(data.message) ?? data)
+        : data;
     const upstreamError = data.error ?? envelope.error;
     const message =
       typeof upstreamError === 'string'
@@ -158,9 +157,13 @@ export class UsageCollector {
         : (object(upstreamError)?.message ??
           (['error', 'response.error'].includes(String(data.type)) ? data.message : undefined));
     if (typeof message === 'string') this.errorMessage = safeErrorMessage(message);
-    if (this.endpoint === '/v1/responses') {
+    if (this.endpoint.startsWith('/v1/responses')) {
       if (envelope.error || envelope.status === 'failed' || data.type === 'response.error') this.failed = true;
-      if (responseTerminalEvents.has(String(data.type)) || responseTerminalStatuses.has(String(envelope.status)))
+      if (
+        (this.endpoint === '/v1/responses/compact' && data.object === 'response.compaction') ||
+        responseTerminalEvents.has(String(data.type)) ||
+        responseTerminalStatuses.has(String(envelope.status))
+      )
         this.complete = true;
     }
     if (typeof envelope.id === 'string') this.upstreamId = envelope.id.slice(0, 256);
@@ -283,7 +286,9 @@ export class SseObserver {
   private previousCR = false;
   private readonly collector: UsageCollector;
   private readonly maxEventBytes: number;
-  constructor(collector: UsageCollector, maxEventBytes: number) {
+  private readonly onEvent?: (value: unknown) => void;
+  constructor(collector: UsageCollector, maxEventBytes: number, onEvent?: (value: unknown) => void) {
+    this.onEvent = onEvent;
     this.collector = collector;
     this.maxEventBytes = maxEventBytes;
   }
@@ -348,7 +353,9 @@ export class SseObserver {
       if (raw === '[DONE]') this.collector.done();
       else {
         try {
-          this.collector.observe(JSON.parse(raw));
+          const value: unknown = JSON.parse(raw);
+          this.collector.observe(value);
+          this.onEvent?.(value);
         } catch (error) {
           this.collector.markInvalid(error);
         }

@@ -13,15 +13,18 @@ import {
   channels,
   models,
   priceRules,
+  subscriptionAccounts,
   userChannelGrants,
   users,
 } from '../database/schema/index.js';
 import { expandRules, multiplierInput, ruleInput, validateRules } from '../pricing/rules.js';
+import { type SubscriptionService, subscriptionInput } from '../subscription/service.js';
 import { channelTypes, isSupportedChannelType } from './channel-types.js';
+import type { CredentialVault } from './vault.js';
 
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+export { CredentialVault } from './vault.js';
 
-export const endpoints = ['/v1/chat/completions', '/v1/responses', '/v1/messages'] as const;
+export const endpoints = ['/v1/chat/completions', '/v1/responses', '/v1/messages', '/v1/responses/compact'] as const;
 export type Endpoint = (typeof endpoints)[number];
 const name = z.string().trim().min(1).max(128);
 const modelName = name.regex(/^[A-Za-z0-9][A-Za-z0-9_./:-]*$/, '模型名称格式无效');
@@ -29,10 +32,14 @@ export const channelInput = z.object({
   id: z.uuid().optional(),
   name,
   type: z.enum(channelTypes).default('api'),
-  baseUrl: z.url().refine((value) => {
-    const url = new URL(value);
-    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
-  }, 'Base URL 需为无凭据、查询参数和片段的 HTTP(S) 地址'),
+  baseUrl: z
+    .url()
+    .refine((value) => {
+      const url = new URL(value);
+      return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
+    }, 'Base URL 需为无凭据、查询参数和片段的 HTTP(S) 地址')
+    .optional(),
+  subscription: subscriptionInput.optional(),
   credential: z
     .string()
     .min(1)
@@ -51,10 +58,12 @@ export const channelInput = z.object({
   endpoints: z
     .array(z.enum(endpoints))
     .min(1)
-    .max(3)
+    .max(4)
     .refine((v) => new Set(v).size === v.length),
 });
-export const fetchChannelModelsInput = channelInput.pick({ id: true, baseUrl: true, credential: true });
+export const fetchChannelModelsInput = channelInput
+  .pick({ id: true, baseUrl: true, credential: true })
+  .required({ baseUrl: true });
 export const modelInput = z.object({
   id: z.uuid().optional(),
   name: modelName,
@@ -76,51 +85,17 @@ export const importModelsInput = z.object({
     .max(100, '每次最多导入 100 个模型')
     .refine((rows) => new Set(rows.map((row) => row.model.name)).size === rows.length, '不能导入同名模型的多个来源'),
 });
-export class CredentialVault {
-  private readonly key?: Buffer;
-  constructor(raw: string | undefined) {
-    if (raw !== undefined && raw !== '') {
-      if (!/^[a-fA-F0-9]{64}$/.test(raw))
-        throw new Error('CHANNEL_ENCRYPTION_KEY must contain 64 hexadecimal characters');
-      this.key = Buffer.from(raw, 'hex');
-    }
-  }
-
-  private requireKey() {
-    if (!this.key) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '请先配置 CHANNEL_ENCRYPTION_KEY' });
-    return this.key;
-  }
-
-  encrypt(value: string) {
-    const iv = randomBytes(12);
-    const cipher = createCipheriv('aes-256-gcm', this.requireKey(), iv);
-    const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-    return [
-      'v1',
-      iv.toString('base64url'),
-      cipher.getAuthTag().toString('base64url'),
-      encrypted.toString('base64url'),
-    ].join('.');
-  }
-
-  decrypt(value: string) {
-    const [version, iv, tag, encrypted] = value.split('.');
-    if (version !== 'v1' || !iv || !tag || !encrypted) throw new Error('Invalid encrypted credential');
-    const cipher = createDecipheriv('aes-256-gcm', this.requireKey(), Buffer.from(iv, 'base64url'));
-    cipher.setAuthTag(Buffer.from(tag, 'base64url'));
-    return Buffer.concat([cipher.update(Buffer.from(encrypted, 'base64url')), cipher.final()]).toString('utf8');
-  }
-}
-
 export class CatalogService {
   static readonly token = serviceToken<CatalogService>('ohmyapi/catalog');
   private readonly auth: AuthService;
   private readonly logger: EventLogger;
   readonly vault: CredentialVault;
-  constructor(auth: AuthService, vault: CredentialVault, logger: EventLogger) {
+  private readonly subscription: SubscriptionService;
+  constructor(auth: AuthService, vault: CredentialVault, logger: EventLogger, subscription: SubscriptionService) {
     this.auth = auth;
     this.vault = vault;
     this.logger = logger;
+    this.subscription = subscription;
   }
 
   async list() {
@@ -130,6 +105,14 @@ export class CatalogService {
           id: channels.id,
           name: channels.name,
           type: channels.type,
+          subscription: {
+            id: subscriptionAccounts.id,
+            accountId: subscriptionAccounts.accountId,
+            maxConcurrent: subscriptionAccounts.maxConcurrent,
+            expiresAt: subscriptionAccounts.expiresAt,
+            errorCode: subscriptionAccounts.errorCode,
+            cooldownUntil: subscriptionAccounts.cooldownUntil,
+          },
           baseUrl: channels.baseUrl,
           enabled: channels.enabled,
           isPublic: channels.isPublic,
@@ -137,6 +120,7 @@ export class CatalogService {
           multiplierMicros: channels.multiplierMicros,
         })
         .from(channels)
+        .leftJoin(subscriptionAccounts, eq(channels.subscriptionAccountId, subscriptionAccounts.id))
         .where(isNull(channels.deletedAt))
         .orderBy(asc(channels.name)),
       this.auth.db.select().from(models).where(isNull(models.deletedAt)).orderBy(asc(models.name)),
@@ -147,6 +131,16 @@ export class CatalogService {
     return {
       channels: channelRows.map(({ multiplierMicros, ...c }) => ({
         ...c,
+        subscription: c.subscription
+          ? {
+              accountId: c.subscription.accountId,
+              maxConcurrent: c.subscription.maxConcurrent,
+              expiresAt: c.subscription.expiresAt.toISOString(),
+              errorCode: c.subscription.errorCode,
+              cooldownUntil: c.subscription.cooldownUntil?.toISOString() ?? null,
+              active: this.subscription.concurrency.active(c.subscription.id),
+            }
+          : null,
         multiplier: formatMoney(multiplierMicros),
         availableModels: available
           .filter((a) => a.channelId === c.id && modelRows.some((m) => m.id === a.modelId))
@@ -186,7 +180,7 @@ export class CatalogService {
             .where(and(eq(channels.id, input.id), isNull(channels.deletedAt)))
         : [];
       if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在' });
-      if (existing && !isSupportedChannelType(existing.type))
+      if (existing && existing.type !== 'api')
         throw new TRPCError({ code: 'BAD_REQUEST', message: '该渠道类型暂不支持拉取模型' });
       if (input.credential) return input.credential;
       if (existing?.credentialEncrypted) return this.vault.decrypt(existing.credentialEncrypted);
@@ -300,6 +294,10 @@ export class CatalogService {
   }
 
   async saveChannel(principal: Principal, input: z.infer<typeof channelInput>) {
+    const credentials =
+      input.type === 'subscription' && input.subscription
+        ? await this.subscription.prepareCredentials(principal, input.subscription)
+        : undefined;
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [existing] = input.id
         ? await tx
@@ -310,10 +308,20 @@ export class CatalogService {
         : [];
       if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在' });
       if (!isSupportedChannelType(input.type))
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '订阅渠道和聚合渠道尚未开放' });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '聚合渠道尚未开放' });
       if (existing && existing.type !== input.type)
         throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道类型创建后不可更改，请新建渠道' });
-      if (!existing && !input.credential) throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写上游凭据' });
+      if (input.type === 'api') {
+        if (!input.baseUrl || (!existing && !input.credential))
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写 Base URL 和上游凭据' });
+        if (input.subscription) throw new TRPCError({ code: 'BAD_REQUEST', message: 'API 渠道不能配置订阅凭据' });
+      } else {
+        if (!input.subscription) throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写订阅配置' });
+        if (input.baseUrl || input.credential)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '订阅渠道使用账号凭据，无需填写 API 连接信息' });
+        if (input.endpoints.some((endpoint) => endpoint !== '/v1/responses' && endpoint !== '/v1/responses/compact'))
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'OpenAI 订阅渠道仅支持 Responses 和 compact' });
+      }
       const [duplicate] = await tx
         .select({ id: channels.id })
         .from(channels)
@@ -347,17 +355,34 @@ export class CatalogService {
         modelId: model.id,
         multiplier: input.availableModels.find((row) => row.name === model.name)?.multiplier ?? null,
       }));
+      const subscriptionAccountId =
+        input.type === 'subscription' && input.subscription
+          ? await this.subscription.saveAccount(
+              tx,
+              {
+                id: existing?.subscriptionAccountId ?? undefined,
+                name: input.name,
+                enabled: input.enabled,
+                maxConcurrent: input.subscription.maxConcurrent,
+              },
+              credentials,
+            )
+          : null;
       const values = {
         name: input.name,
         type: input.type,
-        baseUrl: input.baseUrl.replace(/\/+$/, ''),
+        baseUrl: input.type === 'api' ? input.baseUrl?.replace(/\/+$/, '') : null,
+        subscriptionAccountId,
         enabled: input.enabled,
         isPublic: input.isPublic,
         timeoutMs: input.timeoutMs,
         multiplierMicros: parseMoney(input.multiplier),
-        credentialEncrypted: input.credential
-          ? this.vault.encrypt(input.credential)
-          : (existing?.credentialEncrypted as string),
+        credentialEncrypted:
+          input.type !== 'api'
+            ? null
+            : input.credential
+              ? this.vault.encrypt(input.credential)
+              : (existing?.credentialEncrypted as string),
       };
       const [row] = existing
         ? await tx.update(channels).set(values).where(eq(channels.id, existing.id)).returning({ id: channels.id })
@@ -386,7 +411,8 @@ export class CatalogService {
         isPublic: input.isPublic,
         multiplier: input.multiplier,
         availableModels: input.availableModels,
-        credentialChanged: Boolean(input.credential),
+        credentialChanged: Boolean(input.credential || credentials),
+        maxConcurrent: input.subscription?.maxConcurrent,
       });
       const priced = resolved.length
         ? await tx
@@ -509,11 +535,13 @@ export class CatalogService {
   async deleteChannel(principal: Principal, channelId: string) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [channel] = await tx
-        .update(channels)
-        .set({ deletedAt: new Date(), enabled: false })
+        .select()
+        .from(channels)
         .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)))
-        .returning({ id: channels.id, name: channels.name });
+        .for('update');
       if (!channel) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在或已删除' });
+      if (channel.subscriptionAccountId) await this.subscription.removeAccount(tx, channel.subscriptionAccountId);
+      await tx.update(channels).set({ deletedAt: new Date(), enabled: false }).where(eq(channels.id, channel.id));
       await this.audit(tx, actor.id, 'channel.delete', channel.id, { name: channel.name });
       return { success: true };
     });

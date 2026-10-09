@@ -98,6 +98,11 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                   </HStack>
                 </Stack>
               )}
+              {r.subscriptionAccountId && (
+                <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
+                  订阅账号 ID：{r.subscriptionAccountId}
+                </Text>
+              )}
               {r.upstreamRequestId && (
                 <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
                   上游请求 ID：{r.upstreamRequestId}

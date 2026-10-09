@@ -17,6 +17,7 @@ import {
   priceRules,
   userChannelGrants,
 } from '../database/schema/index.js';
+import { availableSubscription } from '../subscription/availability.js';
 import { pageSize } from '../users/service.js';
 
 import { randomBytes } from 'node:crypto';
@@ -69,6 +70,7 @@ export class KeyService {
       .where(
         and(
           eq(channels.enabled, true),
+          availableSubscription(),
           inArray(channels.type, [...supportedChannelTypes]),
           eq(models.enabled, true),
           isNull(channels.deletedAt),
@@ -127,7 +129,9 @@ export class KeyService {
           isNull(apiKeys.deletedAt),
           isNull(apiKeys.revokedAt),
           or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
+          inArray(channelEndpoints.endpoint, ['/v1/chat/completions', '/v1/responses', '/v1/messages']),
           eq(channels.enabled, true),
+          availableSubscription(),
           inArray(channels.type, [...supportedChannelTypes]),
           isNull(channels.deletedAt),
           eq(models.enabled, true),

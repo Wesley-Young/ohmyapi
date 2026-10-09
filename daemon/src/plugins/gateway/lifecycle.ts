@@ -6,6 +6,7 @@ export class RequestLifecycle {
   readonly abort = new AbortController();
   readonly done: Promise<void>;
   releaseCapacity?: () => void;
+  releaseUpstream?: () => void;
   private completeRequest: () => void = () => {};
   private timer?: ReturnType<typeof setTimeout>;
   private finalization?: Promise<void>;
@@ -61,6 +62,7 @@ export class RequestLifecycle {
         await settle();
       } finally {
         this.releaseCapacity?.();
+        this.releaseUpstream?.();
         this.onComplete();
         this.completeRequest();
         log();

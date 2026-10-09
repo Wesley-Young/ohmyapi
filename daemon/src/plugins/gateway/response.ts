@@ -16,6 +16,7 @@ export type ForwardResponseOptions = {
   onCheckpoint: () => Promise<void>;
   onFinish: (safeRejection: boolean, errorCode?: string) => Promise<void>;
   onError: (error: unknown) => void;
+  stopAtTerminal?: boolean;
 };
 
 export async function forwardResponse(options: ForwardResponseOptions): Promise<Response> {
@@ -123,6 +124,11 @@ export async function forwardResponse(options: ForwardResponseOptions): Promise<
             }
           }
           if (!abort.signal.aborted) controller.enqueue(value);
+          if (options.stopAtTerminal && collector.complete) {
+            await reader.cancel().catch(() => {});
+            await finalizeResponse(collector.failed ? 'upstream_error' : undefined);
+            if (!abort.signal.aborted) controller.close();
+          }
         } catch (error) {
           onError(error);
           abort.abort(abort.signal.reason ?? 'upstream_disconnected');

@@ -18,6 +18,7 @@ import type { UsageEstimate } from '../../billing/estimation.js';
 import { channels, models } from './catalog.js';
 import { createdAt, endpoint, id, micros, tokenCount } from './common.js';
 import { apiKeys, users } from './identity.js';
+import { subscriptionAccounts } from './subscription.js';
 
 export const requestStatus = pgEnum('request_status', [
   'completed',
@@ -43,6 +44,7 @@ export const requests = pgTable(
     requestedModel: text('requested_model').notNull(),
     endpoint: endpoint('endpoint').notNull(),
     channelId: uuid('channel_id').references(() => channels.id),
+    subscriptionAccountId: uuid('subscription_account_id').references(() => subscriptionAccounts.id),
     status: requestStatus('status').default('received').notNull(),
     receivedAt: timestamp('received_at', { withTimezone: true }).defaultNow().notNull(),
     heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),

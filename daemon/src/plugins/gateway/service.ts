@@ -24,6 +24,8 @@ import {
   users,
 } from '../database/schema/index.js';
 import type { PricingService } from '../pricing/service.js';
+import { availableSubscription } from '../subscription/availability.js';
+import type { SubscriptionService } from '../subscription/service.js';
 import { pageSize } from '../users/service.js';
 import { channelAdapter } from './adapters.js';
 import { ForwardBillingSession } from './billing-session.js';
@@ -38,6 +40,7 @@ export class GatewayService implements Disposable {
   private readonly limits = new Map<string, { active: number; count: number; reset: number }>();
   private readonly db: Database;
   private readonly vault: CredentialVault;
+  private readonly subscription: SubscriptionService;
   readonly config: Config;
   private readonly logger: EventLogger;
   private readonly sampleLog = createLogSampler();
@@ -51,6 +54,7 @@ export class GatewayService implements Disposable {
     pricing: PricingService,
     billing: BillingService,
     vault: CredentialVault,
+    subscription: SubscriptionService,
     config: Config,
     logger: EventLogger,
   ) {
@@ -58,6 +62,7 @@ export class GatewayService implements Disposable {
     this.pricing = pricing;
     this.billing = billing;
     this.vault = vault;
+    this.subscription = subscription;
     this.config = config;
     this.logger = logger;
   }
@@ -164,9 +169,16 @@ export class GatewayService implements Disposable {
       const [channel] = await this.db
         .select({ isPublic: channels.isPublic, type: channels.type })
         .from(channels)
-        .where(and(eq(channels.id, identity.channelId), eq(channels.enabled, true), isNull(channels.deletedAt)));
+        .where(
+          and(
+            eq(channels.id, identity.channelId),
+            eq(channels.enabled, true),
+            isNull(channels.deletedAt),
+            availableSubscription(),
+          ),
+        );
       if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
-      channelAdapter(channel.type);
+      channelAdapter(channel.type, this.subscription);
       const available = await this.db
         .selectDistinct({ name: models.name, createdAt: models.createdAt })
         .from(models)
@@ -391,7 +403,7 @@ export class GatewayService implements Disposable {
       });
       session.recorded = true;
       const { model, channel, override } = await this.resolveRoute(identity, parsed.model as string, endpoint, session);
-      const adapter = channelAdapter(channel.type);
+      const adapter = channelAdapter(channel.type, this.subscription);
       const lockedPrice = await this.pricing.lock(
         model.id,
         receivedAt,
@@ -399,17 +411,28 @@ export class GatewayService implements Disposable {
         override === null ? 'channel' : 'model',
       );
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
-      const outputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
+      const requestedOutputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
+      const outputLimit = channel.type === 'subscription' ? model.outputTokenLimit : requestedOutputLimit;
       session.collector.configureSearch(searchRequest(parsed, endpoint));
-      const { url, body, headers } = adapter.prepareRequest({
+      lifecycle.setTimeout('upstream_timeout', channel.timeoutMs);
+      lifecycle.syncClientAbort();
+      const prepared = await adapter.prepareRequest({
         channel,
         request: req,
         endpoint,
         parsed,
         bytes,
         vault: this.vault,
+        signal: abort.signal,
       });
 
+      lifecycle.releaseUpstream = prepared.release;
+      const { url, body, headers } = prepared;
+      if (channel.subscriptionAccountId)
+        await this.db
+          .update(requests)
+          .set({ subscriptionAccountId: channel.subscriptionAccountId })
+          .where(eq(requests.id, id));
       const reservation = await this.billing.reserve({
         requestId: id,
         userId: identity.user.id,
@@ -438,6 +461,7 @@ export class GatewayService implements Disposable {
         signal: abort.signal,
         redirect: 'manual',
       });
+      if (prepared.onResponse) await prepared.onResponse(upstream).catch(() => {});
       session.httpStatus = upstream.status;
       session.upstreamStatus = upstream.status;
       return await adapter.forwardResponse({

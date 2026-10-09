@@ -4,6 +4,7 @@ import { BillingService } from '../billing/service.js';
 import { CatalogService } from '../catalog/service.js';
 import { DatabaseService } from '../database/index.js';
 import { PricingService } from '../pricing/service.js';
+import { SubscriptionService } from '../subscription/service.js';
 import { GatewayService } from './service.js';
 
 export const GatewayPlugin = definePlugin({
@@ -13,6 +14,7 @@ export const GatewayPlugin = definePlugin({
     pricing: PricingService,
     billing: BillingService,
     catalog: CatalogService,
+    subscription: SubscriptionService,
   },
   provides: [GatewayService],
   apply(ctx) {
@@ -21,6 +23,7 @@ export const GatewayPlugin = definePlugin({
       ctx.pricing,
       ctx.billing,
       ctx.catalog.vault,
+      ctx.subscription,
       readGatewayConfig(),
       ctx.logger,
     );
