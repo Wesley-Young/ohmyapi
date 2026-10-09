@@ -1,20 +1,9 @@
-import {
-  Badge,
-  Box,
-  Button,
-  Checkbox,
-  Field,
-  HStack,
-  IconButton,
-  NativeSelect,
-  Stack,
-  Table,
-  Text,
-} from '@chakra-ui/react';
+import { Badge, Box, Button, Checkbox, Field, HStack, NativeSelect, Stack, Table, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, Link2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
+import { IconButton } from '../components/icon-button';
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton, Title } from '../components/ui';
 import { formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
@@ -284,10 +273,11 @@ export default function Keys() {
                                   : '有效'}
                         </Table.Cell>
                         <Table.Cell>
-                          <HStack>
+                          <HStack gap="1">
                             {!key.channelId && !key.revokedAt && !expired && (
-                              <Button
-                                variant="outline"
+                              <IconButton
+                                aria-label="绑定渠道"
+                                variant="ghost"
                                 size="sm"
                                 onClick={() => {
                                   bind.reset();
@@ -295,11 +285,11 @@ export default function Keys() {
                                   setBinding(key.id);
                                 }}
                               >
-                                绑定渠道
-                              </Button>
+                                <Link2 size={16} aria-hidden="true" />
+                              </IconButton>
                             )}
-                            <Button
-                              variant="outline"
+                            <IconButton
+                              variant="ghost"
                               size="sm"
                               color="red.600"
                               aria-label={`删除 Key「${key.name}」`}
@@ -307,8 +297,8 @@ export default function Keys() {
                               loading={deletion.isPending && deletion.variables?.keyId === key.id}
                               onClick={() => deletion.mutate({ keyId: key.id })}
                             >
-                              删除
-                            </Button>
+                              <Trash2 size={16} aria-hidden="true" />
+                            </IconButton>
                           </HStack>
                         </Table.Cell>
                       </Table.Row>

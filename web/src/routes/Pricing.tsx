@@ -1,8 +1,10 @@
 import { Badge, Box, Button, Checkbox, Grid, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
+import { IconButton } from '../components/icon-button';
 import { ErrorText, FormDialog, FormInput, Loading, Panel, PrimaryButton } from '../components/ui';
 import { formError } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
@@ -509,9 +511,10 @@ export default function Pricing({
                       {r.webSearchPreviewPrice ?? data.data.searchDefaults.webSearchPreviewPrice ?? '—'}
                     </Table.Cell>
                     <Table.Cell>
-                      <HStack>
-                        <Button
-                          variant="outline"
+                      <HStack gap="1">
+                        <IconButton
+                          aria-label="编辑价格规则"
+                          variant="ghost"
                           size="sm"
                           disabled={save.isPending}
                           onClick={() => {
@@ -519,17 +522,18 @@ export default function Pricing({
                             setEditingRule({ index, rule: currentRules[index] });
                           }}
                         >
-                          编辑
-                        </Button>
-                        <Button
+                          <Pencil size={16} aria-hidden="true" />
+                        </IconButton>
+                        <IconButton
+                          aria-label="删除价格规则"
                           variant="ghost"
                           size="sm"
                           color="red.500"
                           disabled={save.isPending || (r.kind === 'default' && currentRules.length > 1)}
                           onClick={() => save.mutate({ modelId, rules: currentRules.filter((_, i) => i !== index) })}
                         >
-                          删除
-                        </Button>
+                          <Trash2 size={16} aria-hidden="true" />
+                        </IconButton>
                       </HStack>
                     </Table.Cell>
                   </Table.Row>

@@ -1,10 +1,12 @@
 import { Badge, Box, Button, Checkbox, Field, HStack, Link, NativeSelect, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
 import { type ChannelModel, ChannelModels } from '../components/channel-models';
+import { IconButton } from '../components/icon-button';
 import { ConfirmAction, ErrorText, FormDialog, FormInput, Loading, PrimaryButton, Title } from '../components/ui';
 import { formError } from '../lib/format';
 import { queryClient, trpc, trpcClient } from '../lib/trpc';
@@ -428,11 +430,17 @@ export default function Catalog() {
                       </Table.Cell>
                       <Table.Cell>
                         <HStack gap="1">
-                          <Button variant="ghost" size="sm" onClick={() => setEdit({ id: c.id })}>
-                            编辑
-                          </Button>
+                          <IconButton
+                            aria-label="编辑渠道"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEdit({ id: c.id })}
+                          >
+                            <Pencil size={16} aria-hidden="true" />
+                          </IconButton>
                           <ConfirmAction
                             label="删除"
+                            icon={<Trash2 size={16} aria-hidden="true" />}
                             danger
                             description={`删除渠道「${c.name}」后，绑定它的 Key 将无法发起新请求。历史请求与账单仍然保留。`}
                             action={() => trpcClient.admin.catalog.deleteChannel.mutate({ channelId: c.id })}

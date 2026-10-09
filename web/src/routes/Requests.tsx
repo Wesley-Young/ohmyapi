@@ -1,9 +1,10 @@
 import { Badge, Box, Button, Checkbox, HStack, ProgressCircle, Stack, Table, Text } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Gauge, Package } from 'lucide-react';
+import { ArrowDown, ArrowUp, ClipboardCheck, Eye, Gauge, Package, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 
+import { IconButton } from '../components/icon-button';
 import { BillingAction, BulkZeroBilling, RequestDetail } from '../components/request-billing';
 import { ErrorText, Loading, PageControls, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
@@ -287,27 +288,29 @@ export default function Requests() {
                       </Table.Cell>
                       <Table.Cell>{r.chargedAmount || r.heldAmount}</Table.Cell>
                       <Table.Cell>
-                        <HStack>
-                          <Button size="sm" variant="outline" onClick={() => setDetailId(r.id)}>
-                            详情
-                          </Button>
+                        <HStack gap="1">
+                          <IconButton aria-label="查看详情" size="sm" variant="ghost" onClick={() => setDetailId(r.id)}>
+                            <Eye size={16} aria-hidden="true" />
+                          </IconButton>
                           {admin && r.billingEnabled && r.status === 'needs_review' && (
-                            <Button
+                            <IconButton
+                              aria-label="核对费用"
                               size="sm"
                               variant="ghost"
                               onClick={() => setAction({ requestId: r.id, kind: 'resolve' })}
                             >
-                              核对
-                            </Button>
+                              <ClipboardCheck size={16} aria-hidden="true" />
+                            </IconButton>
                           )}
                           {admin && r.billingEnabled && r.status === 'settled' && (
-                            <Button
+                            <IconButton
+                              aria-label="修正费用"
                               size="sm"
                               variant="ghost"
                               onClick={() => setAction({ requestId: r.id, kind: 'correct' })}
                             >
-                              修正
-                            </Button>
+                              <Pencil size={16} aria-hidden="true" />
+                            </IconButton>
                           )}
                         </HStack>
                       </Table.Cell>

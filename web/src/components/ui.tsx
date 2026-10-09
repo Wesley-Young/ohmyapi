@@ -15,9 +15,11 @@ import {
   Text,
 } from '@chakra-ui/react';
 import { useMutation } from '@tanstack/react-query';
+import { X } from 'lucide-react';
 import { type ReactNode, useId, useState } from 'react';
 
 import { formError } from '../lib/format';
+import { IconButton } from './icon-button';
 
 export function PrimaryButton(props: ButtonProps) {
   return (
@@ -127,6 +129,7 @@ export function ConfirmAction({
   onSuccess,
   disabled,
   danger,
+  icon,
 }: {
   label: string;
   description: string;
@@ -134,6 +137,7 @@ export function ConfirmAction({
   onSuccess?: () => Promise<unknown>;
   disabled?: boolean;
   danger?: boolean;
+  icon?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const task = useMutation({
@@ -154,14 +158,26 @@ export function ConfirmAction({
       }}
     >
       <Dialog.Trigger asChild>
-        <Button
-          variant={danger ? 'ghost' : 'outline'}
-          color={danger ? 'red.600' : undefined}
-          size="sm"
-          disabled={disabled}
-        >
-          {label}
-        </Button>
+        {icon ? (
+          <IconButton
+            aria-label={label}
+            variant={danger ? 'ghost' : 'outline'}
+            color={danger ? 'red.600' : undefined}
+            size="sm"
+            disabled={disabled}
+          >
+            {icon}
+          </IconButton>
+        ) : (
+          <Button
+            variant={danger ? 'ghost' : 'outline'}
+            color={danger ? 'red.600' : undefined}
+            size="sm"
+            disabled={disabled}
+          >
+            {label}
+          </Button>
+        )}
       </Dialog.Trigger>
       <Portal>
         <Dialog.Backdrop />
@@ -234,9 +250,17 @@ export function FormDialog({
             </Dialog.Header>
             <Dialog.Body pb="6">{children}</Dialog.Body>
             <Dialog.CloseTrigger asChild>
-              <Button aria-label="关闭" variant="ghost" size="sm" position="absolute" right="3" top="3" disabled={busy}>
-                ×
-              </Button>
+              <IconButton
+                aria-label="关闭"
+                variant="ghost"
+                size="sm"
+                position="absolute"
+                right="3"
+                top="3"
+                disabled={busy}
+              >
+                <X size={16} aria-hidden="true" />
+              </IconButton>
             </Dialog.CloseTrigger>
           </Dialog.Content>
         </Dialog.Positioner>

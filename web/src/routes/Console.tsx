@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Navigate, NavLink, Outlet, Link as RouterLink, useMatch } from 'react-router';
 
+import { Tooltip } from '../components/icon-button';
 import { Logo } from '../components/logo';
 import { useAuth } from '../lib/auth';
 
@@ -94,34 +95,34 @@ export default function Console() {
         >
           <Stack as="nav" aria-label="控制台导航" gap="1">
             {links.map((link) => (
-              <NavLink
-                key={link.to}
-                to={link.to}
-                end={link.end}
-                aria-label={link.label}
-                title={link.label}
-                style={{ display: 'block', borderRadius: '8px' }}
-              >
-                {({ isActive }) => (
-                  <HStack
-                    gap="3"
-                    h="44px"
-                    px={{ base: 0, md: 3 }}
-                    justify={{ base: 'center', md: 'start' }}
-                    borderRadius="lg"
-                    bg={isActive ? 'gray.100' : 'transparent'}
-                    color={isActive ? '#171717' : 'gray.500'}
-                    _hover={{ bg: isActive ? 'gray.100' : 'gray.50', color: '#171717' }}
-                    fontSize="sm"
-                    fontWeight={isActive ? '600' : '400'}
-                  >
-                    <NavigationIcon name={link.icon} />
-                    <Text display={{ base: 'none', md: 'block' }} whiteSpace="nowrap">
-                      {link.label}
-                    </Text>
-                  </HStack>
-                )}
-              </NavLink>
+              <Tooltip key={link.to} content={link.label}>
+                <NavLink
+                  to={link.to}
+                  end={link.end}
+                  aria-label={link.label}
+                  style={{ display: 'block', borderRadius: '8px' }}
+                >
+                  {({ isActive }) => (
+                    <HStack
+                      gap="3"
+                      h="44px"
+                      px={{ base: 0, md: 3 }}
+                      justify={{ base: 'center', md: 'start' }}
+                      borderRadius="lg"
+                      bg={isActive ? 'gray.100' : 'transparent'}
+                      color={isActive ? '#171717' : 'gray.500'}
+                      _hover={{ bg: isActive ? 'gray.100' : 'gray.50', color: '#171717' }}
+                      fontSize="sm"
+                      fontWeight={isActive ? '600' : '400'}
+                    >
+                      <NavigationIcon name={link.icon} />
+                      <Text display={{ base: 'none', md: 'block' }} whiteSpace="nowrap">
+                        {link.label}
+                      </Text>
+                    </HStack>
+                  )}
+                </NavLink>
+              </Tooltip>
             ))}
           </Stack>
         </Box>

@@ -1,9 +1,10 @@
-import { Badge, Box, Button, Code, HStack, IconButton, Input, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Code, HStack, Input, Stack, Table, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Pencil } from 'lucide-react';
+import { Pencil, Settings2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
+import { IconButton } from '../components/icon-button';
 import {
   ConfirmAction,
   ErrorText,
@@ -247,13 +248,16 @@ export default function Users() {
                         </Table.Cell>
                         <Table.Cell whiteSpace="nowrap">{localDate(user.createdAt)}</Table.Cell>
                         <Table.Cell>
-                          <HStack gap="2">
-                            <Button size="sm" variant="outline">
-                              <RouterLink to={`/console/users/${user.id}`}>管理</RouterLink>
-                            </Button>
+                          <HStack gap="1">
+                            <IconButton size="sm" variant="ghost" aria-label="管理用户" asChild>
+                              <RouterLink to={`/console/users/${user.id}`}>
+                                <Settings2 size={16} aria-hidden="true" />
+                              </RouterLink>
+                            </IconButton>
                             {user.role === 'user' && (
                               <ConfirmAction
                                 label="删除"
+                                icon={<Trash2 size={16} aria-hidden="true" />}
                                 danger
                                 description={`删除用户「${user.username}」后，其会话和所有 API Key 将失效。余额、历史请求与流水保留。`}
                                 action={() => trpcClient.admin.users.delete.mutate({ userId: user.id })}

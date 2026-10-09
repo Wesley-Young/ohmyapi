@@ -1,8 +1,9 @@
-import { Box, Button, Flex, HStack, IconButton, Input, Popover, Portal, Stack, Text } from '@chakra-ui/react';
+import { Box, Button, Flex, HStack, Input, Popover, Portal, Stack, Text } from '@chakra-ui/react';
 import { Check, ChevronDown, RefreshCw, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import type { PlaygroundKey, PlaygroundModel } from '../lib/playground';
+import { IconButton } from './icon-button';
 
 export function PlaygroundSelector({
   keys,

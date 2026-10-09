@@ -1,12 +1,13 @@
 import { useChat } from '@ai-sdk/react';
-import { Box, Button, Flex, Heading, HStack, IconButton, Link, Stack, Text, Textarea } from '@chakra-ui/react';
+import { Box, Button, Flex, Heading, HStack, Link, Stack, Text, Textarea } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUp, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
+import { IconButton } from '../components/icon-button';
 import { PlaygroundSelector } from '../components/playground-selector';
-import { ErrorText, Loading, PrimaryButton } from '../components/ui';
+import { ErrorText, Loading } from '../components/ui';
 import { formError } from '../lib/format';
 import { messageText, playgroundTransport, preferredEndpoint } from '../lib/playground';
 import { queryClient, trpc } from '../lib/trpc';
@@ -270,8 +271,12 @@ export default function Playground() {
                       <Square size={14} aria-hidden="true" />
                     </IconButton>
                   ) : (
-                    <PrimaryButton
+                    <IconButton
                       type="submit"
+                      bg="#635bff"
+                      color="white"
+                      borderRadius="full"
+                      _hover={{ bg: '#5146e6' }}
                       size="sm"
                       px="0"
                       minW="36px"
@@ -280,7 +285,7 @@ export default function Playground() {
                       disabled={!ready || !input.trim()}
                     >
                       <ArrowUp size={18} aria-hidden="true" />
-                    </PrimaryButton>
+                    </IconButton>
                   )}
                 </HStack>
               </Stack>

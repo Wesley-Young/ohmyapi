@@ -1,8 +1,9 @@
-import { Badge, Box, Button, Field, HStack, IconButton, Input, Stack, Text, Textarea } from '@chakra-ui/react';
+import { Badge, Box, Button, Field, HStack, Input, Stack, Text, Textarea } from '@chakra-ui/react';
 import type { RouterInputs, RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { Download, Plus, X } from 'lucide-react';
 import { useId, useState } from 'react';
 
+import { IconButton } from './icon-button';
 import { ErrorText } from './ui';
 
 export type ChannelModel = NonNullable<RouterInputs['admin']['catalog']['saveChannel']['availableModels']>[number];
