@@ -1,4 +1,4 @@
-import { Badge, Box, Button, Heading, HStack, Stack, Text } from '@chakra-ui/react';
+import { Badge, Button, HStack, Stack, Text } from '@chakra-ui/react';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -33,29 +33,24 @@ export default function Profile() {
             </Text>
             <Badge>{user.role === 'admin' ? '管理员' : '用户'}</Badge>
           </Stack>
-          <Box borderTopWidth="1px" borderColor="gray.200" pt="6">
-            <HStack justify="space-between" gap="4" flexWrap="wrap">
-              <Heading as="h2" fontSize="sm" fontWeight="500">
-                密码
-              </Heading>
-              <Button variant="outline" size="sm" borderRadius="full" onClick={() => setChangingPassword(true)}>
-                修改密码
-              </Button>
-            </HStack>
-          </Box>
         </Stack>
       </Panel>
       <Stack gap="3" align="start">
         <ErrorText>{formError(logout.error)?.message}</ErrorText>
-        <Button
-          variant="outline"
-          size="sm"
-          borderRadius="full"
-          loading={logout.isPending}
-          onClick={() => logout.mutate()}
-        >
-          退出登录
-        </Button>
+        <HStack gap="3">
+          <Button variant="outline" size="sm" borderRadius="full" onClick={() => setChangingPassword(true)}>
+            修改密码
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            borderRadius="full"
+            loading={logout.isPending}
+            onClick={() => logout.mutate()}
+          >
+            退出登录
+          </Button>
+        </HStack>
       </Stack>
       {changingPassword && <ChangePassword onClose={() => setChangingPassword(false)} />}
     </Stack>
