@@ -446,7 +446,7 @@ function ChannelForm({
                 <Checkbox.Label>非公开渠道</Checkbox.Label>
               </Checkbox.Root>
               <Text fontSize="sm" color="gray.500">
-                默认对所有用户开放；非公开渠道需管理员授权模型。
+                默认对所有用户开放；非公开渠道需管理员授权可访问用户。
               </Text>
             </Stack>
             <Enabled value={enabled} onChange={setEnabled} />
