@@ -511,7 +511,7 @@ export default function Pricing({
                     <Table.Cell>
                       <HStack>
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
                           disabled={save.isPending}
                           onClick={() => {
@@ -524,6 +524,7 @@ export default function Pricing({
                         <Button
                           variant="ghost"
                           size="sm"
+                          color="red.500"
                           disabled={save.isPending || (r.kind === 'default' && currentRules.length > 1)}
                           onClick={() => save.mutate({ modelId, rules: currentRules.filter((_, i) => i !== index) })}
                         >
