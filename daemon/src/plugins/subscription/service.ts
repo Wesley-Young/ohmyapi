@@ -13,12 +13,15 @@ import { credentialsSchema, type OpenAICredentials, parseCredentials } from './o
 import { OpenAIOAuth } from './openai/oauth.js';
 import { OpenAITokens } from './openai/tokens.js';
 
-export const subscriptionInput = z
-  .object({
-    maxConcurrent: z.number().int().min(1).max(100).default(5),
-    credentials: z.string().min(1).max(60000).optional(),
-    callbackUrl: z.url().max(8192).optional(),
-  })
+const credentialInput = z.object({
+  credentials: z.string().min(1).max(60000).optional(),
+  callbackUrl: z.url().max(8192).optional(),
+});
+export const subscriptionInput = credentialInput
+  .extend({ maxConcurrent: z.number().int().min(1).max(100).default(5) })
+  .refine((input) => !(input.credentials && input.callbackUrl), '请选择一种接入方式');
+export const fetchSubscriptionModelsInput = credentialInput
+  .extend({ channelId: z.uuid().optional() })
   .refine((input) => !(input.credentials && input.callbackUrl), '请选择一种接入方式');
 
 export class SubscriptionService implements Disposable {
@@ -37,6 +40,7 @@ export class SubscriptionService implements Disposable {
     this.vault = vault;
     this.tokens = new OpenAITokens(auth.db, vault);
     this.timer = setInterval(() => {
+      this.oauth.prune();
       void this.refreshExpiring().catch(() => {});
     }, 30_000);
     this.timer.unref();
@@ -51,7 +55,11 @@ export class SubscriptionService implements Disposable {
     }
   }
 
-  async prepareCredentials(principal: Principal, input: z.infer<typeof subscriptionInput>) {
+  consumeAuthorization(principal: Principal, callbackUrl: string) {
+    this.oauth.consume(principal.user.id, callbackUrl);
+  }
+
+  async prepareCredentials(principal: Principal, input: z.infer<typeof credentialInput>) {
     await this.auth.authorized(principal, { admin: true }, async () => {});
     if (input.callbackUrl) {
       try {
@@ -249,10 +257,17 @@ export class SubscriptionService implements Disposable {
       );
   }
 
-  async models(principal: Principal, channelId: string) {
-    const id = await this.accountForChannel(principal, channelId);
+  async models(principal: Principal, input: z.infer<typeof fetchSubscriptionModelsInput>) {
+    const id = input.channelId ? await this.accountForChannel(principal, input.channelId) : undefined;
+    const provided = await this.prepareCredentials(principal, input);
+    if (!provided && !id)
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '请先导入凭据或完成 OAuth 授权，再拉取模型' });
+    if (provided && new Date(provided.expiresAt).getTime() <= Date.now())
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '凭据已过期，请重新授权或导入新凭据' });
     try {
-      const [credentials, clientVersion] = await Promise.all([this.tokens.get(id), latestCodexClientVersion()]);
+      const credentials = provided ?? (id ? await this.tokens.get(id) : undefined);
+      if (!credentials) throw new Error('缺少订阅凭据');
+      const clientVersion = await latestCodexClientVersion();
       const response = await fetch(`${codexBaseUrl}/models?client_version=${clientVersion}`, {
         headers: accountHeaders(credentials, 'application/json', clientVersion),
         signal: AbortSignal.timeout(20_000),

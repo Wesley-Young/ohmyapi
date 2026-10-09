@@ -298,7 +298,7 @@ export class CatalogService {
       input.type === 'subscription' && input.subscription
         ? await this.subscription.prepareCredentials(principal, input.subscription)
         : undefined;
-    return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
+    const result = await this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [existing] = input.id
         ? await tx
             .select()
@@ -430,6 +430,9 @@ export class CatalogService {
         : [];
       return { ...row, unpricedModels: resolved.filter((m) => !priced.some((p) => p.modelId === m.id)) };
     });
+    if (input.type === 'subscription' && input.subscription?.callbackUrl)
+      this.subscription.consumeAuthorization(principal, input.subscription.callbackUrl);
+    return result;
   }
 
   async saveModel(principal: Principal, input: z.infer<typeof modelInput>) {

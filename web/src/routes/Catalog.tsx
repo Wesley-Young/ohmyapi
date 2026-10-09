@@ -142,7 +142,7 @@ function ChannelForm({
   const [name, setName] = useState(initial?.name ?? '');
   const [type, setType] = useState(initial?.type ?? 'api');
   const [maximum, setMaximum] = useState(String(initial?.subscription?.maxConcurrent ?? 5));
-  const [mode, setMode] = useState('import');
+  const [mode, setMode] = useState('oauth');
   const [credentials, setCredentials] = useState('');
   const [callback, setCallback] = useState('');
   const startOAuth = useMutation(trpc.admin.catalog.startSubscriptionOAuth.mutationOptions());
@@ -221,7 +221,7 @@ function ChannelForm({
                   ? {
                       maxConcurrent: Number(maximum),
                       credentials: mode === 'import' ? credentials || undefined : undefined,
-                      callbackUrl: mode === 'oauth' ? callback : undefined,
+                      callbackUrl: mode === 'oauth' ? callback || undefined : undefined,
                     }
                   : undefined,
               timeoutMs: Number(timeout),
@@ -298,18 +298,30 @@ function ChannelForm({
                   max={100}
                   required
                 />
-                <SelectField
-                  label="接入方式"
-                  value={mode}
-                  onChange={setMode}
-                  options={[
-                    { id: 'import', name: '导入凭据' },
-                    { id: 'oauth', name: 'OAuth 授权' },
-                  ]}
-                />
+                <Field.Root>
+                  <Field.Label>接入方式</Field.Label>
+                  <HStack gap="2" flexWrap="wrap" role="group" aria-label="接入方式">
+                    {[
+                      { value: 'oauth', label: 'OAuth 授权' },
+                      { value: 'import', label: '导入凭据' },
+                    ].map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        size="sm"
+                        variant={mode === option.value ? 'solid' : 'outline'}
+                        aria-pressed={mode === option.value}
+                        disabled={busy}
+                        onClick={() => setMode(option.value)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </HStack>
+                </Field.Root>
                 {mode === 'import' ? (
                   <Field.Root>
-                    <Field.Label>{initial ? '替换凭据（留空保留）' : '账号凭据'}</Field.Label>
+                    <Field.Label>{initial ? '替换凭据（留空保留现有凭据）' : '账号凭据'}</Field.Label>
                     <Textarea
                       aria-label="账号凭据"
                       value={credentials}
@@ -320,10 +332,7 @@ function ChannelForm({
                       autoComplete="off"
                       spellCheck={false}
                     />
-                    <Field.HelperText>
-                      粘贴 Codex auth.json 或包含 access_token、refresh_token、account_id 和 expires_at 的
-                      JSON。凭据加密保存。
-                    </Field.HelperText>
+                    <Field.HelperText>粘贴 ~/.codex/auth.json 文件内容</Field.HelperText>
                   </Field.Root>
                 ) : (
                   <Stack gap="3">
@@ -339,18 +348,23 @@ function ChannelForm({
                       生成授权链接
                     </Button>
                     {startOAuth.data && (
-                      <Link href={startOAuth.data.url} target="_blank" rel="noreferrer" color="#635bff">
-                        打开 OpenAI 授权页面
-                      </Link>
+                      <>
+                        <Link href={startOAuth.data.url} target="_blank" rel="noreferrer" color="#635bff">
+                          打开 OpenAI 授权页面
+                        </Link>
+                        <Text fontSize="sm" color="gray.500">
+                          授权后将重定向到 localhost:1455，浏览器会报错无法访问，请复制浏览器地址栏的完整 URL
+                          并粘贴到下方输入框中。
+                        </Text>
+                      </>
                     )}
                     <FormInput
-                      label="授权回调地址"
+                      label={initial ? '授权回调地址（留空保留现有凭据）' : '授权回调地址'}
                       value={callback}
                       onChange={(e) => setCallback(e.target.value)}
                       type="url"
-                      required
+                      required={!initial || Boolean(startOAuth.data)}
                       autoComplete="off"
-                      helper="完成授权后，复制浏览器中完整的 localhost:1455/auth/callback 地址；该页面可能显示无法访问。"
                     />
                   </Stack>
                 )}
@@ -366,7 +380,7 @@ function ChannelForm({
                   helper="支持服务根地址或以 /v1 结尾的 SDK 地址"
                 />
                 <FormInput
-                  label={initial ? '替换凭据（留空保留）' : '上游凭据'}
+                  label={initial ? '替换凭据（留空保留现有凭据）' : '上游凭据'}
                   type="password"
                   autoComplete="new-password"
                   value={credential}
@@ -402,9 +416,11 @@ function ChannelForm({
               fetching={fetching}
               onFetch={() =>
                 type === 'subscription'
-                  ? initial
-                    ? fetchSubscriptionModels.mutate({ channelId: initial.id })
-                    : setFetchError('请先保存订阅渠道，再编辑并拉取模型；也可以直接填写模型名称')
+                  ? fetchSubscriptionModels.mutate({
+                      channelId: initial?.id,
+                      credentials: mode === 'import' ? credentials || undefined : undefined,
+                      callbackUrl: mode === 'oauth' ? callback || undefined : undefined,
+                    })
                   : fetchModels.mutate({ id: initial?.id, baseUrl, credential: credential || undefined })
               }
               fetchError={fetchError ?? formError(fetchModels.error ?? fetchSubscriptionModels.error)?.message}

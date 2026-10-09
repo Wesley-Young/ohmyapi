@@ -20,7 +20,7 @@ import {
 import type { GatewayService } from '../plugins/gateway/service.js';
 import type { KeyService } from '../plugins/keys/service.js';
 import { type PricingService, previewInput, priceScope, savePriceInput } from '../plugins/pricing/service.js';
-import type { SubscriptionService } from '../plugins/subscription/service.js';
+import { fetchSubscriptionModelsInput, type SubscriptionService } from '../plugins/subscription/service.js';
 import type { UserService } from '../plugins/users/service.js';
 import type { WalletService } from '../plugins/wallet/service.js';
 
@@ -187,8 +187,8 @@ export const appRouter = t.router({
         .input(z.object({ channelId: z.uuid() }))
         .mutation(({ ctx, input }) => ctx.subscription.refresh(ctx.principal, input.channelId)),
       fetchSubscriptionModels: adminProcedure
-        .input(z.object({ channelId: z.uuid() }))
-        .mutation(({ ctx, input }) => ctx.subscription.models(ctx.principal, input.channelId)),
+        .input(fetchSubscriptionModelsInput)
+        .mutation(({ ctx, input }) => ctx.subscription.models(ctx.principal, input)),
       list: adminProcedure.query(({ ctx }) => ctx.catalog.list()),
       fetchChannelModels: adminProcedure
         .input(fetchChannelModelsInput)
