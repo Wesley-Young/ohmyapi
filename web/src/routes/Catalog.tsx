@@ -21,6 +21,7 @@ import { Link as RouterLink } from 'react-router';
 import { type ChannelModel, ChannelModels } from '../components/channel-models';
 import { IconButton } from '../components/icon-button';
 import { OpenAIQuota } from '../components/openai-quota';
+import { OpenAIResetCredits } from '../components/openai-reset-credits';
 import { ConfirmAction, ErrorText, FormDialog, FormInput, Loading, PrimaryButton, Title } from '../components/ui';
 import { formError } from '../lib/format';
 import { queryClient, trpc, trpcClient } from '../lib/trpc';
@@ -39,6 +40,7 @@ export const refreshCatalog = () =>
   Promise.all([
     queryClient.invalidateQueries(trpc.admin.catalog.list.queryFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.openAIQuota.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.catalog.openAIResetCredits.pathFilter()),
     queryClient.invalidateQueries(trpc.keys.models.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.channels.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.list.pathFilter()),
@@ -147,6 +149,7 @@ function ChannelForm({
   const [mode, setMode] = useState('oauth');
   const [credentials, setCredentials] = useState('');
   const [callback, setCallback] = useState('');
+  const [resetCreditBusy, setResetCreditBusy] = useState(false);
   const startOAuth = useMutation(trpc.admin.catalog.startSubscriptionOAuth.mutationOptions());
   const renew = useMutation(
     trpc.admin.catalog.refreshSubscription.mutationOptions({
@@ -205,7 +208,7 @@ function ChannelForm({
     }),
   );
   const fetching = fetchModels.isPending || fetchSubscriptionModels.isPending;
-  const busy = task.isPending || fetching || startOAuth.isPending || renew.isPending;
+  const busy = task.isPending || fetching || startOAuth.isPending || renew.isPending || resetCreditBusy;
   return (
     <FormDialog open title={initial ? '编辑渠道' : '添加渠道'} onClose={close} busy={busy} size="xl">
       <form
@@ -289,6 +292,14 @@ function ChannelForm({
                       手动刷新令牌
                     </Button>
                     <ErrorText>{formError(renew.error)?.message}</ErrorText>
+                    {initial.subscription.provider === 'openai' && (
+                      <OpenAIResetCredits
+                        channelId={initial.id}
+                        channelName={initial.name}
+                        enabled={initial.enabled && !initial.subscription.errorCode}
+                        onBusyChange={setResetCreditBusy}
+                      />
+                    )}
                   </Stack>
                 )}
                 <FormInput

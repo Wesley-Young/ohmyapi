@@ -12,6 +12,7 @@ import { accountHeaders, codexBaseUrl, latestCodexClientVersion, readJson } from
 import { credentialsSchema, type OpenAICredentials, parseCredentials } from './openai/credentials.js';
 import { OpenAIOAuth } from './openai/oauth.js';
 import { OpenAIQuota } from './openai/quota.js';
+import { OpenAIResetCredits } from './openai/reset-credits.js';
 import { OpenAITokens } from './openai/tokens.js';
 
 const credentialInput = z.object({
@@ -31,6 +32,7 @@ export class SubscriptionService implements Disposable {
   readonly tokens: OpenAITokens;
   private readonly oauth = new OpenAIOAuth();
   private readonly openaiQuota = new OpenAIQuota();
+  private readonly openaiResetCredits = new OpenAIResetCredits();
   private readonly timer: ReturnType<typeof setInterval>;
   private refreshing = false;
   private stopped = false;
@@ -181,14 +183,46 @@ export class SubscriptionService implements Disposable {
     return { success: true };
   }
   async openAIQuota(principal: Principal, channelId: string, force = false) {
+    const id = await this.openAIAccountForChannel(principal, channelId);
+    return this.openaiQuota.get(this.tokens, id, force);
+  }
+  async listOpenAIResetCredits(principal: Principal, channelId: string) {
+    const id = await this.openAIAccountForChannel(principal, channelId);
+    return this.openaiResetCredits.list(this.tokens, id);
+  }
+  async consumeOpenAIResetCredit(
+    principal: Principal,
+    input: { channelId: string; creditId: string; redeemRequestId: string },
+  ) {
+    const id = await this.openAIAccountForChannel(principal, input.channelId);
+    try {
+      const result = await this.openaiResetCredits.consume(this.tokens, id, input.creditId, input.redeemRequestId);
+      // 上游已完成的兑换不因本地状态更新失败而被报告为使用失败。
+      const cooldownCleared =
+        result.windowsReset > 0
+          ? await this.auth.db
+              .update(subscriptionAccounts)
+              .set({ cooldownUntil: null })
+              .where(eq(subscriptionAccounts.id, id))
+              .then(
+                () => true,
+                () => false,
+              )
+          : true;
+      return { ...result, cooldownCleared };
+    } finally {
+      this.openaiQuota.invalidate(id);
+    }
+  }
+  private async openAIAccountForChannel(principal: Principal, channelId: string) {
     const id = await this.accountForChannel(principal, channelId);
     const [account] = await this.auth.db
       .select({ provider: subscriptionAccounts.provider, enabled: subscriptionAccounts.enabled })
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
     if (account?.provider !== 'openai' || !account.enabled)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '该渠道无法查询 OpenAI 额度' });
-    return this.openaiQuota.get(this.tokens, id, force);
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '该 OpenAI 订阅渠道未启用或已删除' });
+    return id;
   }
   private async accountForChannel(principal: Principal, channelId: string) {
     return this.auth.authorized(principal, { admin: true }, async (tx) => {

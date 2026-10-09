@@ -182,6 +182,12 @@ export const appRouter = t.router({
       preview: adminProcedure.input(previewInput).mutation(({ ctx, input }) => ctx.pricing.preview(input)),
     }),
     catalog: t.router({
+      openAIResetCredits: adminProcedure
+        .input(z.object({ channelId: z.uuid() }))
+        .query(({ ctx, input }) => ctx.subscription.listOpenAIResetCredits(ctx.principal, input.channelId)),
+      consumeOpenAIResetCredit: adminProcedure
+        .input(z.object({ channelId: z.uuid(), creditId: z.string().min(1).max(256), redeemRequestId: z.uuid() }))
+        .mutation(({ ctx, input }) => ctx.subscription.consumeOpenAIResetCredit(ctx.principal, input)),
       refreshOpenAIQuota: adminProcedure
         .input(z.object({ channelId: z.uuid() }))
         .mutation(({ ctx, input }) => ctx.subscription.openAIQuota(ctx.principal, input.channelId, true)),
