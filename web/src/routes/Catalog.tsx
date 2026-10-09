@@ -35,6 +35,9 @@ const channelTypeLabels = {
   subscription: '订阅渠道',
   aggregate: '聚合渠道',
 } satisfies Record<CatalogData['channels'][number]['type'], string>;
+const providerLabels: Partial<Record<string, string>> = {
+  openai: 'OpenAI',
+}
 
 export const refreshCatalog = () =>
   Promise.all([
@@ -610,14 +613,14 @@ export default function Catalog() {
                     <Table.Row key={c.id}>
                       <Table.Cell>
                         <Text>{c.name}</Text>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <Text>{channelTypeLabels[c.type]} {c.subscription && `(${providerLabels[c.subscription.provider]})`}</Text>
                         {c.subscription && (
                           <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
                             {c.subscription.email ?? '未获取邮箱'}
                           </Text>
                         )}
-                      </Table.Cell>
-                      <Table.Cell>
-                        <Text>{channelTypeLabels[c.type]}</Text>
                       </Table.Cell>
                       <Table.Cell>
                         <Stack gap="1" align="start">
