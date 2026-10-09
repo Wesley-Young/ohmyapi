@@ -1,4 +1,4 @@
-import { Badge, Box, Button, Field, HStack, Input, Stack, Text, Textarea } from '@chakra-ui/react';
+import { Badge, Box, Button, Field, Grid, HStack, Input, Stack, Text, Textarea } from '@chakra-ui/react';
 import type { RouterInputs, RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { Download, Plus, X } from 'lucide-react';
 import { useId, useState } from 'react';
@@ -22,6 +22,7 @@ function MultiplierField({
   return (
     <Field.Root
       display="grid"
+      minW="0"
       gridTemplateColumns={{ base: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) 170px' }}
       gap="3"
       alignItems="center"
@@ -130,11 +131,21 @@ export function ChannelModels({
           </Text>
         )}
         {value.length > 0 && (
-          <Stack gap="1" maxH="240px" overflowY="auto" borderWidth="1px" borderColor="gray.200" borderRadius="lg" p="2">
+          <Grid
+            templateColumns={{ base: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' }}
+            rowGap="1"
+            columnGap="4"
+            maxH="240px"
+            overflowY="auto"
+            borderWidth="1px"
+            borderColor="gray.200"
+            borderRadius="lg"
+            p="2"
+          >
             {value.map((model) => {
               const existing = models.find((item) => item.name === model.name);
               return (
-                <HStack key={model.name} justify="space-between" gap="3" px="2" py="1">
+                <HStack key={model.name} justify="space-between" gap="3" px="2" py="1" minW="0">
                   <HStack gap="2" flexWrap="wrap" minW="0">
                     <Text fontSize="sm" overflowWrap="anywhere">
                       {model.name}
@@ -160,7 +171,7 @@ export function ChannelModels({
                 </HStack>
               );
             })}
-          </Stack>
+          </Grid>
         )}
       </Stack>
       {value.length > 0 && (
@@ -168,10 +179,17 @@ export function ChannelModels({
           <Text as="legend" fontSize="sm" fontWeight="500" mb="2">
             模型专属倍率
           </Text>
-          <Text fontSize="xs" color="gray.500" mb="3">
-            留空继承整体扣费倍率
-          </Text>
-          <Stack gap="4" borderWidth="1px" borderColor="gray.200" borderRadius="lg" p="4" maxH="360px" overflowY="auto">
+          <Grid
+            templateColumns={{ base: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' }}
+            rowGap="4"
+            columnGap="6"
+            borderWidth="1px"
+            borderColor="gray.200"
+            borderRadius="lg"
+            p="4"
+            maxH="360px"
+            overflowY="auto"
+          >
             {value.map((model) => (
               <MultiplierField
                 key={model.name}
@@ -182,7 +200,7 @@ export function ChannelModels({
                 }
               />
             ))}
-          </Stack>
+          </Grid>
         </Box>
       )}
     </>
