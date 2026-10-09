@@ -288,13 +288,13 @@ export default function Requests() {
                       <Table.Cell>{r.chargedAmount || r.heldAmount}</Table.Cell>
                       <Table.Cell>
                         <HStack>
-                          <Button size="sm" variant="ghost" onClick={() => setDetailId(r.id)}>
+                          <Button size="sm" variant="outline" onClick={() => setDetailId(r.id)}>
                             详情
                           </Button>
                           {admin && r.billingEnabled && r.status === 'needs_review' && (
                             <Button
                               size="sm"
-                              variant="outline"
+                              variant="ghost"
                               onClick={() => setAction({ requestId: r.id, kind: 'resolve' })}
                             >
                               核对
@@ -303,7 +303,7 @@ export default function Requests() {
                           {admin && r.billingEnabled && r.status === 'settled' && (
                             <Button
                               size="sm"
-                              variant="outline"
+                              variant="ghost"
                               onClick={() => setAction({ requestId: r.id, kind: 'correct' })}
                             >
                               修正
