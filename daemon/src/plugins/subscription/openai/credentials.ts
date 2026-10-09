@@ -10,6 +10,7 @@ export const credentialsSchema = z.object({
   refreshToken: token.optional(),
   accountId: z.string().min(1).max(256),
   userId: z.string().max(256).default(''),
+  email: z.email().optional(),
   expiresAt: z.iso.datetime(),
 });
 export type OpenAICredentials = z.infer<typeof credentialsSchema>;
@@ -31,6 +32,17 @@ export function parseCredentials(value: unknown, previous?: OpenAICredentials): 
   const accessToken = tokens.access_token ?? tokens.accessToken;
   const access = claims(accessToken);
   const identity = claims(tokens.id_token);
+  const profile = z.record(z.string(), z.unknown()).safeParse(access['https://api.openai.com/profile']);
+  const email = [
+    identity.email,
+    profile.success ? profile.data.email : undefined,
+    access.email,
+    tokens.email,
+    raw.email,
+    previous?.email,
+  ]
+    .map((value) => z.email().safeParse(typeof value === 'string' ? value.trim() : value))
+    .find((result) => result.success)?.data;
   const auth = {
     ...(identity['https://api.openai.com/auth'] as object),
     ...(access['https://api.openai.com/auth'] as object),
@@ -49,12 +61,14 @@ export function parseCredentials(value: unknown, previous?: OpenAICredentials): 
     refreshToken: tokens.refresh_token || tokens.refreshToken || previous?.refreshToken,
     accountId:
       tokens.account_id ??
+      tokens.accountId ??
       tokens.chatgpt_account_id ??
       raw.account_id ??
       raw.chatgpt_account_id ??
       auth.chatgpt_account_id ??
       previous?.accountId,
-    userId: tokens.chatgpt_user_id ?? auth.chatgpt_user_id ?? auth.user_id ?? previous?.userId ?? '',
+    userId: tokens.chatgpt_user_id ?? tokens.userId ?? auth.chatgpt_user_id ?? auth.user_id ?? previous?.userId ?? '',
+    email,
     expiresAt: expiresAt && Number.isFinite(expiresAt.getTime()) ? expiresAt.toISOString() : undefined,
   });
 }

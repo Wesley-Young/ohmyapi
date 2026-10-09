@@ -265,7 +265,7 @@ function ChannelForm({
                 </Field.Root>
                 {initial?.subscription && (
                   <Text fontSize="sm" color="gray.500" overflowWrap="anywhere">
-                    账号：{initial.subscription.accountId}
+                    邮箱：{initial.subscription.email ?? '未获取邮箱'}
                   </Text>
                 )}
                 <FormInput
@@ -564,7 +564,7 @@ export default function Catalog() {
                         <Text>{c.name}</Text>
                         {c.subscription && (
                           <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
-                            {c.subscription.accountId}
+                            {c.subscription.email ?? '未获取邮箱'}
                           </Text>
                         )}
                       </Table.Cell>

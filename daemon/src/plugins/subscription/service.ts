@@ -42,6 +42,15 @@ export class SubscriptionService implements Disposable {
     this.timer.unref();
   }
 
+  accountEmail(encrypted: string): string | null {
+    try {
+      // 已保存的旧凭据可从 access_token 读取邮箱，后续刷新会写入 email。
+      return parseCredentials(JSON.parse(this.vault.decrypt(encrypted))).email ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async prepareCredentials(principal: Principal, input: z.infer<typeof subscriptionInput>) {
     await this.auth.authorized(principal, { admin: true }, async () => {});
     if (input.callbackUrl) {
@@ -85,9 +94,13 @@ export class SubscriptionService implements Disposable {
     )
       throw new TRPCError({ code: 'BAD_REQUEST', message: '新凭据属于其他账号，请新建订阅渠道' });
     if (credentials) {
-      if (existing && !credentials.refreshToken) {
+      if (existing) {
         const saved = credentialsSchema.parse(JSON.parse(this.vault.decrypt(existing.credentialEncrypted)));
-        credentials = { ...credentials, refreshToken: saved.refreshToken };
+        credentials = {
+          ...credentials,
+          refreshToken: credentials.refreshToken ?? saved.refreshToken,
+          email: credentials.email ?? saved.email ?? this.accountEmail(existing.credentialEncrypted) ?? undefined,
+        };
       }
       const [duplicate] = await tx
         .select({ id: subscriptionAccounts.id })
