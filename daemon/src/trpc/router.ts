@@ -201,8 +201,8 @@ export const appRouter = t.router({
         .mutation(({ ctx, input }) => ctx.catalog.importModels(ctx.principal, input)),
       grants: adminProcedure.input(userId).query(({ ctx, input }) => ctx.catalog.grants(input.userId)),
       setGrants: adminProcedure
-        .input(userId.extend({ modelIds: z.array(z.uuid()).max(100) }))
-        .mutation(({ ctx, input }) => ctx.catalog.setGrants(ctx.principal, input.userId, input.modelIds)),
+        .input(userId.extend({ channelIds: z.array(z.uuid()).max(100) }))
+        .mutation(({ ctx, input }) => ctx.catalog.setGrants(ctx.principal, input.userId, input.channelIds)),
     }),
     requests: adminProcedure
       .input(z.object({ page, reviewOnly: z.boolean().default(false) }).default({ page: 0, reviewOnly: false }))

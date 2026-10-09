@@ -43,6 +43,13 @@
       "when": 1791545285951,
       "tag": "0005_channel_types",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791546881512,
+      "tag": "0006_user_channel_grants",
+      "breakpoints": true
     }
   ]
 }

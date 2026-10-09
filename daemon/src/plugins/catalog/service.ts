@@ -13,7 +13,7 @@ import {
   channels,
   models,
   priceRules,
-  userModelGrants,
+  userChannelGrants,
   users,
 } from '../database/schema/index.js';
 import { expandRules, multiplierInput, ruleInput, validateRules } from '../pricing/rules.js';
@@ -500,10 +500,10 @@ export class CatalogService {
 
   async grants(userId: string) {
     return this.auth.db
-      .select({ modelId: userModelGrants.modelId })
-      .from(userModelGrants)
-      .innerJoin(models, eq(models.id, userModelGrants.modelId))
-      .where(and(eq(userModelGrants.userId, userId), isNull(models.deletedAt)));
+      .select({ channelId: userChannelGrants.channelId })
+      .from(userChannelGrants)
+      .innerJoin(channels, eq(channels.id, userChannelGrants.channelId))
+      .where(and(eq(userChannelGrants.userId, userId), isNull(channels.deletedAt), eq(channels.isPublic, false)));
   }
 
   async deleteChannel(principal: Principal, channelId: string) {
@@ -532,25 +532,26 @@ export class CatalogService {
     });
   }
 
-  async setGrants(principal: Principal, userId: string, modelIds: string[]) {
+  async setGrants(principal: Principal, userId: string, channelIds: string[]) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [user] = await tx.select().from(users).where(eq(users.id, userId)).for('update');
       if (user?.role !== 'user' || user.deletedAt)
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '仅为未删除的普通用户设置模型授权' });
-      const ids = [...new Set(modelIds)];
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '仅为未删除的普通用户设置渠道授权' });
+      const ids = [...new Set(channelIds)];
       if (
         ids.length &&
         (
           await tx
-            .select({ id: models.id })
-            .from(models)
-            .where(and(inArray(models.id, ids), isNull(models.deletedAt)))
+            .select({ id: channels.id })
+            .from(channels)
+            .where(and(inArray(channels.id, ids), isNull(channels.deletedAt), eq(channels.isPublic, false)))
+            .for('share')
         ).length !== ids.length
       )
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '模型不存在' });
-      await tx.delete(userModelGrants).where(eq(userModelGrants.userId, userId));
-      if (ids.length) await tx.insert(userModelGrants).values(ids.map((modelId) => ({ userId, modelId })));
-      await this.audit(tx, actor.id, 'user.models', userId, { modelIds: ids });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道不存在或已公开' });
+      await tx.delete(userChannelGrants).where(eq(userChannelGrants.userId, userId));
+      if (ids.length) await tx.insert(userChannelGrants).values(ids.map((channelId) => ({ userId, channelId })));
+      await this.audit(tx, actor.id, 'user.channels', userId, { channelIds: ids });
       return { success: true };
     });
   }

@@ -94,17 +94,17 @@ export const channelAvailableModels = pgTable(
   ],
 );
 
-export const userModelGrants = pgTable(
-  'user_model_grants',
+export const userChannelGrants = pgTable(
+  'user_channel_grants',
   {
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id),
-    modelId: uuid('model_id')
+    channelId: uuid('channel_id')
       .notNull()
-      .references(() => models.id),
+      .references(() => channels.id),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.modelId] })],
+  (table) => [primaryKey({ columns: [table.userId, table.channelId] })],
 );
 
 export const apiKeyModelGrants = pgTable(

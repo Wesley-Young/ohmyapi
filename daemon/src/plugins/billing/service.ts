@@ -18,7 +18,7 @@ import {
   models,
   requests,
   requestUsage,
-  userModelGrants,
+  userChannelGrants,
   users,
   walletLedger,
   wallets,
@@ -299,11 +299,11 @@ export class BillingService implements Disposable {
           !(
             await tx
               .select()
-              .from(userModelGrants)
-              .where(and(eq(userModelGrants.userId, user.id), eq(userModelGrants.modelId, input.modelId)))
+              .from(userChannelGrants)
+              .where(and(eq(userChannelGrants.userId, user.id), eq(userChannelGrants.channelId, input.channelId)))
           ).length
         )
-          throw new GatewayError(403, 'model_forbidden', 'Model authorization was revoked');
+          throw new GatewayError(403, 'channel_forbidden', 'Channel authorization was revoked');
         if (
           key.restricted &&
           !(

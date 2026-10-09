@@ -20,7 +20,7 @@ import {
   priceRules,
   requests,
   requestUsage,
-  userModelGrants,
+  userChannelGrants,
   users,
 } from '../database/schema/index.js';
 import type { PricingService } from '../pricing/service.js';
@@ -178,8 +178,11 @@ export class GatewayService implements Disposable {
           and(eq(apiKeyModelGrants.modelId, models.id), eq(apiKeyModelGrants.apiKeyId, identity.key.id)),
         )
         .leftJoin(
-          userModelGrants,
-          and(eq(userModelGrants.modelId, models.id), eq(userModelGrants.userId, identity.user.id)),
+          userChannelGrants,
+          and(
+            eq(userChannelGrants.channelId, channelAvailableModels.channelId),
+            eq(userChannelGrants.userId, identity.user.id),
+          ),
         )
         .where(
           and(
@@ -188,7 +191,7 @@ export class GatewayService implements Disposable {
             isNull(models.deletedAt),
             identity.key.restrictModels ? eq(apiKeyModelGrants.apiKeyId, identity.key.id) : undefined,
             identity.user.role !== 'admin' && !channel.isPublic
-              ? eq(userModelGrants.userId, identity.user.id)
+              ? eq(userChannelGrants.userId, identity.user.id)
               : undefined,
           ),
         )
@@ -333,11 +336,10 @@ export class GatewayService implements Disposable {
 
     if (identity.user.role !== 'admin' && !route.channel.isPublic) {
       const [grant] = await this.db
-        .select({ modelId: userModelGrants.modelId })
-        .from(userModelGrants)
-        .where(and(eq(userModelGrants.userId, identity.user.id), eq(userModelGrants.modelId, model.id)));
-      if (!grant)
-        throw new GatewayError(403, 'model_forbidden', 'Model is not authorized for this user on a private channel');
+        .select({ channelId: userChannelGrants.channelId })
+        .from(userChannelGrants)
+        .where(and(eq(userChannelGrants.userId, identity.user.id), eq(userChannelGrants.channelId, route.channel.id)));
+      if (!grant) throw new GatewayError(403, 'channel_forbidden', 'Channel is not authorized for this user');
     }
     return { model, ...route };
   }

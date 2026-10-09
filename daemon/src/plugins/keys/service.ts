@@ -15,7 +15,7 @@ import {
   channels,
   models,
   priceRules,
-  userModelGrants,
+  userChannelGrants,
 } from '../database/schema/index.js';
 import { pageSize } from '../users/service.js';
 
@@ -42,7 +42,8 @@ export class KeyService {
   }
 
   async offerings(db: Database | Transaction, userId: string, role: string) {
-    const allowed = role === 'admin' ? undefined : or(eq(channels.isPublic, true), eq(userModelGrants.userId, userId));
+    const allowed =
+      role === 'admin' ? undefined : or(eq(channels.isPublic, true), eq(userChannelGrants.userId, userId));
     const base = db
       .selectDistinct({
         channelId: channels.id,
@@ -61,7 +62,10 @@ export class KeyService {
       .innerJoin(channelAvailableModels, eq(channels.id, channelAvailableModels.channelId))
       .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
       .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
-      .leftJoin(userModelGrants, and(eq(userModelGrants.modelId, models.id), eq(userModelGrants.userId, userId)))
+      .leftJoin(
+        userChannelGrants,
+        and(eq(userChannelGrants.channelId, channels.id), eq(userChannelGrants.userId, userId)),
+      )
       .where(
         and(
           eq(channels.enabled, true),
@@ -114,8 +118,8 @@ export class KeyService {
         and(eq(apiKeyModelGrants.apiKeyId, apiKeys.id), eq(apiKeyModelGrants.modelId, models.id)),
       )
       .leftJoin(
-        userModelGrants,
-        and(eq(userModelGrants.userId, principal.user.id), eq(userModelGrants.modelId, models.id)),
+        userChannelGrants,
+        and(eq(userChannelGrants.userId, principal.user.id), eq(userChannelGrants.channelId, channels.id)),
       )
       .where(
         and(
@@ -131,7 +135,7 @@ export class KeyService {
           or(eq(apiKeys.restrictModels, false), eq(apiKeyModelGrants.apiKeyId, apiKeys.id)),
           principal.user.role === 'admin'
             ? undefined
-            : or(eq(channels.isPublic, true), eq(userModelGrants.userId, principal.user.id)),
+            : or(eq(channels.isPublic, true), eq(userChannelGrants.userId, principal.user.id)),
         ),
       )
       .orderBy(apiKeys.name, apiKeys.id, models.name);
@@ -183,7 +187,7 @@ export class KeyService {
       if (existing) throw new TRPCError({ code: 'CONFLICT', message: 'Key 已绑定渠道，请创建新的 Key' });
       const offerings = await this.offerings(tx, user.id, user.role);
       if (!offerings.some((o) => o.channelId === channelId))
-        throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用或没有授权模型' });
+        throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用、未授权或没有可用模型' });
       await tx.insert(apiKeyChannels).values({ apiKeyId: keyId, channelId });
       return { success: true };
     });
@@ -260,7 +264,7 @@ export class KeyService {
       if (count >= 100) throw new TRPCError({ code: 'BAD_REQUEST', message: '最多保留 100 个有效 Key' });
       const modelIds = [...new Set(input.modelIds ?? [])];
       const offerings = (await this.offerings(tx, user.id, user.role)).filter((o) => o.channelId === input.channelId);
-      if (!offerings.length) throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用或没有授权模型' });
+      if (!offerings.length) throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用、未授权或没有可用模型' });
       if (modelIds.some((id) => !offerings.some((o) => o.modelId === id)))
         throw new TRPCError({ code: 'FORBIDDEN', message: '包含渠道不可用或未授权的模型' });
       const token = `sk-${randomBytes(32).toString('base64url')}`;

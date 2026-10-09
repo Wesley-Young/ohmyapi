@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router';
 
-import { ModelGrants } from '../components/model-grants';
+import { ChannelGrants } from '../components/channel-grants';
 import { WalletReconciliation } from '../components/request-billing';
 import {
   ConfirmAction,
@@ -144,7 +144,7 @@ export default function UserDetail() {
               <WalletReconciliation userId={userId} />
             </Box>
             {user.data.role === 'user' && !user.data.deleted && <ResetPassword key={userId} userId={userId} />}
-            {user.data.role === 'user' && !user.data.deleted && <ModelGrants key={userId} userId={userId} />}
+            {user.data.role === 'user' && !user.data.deleted && <ChannelGrants key={userId} userId={userId} />}
             {user.data.role === 'user' && !user.data.deleted && (
               <Box>
                 <ConfirmAction

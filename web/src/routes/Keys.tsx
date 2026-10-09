@@ -150,7 +150,7 @@ export default function Keys() {
                     value={restricted ? 'selected' : 'all'}
                     onChange={(e) => setRestricted(e.target.value === 'selected')}
                   >
-                    <option value="all">渠道内全部已授权模型</option>
+                    <option value="all">渠道内全部模型</option>
                     <option value="selected">指定模型</option>
                   </NativeSelect.Field>
                   <NativeSelect.Indicator />
@@ -173,7 +173,7 @@ export default function Keys() {
                   ))}
                   {!models.length && (
                     <Text fontSize="sm" color="gray.500">
-                      请选择有授权模型的渠道
+                      请选择包含模型的渠道
                     </Text>
                   )}
                 </Stack>
