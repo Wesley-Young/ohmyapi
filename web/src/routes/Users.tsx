@@ -1,5 +1,6 @@
-import { Badge, Box, Button, Code, HStack, Input, Link, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Code, HStack, IconButton, Input, Stack, Table, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
@@ -14,6 +15,7 @@ import {
   PrimaryButton,
   Title,
 } from '../components/ui';
+import { WalletAdjustmentDialog } from '../components/wallet-adjustment';
 import { displayMoney, formError, localDate } from '../lib/format';
 import { invalidateUser, queryClient, trpc, trpcClient } from '../lib/trpc';
 
@@ -23,6 +25,7 @@ export default function Users() {
   const [draftSearch, setDraftSearch] = useState('');
   const data = useQuery(trpc.admin.users.list.queryOptions({ page, search }));
   const [creating, setCreating] = useState(false);
+  const [adjustingUser, setAdjustingUser] = useState<{ id: string; username: string; balance: string } | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [copied, setCopied] = useState(false);
@@ -60,6 +63,16 @@ export default function Users() {
       >
         用户
       </Title>
+      {adjustingUser && data.data && (
+        <WalletAdjustmentDialog
+          key={adjustingUser.id}
+          userId={adjustingUser.id}
+          username={adjustingUser.username}
+          balance={adjustingUser.balance}
+          currency={data.data.currency}
+          onClose={() => setAdjustingUser(null)}
+        />
+      )}
       {credentials && (
         <Panel>
           <Stack gap="4">
@@ -218,14 +231,26 @@ export default function Users() {
                           {user.status === 'active' ? '启用' : '已禁用'}
                         </Table.Cell>
                         <Table.Cell textAlign="end" fontVariantNumeric="tabular-nums">
-                          {displayMoney(user.balance)}
+                          <HStack justify="end" gap="1" whiteSpace="nowrap">
+                            <Text as="span">{displayMoney(user.balance)}</Text>
+                            <IconButton
+                              type="button"
+                              variant="ghost"
+                              size="xs"
+                              aria-label={`调整「${user.username}」的余额`}
+                              title="调整余额"
+                              onClick={() => setAdjustingUser(user)}
+                            >
+                              <Pencil size={14} strokeWidth={1.75} aria-hidden="true" focusable="false" />
+                            </IconButton>
+                          </HStack>
                         </Table.Cell>
                         <Table.Cell whiteSpace="nowrap">{localDate(user.createdAt)}</Table.Cell>
                         <Table.Cell>
-                          <HStack gap="3">
-                            <Link asChild color="#635bff" fontWeight="500">
+                          <HStack gap="2">
+                            <Button size="sm" variant="outline">
                               <RouterLink to={`/console/users/${user.id}`}>管理</RouterLink>
-                            </Link>
+                            </Button>
                             {user.role === 'user' && (
                               <ConfirmAction
                                 label="删除"

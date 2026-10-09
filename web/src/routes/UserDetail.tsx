@@ -1,7 +1,6 @@
-import { Badge, Box, Grid, Heading, HStack, Link, Stack, Text } from '@chakra-ui/react';
+import { Badge, Box, Heading, HStack, Link, Stack, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { TRPCClientError } from '@trpc/client';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router';
 
 import { ModelGrants } from '../components/model-grants';
@@ -17,116 +16,8 @@ import {
   Title,
 } from '../components/ui';
 import { Ledger, WalletSummary } from '../components/wallet';
-import { useAuth } from '../lib/auth';
 import { formError } from '../lib/format';
 import { invalidateUser, trpc, trpcClient } from '../lib/trpc';
-
-function Adjustment({ userId }: { userId: string }) {
-  const { data: user } = useAuth();
-  const storageKey = `ohmyapi:adjust:${user?.id}:${userId}`;
-  const [saved] = useState<{ amount: string; reason: string; id: string } | null>(() => {
-    try {
-      const value = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null');
-      return value &&
-        typeof value.amount === 'string' &&
-        typeof value.reason === 'string' &&
-        typeof value.id === 'string'
-        ? value
-        : null;
-    } catch {
-      return null;
-    }
-  });
-  const [amount, setAmount] = useState(saved?.amount ?? '');
-  const [reason, setReason] = useState(saved?.reason ?? '');
-  const operation = useRef(saved);
-  const task = useMutation(
-    trpc.admin.wallet.adjust.mutationOptions({
-      onMutate: () => {
-        sessionStorage.setItem(storageKey, JSON.stringify(operation.current));
-      },
-      onError: (error) => {
-        if (
-          error instanceof TRPCClientError &&
-          ['BAD_REQUEST', 'FORBIDDEN', 'UNAUTHORIZED', 'NOT_FOUND', 'CONFLICT'].includes(error.data?.code)
-        ) {
-          operation.current = null;
-          sessionStorage.removeItem(storageKey);
-        }
-      },
-      onSuccess: async () => {
-        operation.current = null;
-        sessionStorage.removeItem(storageKey);
-        setAmount('');
-        setReason('');
-        await invalidateUser(userId);
-      },
-    }),
-  );
-  const error = formError(task.error);
-  return (
-    <Panel>
-      <Stack gap="5">
-        <Heading as="h2" fontSize="lg">
-          调整余额
-        </Heading>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (task.isPending) return;
-            operation.current ??= { amount, reason: reason.trim(), id: crypto.randomUUID() };
-            const request = operation.current;
-            task.mutate({ userId, amount: request.amount, reason: request.reason, idempotencyKey: request.id });
-          }}
-        >
-          <Stack gap="5">
-            <FormInput
-              label="调整金额"
-              inputMode="decimal"
-              value={amount}
-              onChange={(event) => {
-                setAmount(event.target.value);
-                task.reset();
-              }}
-              required
-              maxLength={30}
-              helper="正数增加，负数扣减；最多六位小数"
-              error={error?.fields.amount?.[0]}
-              disabled={task.isPending || Boolean(operation.current)}
-            />
-            <FormInput
-              label="原因（选填）"
-              value={reason}
-              onChange={(event) => {
-                setReason(event.target.value);
-                task.reset();
-              }}
-              maxLength={300}
-              error={error?.fields.reason?.[0]}
-              disabled={task.isPending || Boolean(operation.current)}
-            />
-            <ErrorText>{error?.message}</ErrorText>
-            {task.isSuccess && (
-              <Text role="status" fontSize="sm">
-                余额已调整
-              </Text>
-            )}
-            <HStack flexWrap="wrap">
-              <PrimaryButton type="submit" loading={task.isPending}>
-                {operation.current ? '重试调整' : '确认调整'}
-              </PrimaryButton>
-            </HStack>
-            {operation.current && !task.isPending && (
-              <Text fontSize="sm" color="gray.500">
-                上次调整结果尚未确认，请重试。
-              </Text>
-            )}
-          </Stack>
-        </form>
-      </Stack>
-    </Panel>
-  );
-}
 
 function ResetPassword({ userId }: { userId: string }) {
   const [password, setPassword] = useState('');
@@ -174,7 +65,7 @@ function ResetPassword({ userId }: { userId: string }) {
               </Text>
             )}
             <PrimaryButton type="submit" alignSelf="start" loading={task.isPending}>
-              重置密码
+              重置
             </PrimaryButton>
           </Stack>
         </form>
@@ -206,9 +97,6 @@ export default function UserDetail() {
             <Title
               action={
                 <HStack gap="3" flexWrap="wrap">
-                  <Badge colorPalette={user.data.deleted || user.data.status === 'disabled' ? 'gray' : 'green'}>
-                    {user.data.deleted ? '已删除' : user.data.status === 'active' ? '启用' : '已禁用'}
-                  </Badge>
                   {user.data.role === 'user' && !user.data.deleted && (
                     <>
                       <ConfirmAction
@@ -241,18 +129,21 @@ export default function UserDetail() {
                 </HStack>
               }
             >
-              {user.data.username}
+              <HStack gap="3">
+                <Text>{user.data.username}</Text>
+                <Badge
+                  colorPalette={user.data.deleted || user.data.status === 'disabled' ? 'gray' : 'green'}
+                  letterSpacing="normal"
+                >
+                  {user.data.deleted ? '已删除' : user.data.status === 'active' ? '启用' : '已禁用'}
+                </Badge>
+              </HStack>
             </Title>
             <WalletSummary wallet={wallet.data} />
             <Box>
               <WalletReconciliation userId={userId} />
             </Box>
-            {!user.data.deleted && (
-              <Grid templateColumns={{ base: '1fr', md: '1fr 1fr' }} gap="5">
-                <Adjustment key={userId} userId={userId} />
-                {user.data.role === 'user' && <ResetPassword key={userId} userId={userId} />}
-              </Grid>
-            )}
+            {user.data.role === 'user' && !user.data.deleted && <ResetPassword key={userId} userId={userId} />}
             {user.data.role === 'user' && !user.data.deleted && <ModelGrants key={userId} userId={userId} />}
             {user.data.role === 'user' && !user.data.deleted && (
               <Box>
