@@ -146,6 +146,12 @@ function ChannelForm({
   const [credentials, setCredentials] = useState('');
   const [callback, setCallback] = useState('');
   const startOAuth = useMutation(trpc.admin.catalog.startSubscriptionOAuth.mutationOptions());
+  const renew = useMutation(
+    trpc.admin.catalog.refreshSubscription.mutationOptions({
+      onSuccess: refreshCatalog,
+      onError: refreshCatalog,
+    }),
+  );
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? '');
   const [credential, setCredential] = useState('');
   const [timeout, setTimeout] = useState(String(initial?.timeoutMs ?? 120000));
@@ -197,7 +203,7 @@ function ChannelForm({
     }),
   );
   const fetching = fetchModels.isPending || fetchSubscriptionModels.isPending;
-  const busy = task.isPending || fetching || startOAuth.isPending;
+  const busy = task.isPending || fetching || startOAuth.isPending || renew.isPending;
   return (
     <FormDialog open title={initial ? '编辑渠道' : '添加渠道'} onClose={close} busy={busy} size="xl">
       <form
@@ -264,9 +270,24 @@ function ChannelForm({
                   </NativeSelect.Root>
                 </Field.Root>
                 {initial?.subscription && (
-                  <Text fontSize="sm" color="gray.500" overflowWrap="anywhere">
-                    邮箱：{initial.subscription.email ?? '未获取邮箱'}
-                  </Text>
+                  <Stack gap="3">
+                    <Text fontSize="sm" color="gray.500">
+                      访问令牌有效期至 {new Date(initial.subscription.expiresAt).toLocaleString()}，到期前将自动刷新
+                    </Text>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      alignSelf="start"
+                      disabled={!initial.enabled}
+                      loading={renew.isPending}
+                      onClick={() => renew.mutate({ channelId: initial.id })}
+                    >
+                      <RefreshCw size={16} aria-hidden="true" />
+                      手动刷新令牌
+                    </Button>
+                    <ErrorText>{formError(renew.error)?.message}</ErrorText>
+                  </Stack>
                 )}
                 <FormInput
                   label="并发上限"
@@ -404,7 +425,11 @@ function ChannelForm({
           </Stack>
         </fieldset>
         <HStack mt="5">
-          <PrimaryButton type="submit" loading={task.isPending} disabled={fetching || startOAuth.isPending}>
+          <PrimaryButton
+            type="submit"
+            loading={task.isPending}
+            disabled={fetching || startOAuth.isPending || renew.isPending}
+          >
             保存渠道
           </PrimaryButton>
           <Button type="button" variant="ghost" disabled={busy} onClick={close}>
@@ -488,12 +513,6 @@ export function ModelForm({
 }
 export default function Catalog() {
   const data = useQuery(trpc.admin.catalog.list.queryOptions());
-  const renew = useMutation(
-    trpc.admin.catalog.refreshSubscription.mutationOptions({
-      onSuccess: refreshCatalog,
-      onError: refreshCatalog,
-    }),
-  );
   const [edit, setEdit] = useState<{ id?: string }>();
   const [saved, setSaved] = useState<RouterOutputs['admin']['catalog']['saveChannel']>();
   const close = () => setEdit(undefined);
@@ -514,7 +533,7 @@ export default function Catalog() {
       >
         渠道
       </Title>
-      <ErrorText>{formError(data.error ?? renew.error)?.message}</ErrorText>
+      <ErrorText>{formError(data.error)?.message}</ErrorText>
       {saved && saved.unpricedModels.length > 0 && (
         <Stack gap="3" borderWidth="1px" borderColor="gray.200" borderRadius="lg" p="4" role="status">
           <Text fontSize="sm">
@@ -602,26 +621,12 @@ export default function Catalog() {
                                 new Date(c.subscription.cooldownUntil).getTime() > Date.now() && (
                                   <Badge colorPalette="orange">限流冷却中</Badge>
                                 )}
-                              <Text fontSize="xs" color="gray.500">
-                                令牌到期：{new Date(c.subscription.expiresAt).toLocaleString()}
-                              </Text>
                             </>
                           )}
                         </Stack>
                       </Table.Cell>
                       <Table.Cell>
                         <HStack gap="1" flexWrap="wrap">
-                          {c.subscription && (
-                            <IconButton
-                              aria-label="刷新订阅令牌"
-                              variant="ghost"
-                              size="sm"
-                              disabled={!c.enabled || renew.isPending}
-                              onClick={() => renew.mutate({ channelId: c.id })}
-                            >
-                              <RefreshCw size={16} />
-                            </IconButton>
-                          )}
                           <IconButton
                             aria-label="编辑渠道"
                             variant="ghost"
