@@ -107,6 +107,7 @@ export class CatalogService {
           type: channels.type,
           subscription: {
             id: subscriptionAccounts.id,
+            provider: subscriptionAccounts.provider,
             credentialEncrypted: subscriptionAccounts.credentialEncrypted,
             maxConcurrent: subscriptionAccounts.maxConcurrent,
             expiresAt: subscriptionAccounts.expiresAt,
@@ -133,6 +134,7 @@ export class CatalogService {
         ...c,
         subscription: c.subscription
           ? {
+              provider: c.subscription.provider,
               email: this.subscription.accountEmail(c.subscription.credentialEncrypted),
               maxConcurrent: c.subscription.maxConcurrent,
               expiresAt: c.subscription.expiresAt.toISOString(),

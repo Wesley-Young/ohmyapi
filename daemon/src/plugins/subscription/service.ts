@@ -11,6 +11,7 @@ import { SubscriptionConcurrency } from './concurrency.js';
 import { accountHeaders, codexBaseUrl, latestCodexClientVersion, readJson } from './openai/client.js';
 import { credentialsSchema, type OpenAICredentials, parseCredentials } from './openai/credentials.js';
 import { OpenAIOAuth } from './openai/oauth.js';
+import { OpenAIQuota } from './openai/quota.js';
 import { OpenAITokens } from './openai/tokens.js';
 
 const credentialInput = z.object({
@@ -29,6 +30,7 @@ export class SubscriptionService implements Disposable {
   readonly concurrency = new SubscriptionConcurrency();
   readonly tokens: OpenAITokens;
   private readonly oauth = new OpenAIOAuth();
+  private readonly openaiQuota = new OpenAIQuota();
   private readonly timer: ReturnType<typeof setInterval>;
   private refreshing = false;
   private stopped = false;
@@ -161,6 +163,7 @@ export class SubscriptionService implements Disposable {
       if (!created) throw new TRPCError({ code: 'CONFLICT', message: '该 OpenAI 账号已存在，请编辑对应订阅渠道' });
       row = created;
     }
+    this.openaiQuota.invalidate(row.id);
     return row.id;
   }
 
@@ -171,10 +174,21 @@ export class SubscriptionService implements Disposable {
     const id = await this.accountForChannel(principal, channelId);
     try {
       await this.tokens.get(id, true);
+      this.openaiQuota.invalidate(id);
     } catch {
       throw new TRPCError({ code: 'BAD_REQUEST', message: '刷新失败，请检查账号状态或重新授权' });
     }
     return { success: true };
+  }
+  async openAIQuota(principal: Principal, channelId: string, force = false) {
+    const id = await this.accountForChannel(principal, channelId);
+    const [account] = await this.auth.db
+      .select({ provider: subscriptionAccounts.provider, enabled: subscriptionAccounts.enabled })
+      .from(subscriptionAccounts)
+      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
+    if (account?.provider !== 'openai' || !account.enabled)
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '该渠道无法查询 OpenAI 额度' });
+    return this.openaiQuota.get(this.tokens, id, force);
   }
   private async accountForChannel(principal: Principal, channelId: string) {
     return this.auth.authorized(principal, { admin: true }, async (tx) => {
@@ -321,6 +335,7 @@ export class SubscriptionService implements Disposable {
     this.stopped = true;
     clearInterval(this.timer);
     this.oauth.dispose();
+    this.openaiQuota.dispose();
     await this.tokens.dispose();
   }
 }

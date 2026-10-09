@@ -182,6 +182,12 @@ export const appRouter = t.router({
       preview: adminProcedure.input(previewInput).mutation(({ ctx, input }) => ctx.pricing.preview(input)),
     }),
     catalog: t.router({
+      refreshOpenAIQuota: adminProcedure
+        .input(z.object({ channelId: z.uuid() }))
+        .mutation(({ ctx, input }) => ctx.subscription.openAIQuota(ctx.principal, input.channelId, true)),
+      openAIQuota: adminProcedure
+        .input(z.object({ channelId: z.uuid() }))
+        .query(({ ctx, input }) => ctx.subscription.openAIQuota(ctx.principal, input.channelId)),
       startSubscriptionOAuth: adminProcedure.mutation(({ ctx }) => ctx.subscription.startOAuth(ctx.principal)),
       refreshSubscription: adminProcedure
         .input(z.object({ channelId: z.uuid() }))

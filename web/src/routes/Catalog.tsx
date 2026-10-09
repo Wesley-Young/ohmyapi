@@ -20,6 +20,7 @@ import { Link as RouterLink } from 'react-router';
 
 import { type ChannelModel, ChannelModels } from '../components/channel-models';
 import { IconButton } from '../components/icon-button';
+import { OpenAIQuota } from '../components/openai-quota';
 import { ConfirmAction, ErrorText, FormDialog, FormInput, Loading, PrimaryButton, Title } from '../components/ui';
 import { formError } from '../lib/format';
 import { queryClient, trpc, trpcClient } from '../lib/trpc';
@@ -37,6 +38,7 @@ const channelTypeLabels = {
 export const refreshCatalog = () =>
   Promise.all([
     queryClient.invalidateQueries(trpc.admin.catalog.list.queryFilter()),
+    queryClient.invalidateQueries(trpc.admin.catalog.openAIQuota.pathFilter()),
     queryClient.invalidateQueries(trpc.keys.models.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.channels.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.list.pathFilter()),
@@ -587,7 +589,7 @@ export default function Catalog() {
               <Table.Root size="sm">
                 <Table.Header>
                   <Table.Row>
-                    {['名称', '类型', '可用模型', '状态', '操作'].map((h) => (
+                    {['名称', '类型', '通用倍率', '状态', '额度', '操作'].map((h) => (
                       <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                     ))}
                   </Table.Row>
@@ -607,29 +609,34 @@ export default function Catalog() {
                         <Text>{channelTypeLabels[c.type]}</Text>
                       </Table.Cell>
                       <Table.Cell>
-                        <Stack gap="2">
-                          {c.availableModels.map((a) => (
-                            <HStack key={a.modelId} gap="2" flexWrap="wrap">
-                              <Text overflowWrap="anywhere">
-                                {data.data?.models.find((m) => m.id === a.modelId)?.name}
-                              </Text>
-                              <Badge colorPalette="gray">{Number(a.multiplier ?? c.multiplier)}×</Badge>
-                              {a.multiplier === null && (
-                                <Badge colorPalette="gray" fontSize="xs">
-                                  继承
-                                </Badge>
-                              )}
-                            </HStack>
-                          ))}
+                        <Stack gap="1" align="start">
+                          <Text>{Number(c.multiplier)}×</Text>
+                          {c.availableModels.some((model) => model.multiplier !== null) && (
+                            <Text fontSize="xs" color="gray.500">
+                              {c.availableModels.filter((model) => model.multiplier !== null).length} 个模型有专属倍率
+                            </Text>
+                          )}
                         </Stack>
                       </Table.Cell>
                       <Table.Cell whiteSpace="nowrap">
                         <Stack gap="2" align="start">
-                          <Badge colorPalette={c.enabled ? 'green' : 'gray'}>{c.enabled ? '启用' : '禁用'}</Badge>
-                          <Badge colorPalette="gray">{c.isPublic ? '公开' : '非公开'}</Badge>
+                          <HStack gap="2" flexWrap="wrap">
+                            <Badge colorPalette={c.enabled ? 'green' : 'gray'}>{c.enabled ? '启用' : '禁用'}</Badge>
+                            <Badge colorPalette="gray">{c.isPublic ? '公开' : '非公开'}</Badge>
+                          </HStack>
                           {c.subscription && (
                             <>
-                              <Badge>
+                              <Badge
+                                colorPalette={
+                                  c.subscription.active / c.subscription.maxConcurrent >= 0.8
+                                    ? 'red'
+                                    : c.subscription.active / c.subscription.maxConcurrent >= 0.5
+                                      ? 'yellow'
+                                      : c.subscription.active > 0
+                                        ? 'green'
+                                        : 'gray'
+                                }
+                              >
                                 并发 {c.subscription.active} / {c.subscription.maxConcurrent}
                               </Badge>
                               {c.subscription.errorCode && <Badge colorPalette="red">需要重新授权</Badge>}
@@ -640,6 +647,17 @@ export default function Catalog() {
                             </>
                           )}
                         </Stack>
+                      </Table.Cell>
+                      <Table.Cell>
+                        {c.type === 'subscription' && c.subscription?.provider === 'openai' ? (
+                          <OpenAIQuota
+                            channelId={c.id}
+                            enabled={c.enabled}
+                            reauthorizationRequired={!!c.subscription.errorCode}
+                          />
+                        ) : (
+                          <Text color="gray.500">—</Text>
+                        )}
                       </Table.Cell>
                       <Table.Cell>
                         <HStack gap="1" flexWrap="wrap">
