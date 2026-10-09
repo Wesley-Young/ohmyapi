@@ -1,7 +1,15 @@
 import { Box } from '@chakra-ui/react';
+import { useEffect } from 'react';
 import { Outlet } from 'react-router';
 
 export default function App() {
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      // set title to indicate dev mode
+      document.title = `ohmyapi (dev)`;
+    }
+  });
+
   return (
     <Box
       as="main"
