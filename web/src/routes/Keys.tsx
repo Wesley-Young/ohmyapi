@@ -1,8 +1,9 @@
 import { Badge, Box, Button, Checkbox, Field, HStack, NativeSelect, Stack, Table, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Copy, Link2, Trash2 } from 'lucide-react';
+import { Check, Copy, Download, Link2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
+import { CCSwitchDialog } from '../components/cc-switch-dialog';
 import { IconButton } from '../components/icon-button';
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton, Title } from '../components/ui';
 import { formError, localDate } from '../lib/format';
@@ -12,6 +13,7 @@ import { SelectField } from './Catalog';
 export default function Keys() {
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [exportingKeyId, setExportingKeyId] = useState<string>();
   const data = useQuery(trpc.keys.list.queryOptions({ page }));
   const channels = useQuery(trpc.keys.channels.queryOptions());
   const [name, setName] = useState('');
@@ -91,6 +93,7 @@ export default function Keys() {
       <ErrorText>{formError(data.error ?? channels.error)?.message}</ErrorText>
       <ErrorText>{copyError}</ErrorText>
       <ErrorText>{formError(deletion.error)?.message}</ErrorText>
+      {exportingKeyId && <CCSwitchDialog keyId={exportingKeyId} onClose={() => setExportingKeyId(undefined)} />}
       {creating && (
         <FormDialog open title="创建 Key" busy={task.isPending} onClose={close}>
           <form
@@ -274,6 +277,16 @@ export default function Keys() {
                         </Table.Cell>
                         <Table.Cell>
                           <HStack gap="1">
+                            <IconButton
+                              aria-label={`导出「${key.name}」到 CC Switch`}
+                              title="导出到 CC Switch"
+                              variant="ghost"
+                              size="sm"
+                              disabled={Boolean(key.revokedAt || expired || key.channelDeleted || !key.channelId)}
+                              onClick={() => setExportingKeyId(key.id)}
+                            >
+                              <Download size={16} aria-hidden="true" />
+                            </IconButton>
                             {!key.channelId && !key.revokedAt && !expired && (
                               <IconButton
                                 aria-label="绑定渠道"
