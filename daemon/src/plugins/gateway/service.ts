@@ -1,5 +1,5 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
-import { and, desc, eq, gt, isNull, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, or } from 'drizzle-orm';
 
 import type { readGatewayConfig } from '../../config.js';
 import { createLogSampler, type EventLogger, errorDetails } from '../../logging.js';
@@ -527,9 +527,16 @@ export class GatewayService implements Disposable {
 
   async list(userId: string | undefined, page: number, reviewOnly = false) {
     const rows = await this.db
-      .select({ request: requests, username: users.username, usage: requestUsage })
+      .select({
+        request: requests,
+        username: users.username,
+        usage: requestUsage,
+        channelName: channels.name,
+        channelType: channels.type,
+      })
       .from(requests)
       .innerJoin(users, eq(requests.userId, users.id))
+      .leftJoin(channels, eq(requests.channelId, channels.id))
       .leftJoin(requestUsage, eq(requests.id, requestUsage.requestId))
       .where(
         and(
@@ -540,15 +547,39 @@ export class GatewayService implements Disposable {
       .orderBy(desc(requests.receivedAt), desc(requests.id))
       .limit(pageSize + 1)
       .offset(page * pageSize);
+    const pageRows = rows.slice(0, pageSize);
+    const attempts =
+      userId === undefined && pageRows.length > 0
+        ? await this.db
+            .select({
+              id: requestAttempts.id,
+              requestId: requestAttempts.requestId,
+              channelId: requestAttempts.channelId,
+              channelName: requestAttempts.channelName,
+            })
+            .from(requestAttempts)
+            .where(
+              inArray(
+                requestAttempts.requestId,
+                pageRows.map(({ request }) => request.id),
+              ),
+            )
+            .orderBy(asc(requestAttempts.sequence))
+        : [];
     return {
       currency: this.pricing.currency,
       hasMore: rows.length > pageSize,
-      items: rows.slice(0, pageSize).map(({ request: r, username, usage: u }) => ({
+      items: pageRows.map(({ request: r, username, usage: u, channelName, channelType }) => ({
         id: r.id,
         username,
         model: r.requestedModel,
         endpoint: r.endpoint,
         channelId: r.channelId,
+        channelName,
+        channelType,
+        executionChannels: attempts
+          .filter((attempt) => attempt.requestId === r.id)
+          .map(({ id, channelId, channelName }) => ({ id, channelId, channelName })),
         status: r.status,
         billingEnabled: r.billingEnabled,
         usageFinal: r.usageFinal,
