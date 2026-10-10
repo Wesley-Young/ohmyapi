@@ -29,6 +29,7 @@ import { availableSubscription } from '../subscription/availability.js';
 import type { SubscriptionService } from '../subscription/service.js';
 import { pageSize } from '../users/service.js';
 import { channelAdapter } from './adapters.js';
+import { type AffinitySelection, ChannelAffinity } from './affinity.js';
 import { ForwardBillingSession } from './billing-session.js';
 import { cacheReadForDisplay } from './cache-usage.js';
 import { GatewayError } from './errors.js';
@@ -41,6 +42,7 @@ type Config = ReturnType<typeof readGatewayConfig>;
 export class GatewayService implements Disposable {
   static readonly token = serviceToken<GatewayService>('ohmyapi/gateway');
   private readonly limits = new Map<string, { active: number; count: number; reset: number }>();
+  private readonly affinity = new ChannelAffinity();
   private readonly db: Database;
   private readonly vault: CredentialVault;
   private readonly subscription: SubscriptionService;
@@ -373,10 +375,22 @@ export class GatewayService implements Disposable {
       logger: this.logger,
       sampleLog: this.sampleLog,
     });
+    let binding: { selection: AffinitySelection; channelId: string } | undefined;
     const finish = (errorCode?: string) => {
       const result = session.summary(errorCode);
       return lifecycle.finish(
-        () => session.finish(result),
+        () => {
+          if (
+            binding &&
+            !result.errorCode &&
+            session.dispatched &&
+            (session.upstreamStatus ?? 0) >= 200 &&
+            (session.upstreamStatus ?? 0) < 300
+          ) {
+            this.affinity.remember(binding.selection, binding.channelId);
+          }
+          return session.finish(result);
+        },
         () => session.log(result),
       );
     };
@@ -408,7 +422,16 @@ export class GatewayService implements Disposable {
       });
       session.recorded = true;
       const { model, channel } = await this.resolveRoute(identity, parsed.model as string, endpoint, session);
-      const executionChannel = await selectExecutionChannel(this.db, this.subscription, channel, parsed, endpoint);
+      const { channel: executionChannel, affinity } = await selectExecutionChannel(
+        this.db,
+        this.subscription,
+        channel,
+        parsed,
+        endpoint,
+        req,
+        this.affinity,
+      );
+      if (affinity) binding = { selection: affinity, channelId: executionChannel.id };
       session.executionChannelId = executionChannel.id;
       const attemptId = randomUUID();
       await this.db.insert(requestAttempts).values({

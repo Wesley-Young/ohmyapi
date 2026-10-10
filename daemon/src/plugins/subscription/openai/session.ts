@@ -1,4 +1,5 @@
 import type { Endpoint } from '../../catalog/service.js';
+import { requestSession } from '../../gateway/session.js';
 
 import { createHash } from 'node:crypto';
 
@@ -14,17 +15,12 @@ export function prepareSession(
   channelId: string,
   endpoint: Endpoint,
 ) {
-  // 沿用已有缓存键的隔离方式，同一渠道、Key 和会话在刷新 OAuth 凭据后仍保持稳定。
+  // 缓存标识跟随子渠道和会话，切换用户、API Key 或刷新 OAuth 凭据后保持稳定。
   const scope = (value: string) =>
     createHash('sha256')
-      .update(`${channelId}:${request.headers.get('authorization')}:${value}`)
+      .update(JSON.stringify([channelId, value]))
       .digest('hex');
-  const metadata = record(parsed.client_metadata);
-  const seed =
-    text(parsed.prompt_cache_key) ||
-    text(request.headers.get('session_id')) ||
-    text(request.headers.get('conversation_id')) ||
-    text(metadata?.session_id);
+  const seed = requestSession(request, parsed, endpoint)?.value;
   if (seed) {
     const session = scope(seed);
     headers.set('session_id', session);

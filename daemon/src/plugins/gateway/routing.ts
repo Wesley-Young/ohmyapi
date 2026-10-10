@@ -13,7 +13,9 @@ import {
 import { availableSubscription } from '../subscription/availability.js';
 import { supportsAggregateRequest } from '../subscription/openai/request.js';
 import type { SubscriptionService } from '../subscription/service.js';
+import type { AffinitySelection, ChannelAffinity } from './affinity.js';
 import { GatewayError } from './errors.js';
+import { requestSession } from './session.js';
 
 type Channel = typeof channels.$inferSelect;
 
@@ -23,8 +25,12 @@ export async function selectExecutionChannel(
   entry: Channel,
   parsed: Record<string, unknown>,
   endpoint: Endpoint,
-) {
-  if (entry.type !== 'aggregate') return entry;
+  request: Request,
+  cache: ChannelAffinity,
+): Promise<{ channel: Channel; affinity?: AffinitySelection }> {
+  if (entry.type !== 'aggregate') return { channel: entry };
+  const session = requestSession(request, parsed, endpoint);
+  const affinity = session ? cache.lookup(entry.id, String(parsed.model), session) : undefined;
   const rows = await db
     .select({ channel: channels, member: aggregateChannelMembers, account: subscriptionAccounts })
     .from(aggregateChannelMembers)
@@ -54,13 +60,22 @@ export async function selectExecutionChannel(
   );
   if (!available.length)
     throw new GatewayError(503, 'aggregate_unavailable', 'No aggregate member is currently available');
+  if (affinity?.previous) {
+    const id = affinity.previous.channelId;
+    const bound = available.find((row) => row.channel.id === id);
+    if (bound) return { channel: bound.channel, affinity };
+  }
   const preferred = available.filter((row) => row.member.priority === available[0].member.priority);
+  let channel = preferred[preferred.length - 1].channel;
   let weight = Math.random() * preferred.reduce((sum, row) => sum + row.member.weight, 0);
   for (const row of preferred) {
     weight -= row.member.weight;
-    if (weight < 0) return row.channel;
+    if (weight < 0) {
+      channel = row.channel;
+      break;
+    }
   }
-  return preferred[preferred.length - 1].channel;
+  return { channel, affinity };
 }
 
 // 在预占和发送前复查入口交集及实际成员，配置变更不能绕过成员关系或能力校验。

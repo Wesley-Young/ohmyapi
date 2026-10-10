@@ -29,6 +29,21 @@ export function upstreamHeaders(req: Request, endpoint: Endpoint, streaming: boo
     const beta = req.headers.get('anthropic-beta');
     if (beta) headers.set('anthropic-beta', beta);
   } else headers.set('authorization', `Bearer ${credential}`);
+  if (endpoint === '/v1/responses' || endpoint === '/v1/responses/compact') {
+    for (const name of [
+      'session_id',
+      'session-id',
+      'conversation_id',
+      'thread_id',
+      'thread-id',
+      'x-codex-turn-state',
+      'x-codex-turn-metadata',
+      'x-codex-beta-features',
+    ]) {
+      const value = req.headers.get(name);
+      if (value && value.length <= 8192) headers.set(name, value);
+    }
+  }
   return headers;
 }
 
