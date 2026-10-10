@@ -29,6 +29,7 @@ import type { SubscriptionService } from '../subscription/service.js';
 import { pageSize } from '../users/service.js';
 import { channelAdapter } from './adapters.js';
 import { ForwardBillingSession } from './billing-session.js';
+import { cacheReadForDisplay } from './cache-usage.js';
 import { GatewayError } from './errors.js';
 import { RequestLifecycle } from './lifecycle.js';
 
@@ -453,6 +454,9 @@ export class GatewayService implements Disposable {
 
       lifecycle.setTimeout('upstream_timeout', channel.timeoutMs);
       lifecycle.syncClientAbort();
+      if (abort.signal.aborted)
+        throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
+      if (channel.type === 'subscription') lifecycle.retainUpstreamOnDisconnect(60_000);
       session.dispatched = true;
       const upstream = await fetch(url, {
         method: 'POST',
@@ -539,7 +543,7 @@ export class GatewayService implements Disposable {
           ? {
               input: u.inputTokens.toString(),
               output: u.outputTokens.toString(),
-              cacheRead: u.cacheReadTokens.toString(),
+              cacheRead: cacheReadForDisplay(r.endpoint, r.usageFinal, u.rawUsage, u.cacheReadTokens),
               cacheWrite: u.cacheWriteTokens.toString(),
               context: u.contextTokens.toString(),
               webSearchCalls: u.webSearchCalls.toString(),

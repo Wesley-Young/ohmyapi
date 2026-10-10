@@ -270,7 +270,7 @@ export default function Requests() {
                               {r.usageEstimate && <Badge colorPalette="orange">估算</Badge>}
                             </HStack>
                             <HStack gap="2" flexWrap="wrap">
-                              <UsageBadge kind="cacheRead" value={r.usage.cacheRead} />
+                              <UsageBadge kind="cacheRead" value={r.usage.cacheRead ?? '未知'} />
                               {r.durationMs !== null && r.durationMs > 0 && (
                                 <UsageBadge
                                   kind="tps"

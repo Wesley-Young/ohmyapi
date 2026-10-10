@@ -23,6 +23,7 @@ import {
   walletLedger,
   wallets,
 } from '../database/schema/index.js';
+import { cacheReadForDisplay, reportedCacheReadTokens } from '../gateway/cache-usage.js';
 import { GatewayError, requestErrorMessage } from '../gateway/errors.js';
 import type { Usage } from '../gateway/usage.js';
 import { priceInput, searchCountInput, tokenInput } from '../pricing/rules.js';
@@ -645,6 +646,17 @@ export class BillingService implements Disposable {
         return { request: r, status: 'needs_review', errorCode: 'usage_missing' };
       }
       let priced: Awaited<ReturnType<BillingService['pinned']>>;
+      if (!r.usageFinal && (r.subscriptionAccountId || reportedCacheReadTokens(r.endpoint, usage.rawUsage) === null)) {
+        await tx
+          .update(requests)
+          .set({
+            status: 'needs_review',
+            errorCode: 'usage_not_final',
+            errorMessage: '上游最终用量或缓存用量未确认，停止自动估算扣费，请依据上游账单核对',
+          })
+          .where(eq(requests.id, id));
+        return { request: r, status: 'needs_review', errorCode: 'usage_not_final' };
+      }
       try {
         priced = await this.pinned(r, usage);
       } catch (error) {
@@ -808,7 +820,11 @@ export class BillingService implements Disposable {
       .orderBy(walletLedger.createdAt, walletLedger.id);
     let preview: Awaited<ReturnType<BillingService['pinned']>> | undefined;
     let previewError: string | undefined;
-    if (r.billingEnabled && usage)
+    const cacheRead = usage
+      ? cacheReadForDisplay(r.endpoint, r.usageFinal, usage.rawUsage, usage.cacheReadTokens)
+      : null;
+    if (usage && cacheRead === null) previewError = '缓存用量未知，请依据上游账单核对，不能按零缓存计算费用';
+    if (r.billingEnabled && usage && cacheRead !== null)
       try {
         preview = await this.pinned(r, usage);
       } catch {
@@ -837,7 +853,7 @@ export class BillingService implements Disposable {
       upstreamRequestId: r.upstreamRequestId,
       pricing: r.pricingSnapshot,
       reservation: r.reservationSnapshot,
-      usage: usage ? usageDto(usage) : null,
+      usage: usage ? { ...usageDto(usage), cacheReadTokens: cacheRead } : null,
       preview,
       previewError,
       ledger: ledger.map(({ entry: e, actor }) => ({

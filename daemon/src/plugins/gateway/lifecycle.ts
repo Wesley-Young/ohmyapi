@@ -9,11 +9,15 @@ export class RequestLifecycle {
   releaseUpstream?: () => void;
   private completeRequest: () => void = () => {};
   private timer?: ReturnType<typeof setTimeout>;
+  private drainTimer?: ReturnType<typeof setTimeout>;
+  private drainTimeoutMs?: number;
+  private onDisconnect?: () => void;
+  clientDisconnected = false;
   private finalization?: Promise<void>;
   private stopResponse?: () => Promise<void>;
   private readonly req: Request;
   private readonly onComplete: () => void;
-  private readonly disconnect = () => this.abort.abort('client_disconnected');
+  private readonly disconnect = () => this.disconnectClient();
   private readonly onAbort = () => {
     void this.stopResponse?.();
   };
@@ -29,6 +33,27 @@ export class RequestLifecycle {
 
   syncClientAbort() {
     if (this.req.signal.aborted) this.disconnect();
+  }
+
+  retainUpstreamOnDisconnect(timeoutMs: number) {
+    this.drainTimeoutMs = timeoutMs;
+  }
+
+  disconnectClient() {
+    if (this.finalization || this.clientDisconnected) return;
+    this.clientDisconnected = true;
+    if (!this.drainTimeoutMs) {
+      this.abort.abort('client_disconnected');
+      return;
+    }
+    // 独立于空闲计时器，持续输出也不能无限延长断连后的收尾。
+    this.drainTimer = setTimeout(() => this.abort.abort('client_disconnected'), this.drainTimeoutMs);
+    this.onDisconnect?.();
+  }
+
+  watchClientDisconnect(handler: () => void) {
+    this.onDisconnect = handler;
+    if (this.clientDisconnected) handler();
   }
 
   async withBodyTimeout<T>(timeoutMs: number, read: () => Promise<T>): Promise<T> {
@@ -55,6 +80,8 @@ export class RequestLifecycle {
   finish(settle: () => Promise<void>, log: () => void): Promise<void> {
     if (this.finalization) return this.finalization;
     if (this.timer) clearTimeout(this.timer);
+    if (this.drainTimer) clearTimeout(this.drainTimer);
+    this.onDisconnect = undefined;
     this.req.signal.removeEventListener('abort', this.disconnect);
     this.abort.signal.removeEventListener('abort', this.onAbort);
     this.finalization = (async () => {

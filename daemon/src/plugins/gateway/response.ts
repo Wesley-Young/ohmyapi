@@ -17,6 +17,7 @@ export type ForwardResponseOptions = {
   onFinish: (safeRejection: boolean, errorCode?: string) => Promise<void>;
   onError: (error: unknown) => void;
   stopAtTerminal?: boolean;
+  estimateOnDisconnect?: boolean;
 };
 
 export async function forwardResponse(options: ForwardResponseOptions): Promise<Response> {
@@ -50,13 +51,16 @@ export async function forwardResponse(options: ForwardResponseOptions): Promise<
   let pullTask: Promise<void> | undefined;
   let responseFinalization: Promise<void> | undefined;
   let stoppingResponse: Promise<void> | undefined;
+  let drainTask: Promise<void> | undefined;
+  let clientClosed = false;
   let responseController: ReadableStreamDefaultController<Uint8Array>;
   const abortReason = () => (typeof abort.signal.reason === 'string' ? abort.signal.reason : 'upstream_disconnected');
   // 读取任务停止后汇总已收到的数据，再执行一次性计费收尾。
   const finalizeResponse = (errorCode?: string): Promise<void> => {
     responseFinalization ??= (async () => {
       observer?.finish(errorCode === 'client_disconnected');
-      if (isSse && upstream.ok && errorCode === 'client_disconnected') collector.estimateDisconnected();
+      if (options.estimateOnDisconnect !== false && isSse && upstream.ok && errorCode === 'client_disconnected')
+        collector.estimateDisconnected();
       if (!isSse && !collector.observationIncomplete) {
         try {
           collector.observe(JSON.parse(Buffer.concat(jsonChunks).toString('utf8')));
@@ -77,71 +81,101 @@ export async function forwardResponse(options: ForwardResponseOptions): Promise<
     })();
     return responseFinalization;
   };
+  const failClient = () => {
+    if (clientClosed) return;
+    clientClosed = true;
+    responseController.error(new Error('Upstream stream interrupted'));
+  };
+  const closeClient = () => {
+    if (clientClosed) return;
+    clientClosed = true;
+    responseController.close();
+  };
   const stopResponse = () => {
     stoppingResponse ??= (async () => {
       await reader.cancel().catch(() => {});
       await pullTask;
       await finalizeResponse(abortReason());
-      responseController.error(new Error('Upstream stream interrupted'));
+      failClient();
     })();
     return stoppingResponse;
+  };
+  const readNext = async () => {
+    try {
+      const { value, done } = await reader.read();
+      if (done) {
+        await finalizeResponse(
+          abort.signal.aborted
+            ? abortReason()
+            : !upstream.ok
+              ? 'upstream_http_error'
+              : streaming !== isSse
+                ? 'unexpected_response_type'
+                : lifecycle.clientDisconnected
+                  ? 'client_disconnected'
+                  : undefined,
+        );
+        if (abort.signal.aborted) failClient();
+        else closeClient();
+        return;
+      }
+      resetIdleTimeout();
+      observer?.push(value);
+
+      await onCheckpoint();
+
+      // usage 观察容量独立于请求体限制，超限后继续转发并保留待核对状态。
+      if (!isSse) {
+        jsonSize += value.byteLength;
+        if (jsonSize <= config.maxUsageBodyBytes) jsonChunks.push(value);
+        else {
+          jsonChunks.length = 0;
+          collector.observationIncomplete = true;
+        }
+      }
+      if (!abort.signal.aborted && !clientClosed && !lifecycle.clientDisconnected) responseController.enqueue(value);
+      if (options.stopAtTerminal && collector.complete) {
+        await reader.cancel().catch(() => {});
+        await finalizeResponse(
+          collector.failed ? 'upstream_error' : lifecycle.clientDisconnected ? 'client_disconnected' : undefined,
+        );
+        if (!abort.signal.aborted) closeClient();
+      }
+    } catch (error) {
+      onError(error);
+      abort.abort(abort.signal.reason ?? 'upstream_disconnected');
+      failClient();
+    }
+  };
+  const drain = () => {
+    if (drainTask || responseFinalization || stoppingResponse) return;
+    failClient();
+    drainTask = (async () => {
+      // 复用正在进行的读取，避免下游 pull 与后台收尾同时消费上游。
+      await pullTask;
+      while (!responseFinalization && !stoppingResponse && !abort.signal.aborted) {
+        pullTask = readNext();
+        await pullTask;
+      }
+    })().catch(onError);
   };
   const stream = new ReadableStream<Uint8Array>({
     start: (controller) => {
       responseController = controller;
     },
-    pull: (controller) => {
-      if (responseFinalization || stoppingResponse) return;
-      pullTask = (async () => {
-        try {
-          const { value, done } = await reader.read();
-          if (done) {
-            await finalizeResponse(
-              abort.signal.aborted
-                ? abortReason()
-                : !upstream.ok
-                  ? 'upstream_http_error'
-                  : streaming !== isSse
-                    ? 'unexpected_response_type'
-                    : undefined,
-            );
-            if (abort.signal.aborted) controller.error(new Error('Upstream stream interrupted'));
-            else controller.close();
-            return;
-          }
-          resetIdleTimeout();
-          observer?.push(value);
-
-          await onCheckpoint();
-
-          // usage 观察容量独立于请求体限制，超限后继续转发并保留待核对状态。
-          if (!isSse) {
-            jsonSize += value.byteLength;
-            if (jsonSize <= config.maxUsageBodyBytes) jsonChunks.push(value);
-            else {
-              jsonChunks.length = 0;
-              collector.observationIncomplete = true;
-            }
-          }
-          if (!abort.signal.aborted) controller.enqueue(value);
-          if (options.stopAtTerminal && collector.complete) {
-            await reader.cancel().catch(() => {});
-            await finalizeResponse(collector.failed ? 'upstream_error' : undefined);
-            if (!abort.signal.aborted) controller.close();
-          }
-        } catch (error) {
-          onError(error);
-          abort.abort(abort.signal.reason ?? 'upstream_disconnected');
-          controller.error(new Error('Upstream stream interrupted'));
-        }
-      })();
+    pull: () => {
+      if (responseFinalization || stoppingResponse || drainTask) return drainTask;
+      pullTask = readNext();
       return pullTask;
     },
     cancel: () => {
-      abort.abort('client_disconnected');
-      return stopResponse();
+      clientClosed = true;
+      lifecycle.disconnectClient();
+      if (abort.signal.aborted) return stopResponse();
+      drain();
     },
   });
   lifecycle.watchResponse(stopResponse);
+  lifecycle.watchClientDisconnect(drain);
   return new Response(stream, { status: upstream.status, headers });
 }

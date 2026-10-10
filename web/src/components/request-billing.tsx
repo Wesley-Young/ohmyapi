@@ -74,6 +74,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                     <Badge colorPalette="gray">
                       输入：{r.usageEstimate.inputSource === 'upstream' ? '上游报告' : '请求估算'}
                     </Badge>
+                    {r.usage?.cacheReadTokens === null && <Badge colorPalette="orange">缓存用量未知</Badge>}
                     <Badge colorPalette="gray">
                       输出：
                       {r.usageEstimate.outputSource === 'upstream'

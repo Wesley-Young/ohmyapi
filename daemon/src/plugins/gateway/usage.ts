@@ -2,6 +2,7 @@ import { safeErrorMessage } from '../../logging.js';
 import type { UsageEstimate } from '../billing/estimation.js';
 import type { SearchRequest } from '../billing/search.js';
 import type { Endpoint } from '../catalog/service.js';
+import { reportedCacheReadTokens } from './cache-usage.js';
 import { SearchUsageCollector } from './search-usage.js';
 import { StreamUsageEstimate } from './usage-estimate.js';
 
@@ -96,6 +97,8 @@ export class UsageCollector {
     const inputKey = this.endpoint === '/v1/chat/completions' ? 'prompt_tokens' : 'input_tokens';
     const outputKey = this.endpoint === '/v1/chat/completions' ? 'completion_tokens' : 'output_tokens';
     const reportedInput = count(raw[inputKey]);
+    // 缓存命中无法从请求内容估算，缺少上游输入及缓存报告时交给人工核对。
+    if (reportedInput === undefined || reportedCacheReadTokens(this.endpoint, raw) === null) return;
     const tail = this.estimate.output.count();
     const output = (this.reportedOutput ?? 0n) + tail;
     if (output > BigInt(Number.MAX_SAFE_INTEGER)) return;
