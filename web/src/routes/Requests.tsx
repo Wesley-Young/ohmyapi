@@ -247,24 +247,7 @@ export default function Requests() {
                       )}
                       <Table.Cell>{localDate(r.receivedAt)}</Table.Cell>
                       <Table.Cell minW="140px" maxW="240px">
-                        <Stack gap="2">
-                          <Text overflowWrap="anywhere">{r.channelName ?? r.channelId ?? '—'}</Text>
-                          <HStack gap="2" flexWrap="wrap">
-                            {r.channelType && (
-                              <Badge>
-                                {{ api: 'API 渠道', subscription: '订阅渠道', aggregate: '聚合渠道' }[r.channelType]}
-                              </Badge>
-                            )}
-                            {admin &&
-                              r.executionChannels
-                                .filter((channel) => channel.channelId !== r.channelId)
-                                .map((channel) => (
-                                  <Badge key={channel.id} whiteSpace="normal" overflowWrap="anywhere">
-                                    执行：{channel.channelName}
-                                  </Badge>
-                                ))}
-                          </HStack>
-                        </Stack>
+                        <Text overflowWrap="anywhere">{r.channelName ?? r.channelId ?? '—'}</Text>
                       </Table.Cell>
                       {admin && <Table.Cell>{r.username}</Table.Cell>}
                       <Table.Cell>{r.model}</Table.Cell>
