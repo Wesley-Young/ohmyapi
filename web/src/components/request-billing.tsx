@@ -177,6 +177,12 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                     <Badge colorPalette="gray">
                       {r.preview.ruleLabel} {displayMoney(r.preview.multiplier)}×
                     </Badge>
+                    <Badge colorPalette="gray">
+                      {r.preview.pricingMode === 'passthrough' ? '透传倍率' : '统一倍率'}
+                    </Badge>
+                    <Badge colorPalette="gray">
+                      {r.preview.multiplierSource === 'model' ? '模型专属倍率' : '整体倍率'}
+                    </Badge>
                   </HStack>
                   <Box overflowX="auto">
                     <Table.Root size="sm">

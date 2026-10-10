@@ -24,7 +24,7 @@ import {
   userChannelGrants,
   users,
 } from '../database/schema/index.js';
-import type { PricingService } from '../pricing/service.js';
+import { type PricingService, publicPricingSnapshot } from '../pricing/service.js';
 import { availableSubscription } from '../subscription/availability.js';
 import type { SubscriptionService } from '../subscription/service.js';
 import { pageSize } from '../users/service.js';
@@ -328,7 +328,7 @@ export class GatewayService implements Disposable {
     if (!identity.channelId)
       throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
     const [route] = await this.db
-      .select({ channel: channels, override: channelAvailableModels.multiplierMicros })
+      .select({ channel: channels })
       .from(channels)
       .innerJoin(channelAvailableModels, eq(channelAvailableModels.channelId, channels.id))
       .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
@@ -407,7 +407,7 @@ export class GatewayService implements Disposable {
         streaming,
       });
       session.recorded = true;
-      const { model, channel, override } = await this.resolveRoute(identity, parsed.model as string, endpoint, session);
+      const { model, channel } = await this.resolveRoute(identity, parsed.model as string, endpoint, session);
       const executionChannel = await selectExecutionChannel(this.db, this.subscription, channel, parsed, endpoint);
       session.executionChannelId = executionChannel.id;
       const attemptId = randomUUID();
@@ -422,12 +422,7 @@ export class GatewayService implements Disposable {
       });
       session.attemptId = attemptId;
       const adapter = channelAdapter(executionChannel.type, this.subscription);
-      const lockedPrice = await this.pricing.lock(
-        model.id,
-        receivedAt,
-        override ?? channel.multiplierMicros,
-        override === null ? 'channel' : 'model',
-      );
+      const lockedPrice = await this.pricing.lockRoute(model.id, receivedAt, channel.id, executionChannel.id);
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
       const requestedOutputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
       const outputLimit = executionChannel.type === 'subscription' ? model.outputTokenLimit : requestedOutputLimit;
@@ -588,7 +583,7 @@ export class GatewayService implements Disposable {
         heldAmount: formatMoney(r.heldMicros),
         chargedAmount: r.chargedMicros === null ? null : formatMoney(r.chargedMicros),
         quotedAmount: r.quotedMicros === null ? null : formatMoney(r.quotedMicros),
-        pricing: r.pricingSnapshot,
+        pricing: userId ? publicPricingSnapshot(r.pricingSnapshot) : r.pricingSnapshot,
         streaming: r.streaming,
         httpStatus: r.httpStatus,
         receivedAt: r.receivedAt.toISOString(),

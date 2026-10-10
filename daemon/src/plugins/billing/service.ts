@@ -29,7 +29,7 @@ import { GatewayError, requestErrorMessage } from '../gateway/errors.js';
 import { lockExecutionRoute } from '../gateway/routing.js';
 import type { Usage } from '../gateway/usage.js';
 import { priceInput, searchCountInput, tokenInput } from '../pricing/rules.js';
-import type { LockedPrice, PricingService } from '../pricing/service.js';
+import { type LockedPrice, type PricingService, publicPricingSnapshot } from '../pricing/service.js';
 import { reservationAmount } from './admission.js';
 import { formatMoney, parseMoney } from './conventions.js';
 import { estimateReservation, type UsageEstimate } from './estimation.js';
@@ -334,6 +334,8 @@ export class BillingService implements Disposable {
         const snapshot = {
           multiplier: formatMoney(input.price.multiplierMicros),
           multiplierSource: input.price.multiplierSource,
+          pricingMode: input.price.pricingMode,
+          routing: input.price.routing,
           receivedAt: input.price.receivedAt.toISOString(),
           currency: this.pricing.currency,
           billed: false,
@@ -885,10 +887,13 @@ export class BillingService implements Disposable {
         (r.status === 'needs_review' ? '该历史请求未保存具体错误消息，请通过请求 ID 查询服务日志。' : null),
       httpStatus: r.httpStatus,
       upstreamRequestId: r.upstreamRequestId,
-      pricing: r.pricingSnapshot,
-      reservation: r.reservationSnapshot,
+      pricing: principal.user.role === 'admin' ? r.pricingSnapshot : publicPricingSnapshot(r.pricingSnapshot),
+      reservation:
+        principal.user.role === 'admin' ? r.reservationSnapshot : publicPricingSnapshot(r.reservationSnapshot),
       usage: usage ? { ...usageDto(usage), cacheReadTokens: cacheRead } : null,
-      preview,
+      preview: preview
+        ? { ...preview, routing: principal.user.role === 'admin' ? preview.routing : undefined }
+        : undefined,
       previewError,
       ledger: ledger.map(({ entry: e, actor }) => ({
         id: e.id,
@@ -900,7 +905,7 @@ export class BillingService implements Disposable {
         reason: e.reason,
         actor: actor ?? '系统',
         createdAt: e.createdAt.toISOString(),
-        metadata: e.metadata,
+        metadata: principal.user.role === 'admin' ? e.metadata : publicPricingSnapshot(e.metadata),
       })),
     };
   }

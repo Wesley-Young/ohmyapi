@@ -55,6 +55,7 @@ export function ChannelModels({
   fetchError,
   fetchNotice,
   derived = false,
+  editableMultipliers = true,
 }: {
   value: ChannelModel[];
   onChange: (value: ChannelModel[]) => void;
@@ -65,6 +66,7 @@ export function ChannelModels({
   fetchError?: string;
   fetchNotice?: string;
   derived?: boolean;
+  editableMultipliers?: boolean;
 }) {
   const inputId = useId();
   const [draft, setDraft] = useState('');
@@ -87,107 +89,100 @@ export function ChannelModels({
   }
   return (
     <>
-      <Stack gap="3">
-        {derived && (
-          <Text fontSize="sm" color="gray.500">
-            共同模型 {value.length} 个，由子渠道自动计算。
-          </Text>
-        )}
-        {!derived && (
-          <>
-            <Field.Root invalid={Boolean(error)}>
-              <Field.Label htmlFor={inputId}>可用模型</Field.Label>
-              <Textarea
-                id={inputId}
-                value={draft}
-                placeholder="输入模型名称，可用换行或逗号批量添加"
-                rows={3}
-                maxLength={130000}
-                disabled={disabled}
-                onChange={(event) => {
-                  setDraft(event.target.value);
-                  setError(undefined);
-                }}
-                borderRadius="lg"
-                focusRingColor="#635bff"
-              />
-              {error && <Field.ErrorText>{error}</Field.ErrorText>}
-            </Field.Root>
-            <HStack gap="2" flexWrap="wrap">
-              <Button type="button" variant="outline" size="sm" disabled={disabled || !draft.trim()} onClick={add}>
-                <Plus size={16} aria-hidden="true" />
-                添加模型
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={disabled && !fetching}
-                loading={fetching}
-                onClick={onFetch}
-              >
-                <Download size={16} aria-hidden="true" />
-                从上游拉取
-              </Button>
-              <Text fontSize="xs" color="gray.500">
-                已添加 {value.length} / 1000
-              </Text>
-            </HStack>
-            <ErrorText>{fetchError}</ErrorText>
-            {fetchNotice && (
-              <Text role="status" fontSize="sm" color="gray.500">
-                {fetchNotice}
-              </Text>
-            )}
-          </>
-        )}
-        {value.length > 0 && (
-          <Grid
-            templateColumns={{ base: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' }}
-            rowGap="1"
-            columnGap="4"
-            maxH="240px"
-            overflowY="auto"
-            borderWidth="1px"
-            borderColor="gray.200"
-            borderRadius="lg"
-            p="2"
-          >
-            {value.map((model) => {
-              const existing = models.find((item) => item.name === model.name);
-              return (
-                <HStack key={model.name} justify="space-between" gap="3" px="2" py="1" minW="0">
-                  <HStack gap="2" flexWrap="wrap" minW="0">
-                    <Text fontSize="sm" overflowWrap="anywhere">
-                      {model.name}
-                    </Text>
-                    {!existing ? (
-                      <Badge colorPalette="gray">待创建</Badge>
-                    ) : (
-                      !existing.priced && <Badge colorPalette="gray">未定价</Badge>
+      {!derived && (
+        <Stack gap="3">
+          <Field.Root invalid={Boolean(error)}>
+            <Field.Label htmlFor={inputId}>可用模型</Field.Label>
+            <Textarea
+              id={inputId}
+              value={draft}
+              placeholder="输入模型名称，可用换行或逗号批量添加"
+              rows={3}
+              maxLength={130000}
+              disabled={disabled}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setError(undefined);
+              }}
+              borderRadius="lg"
+              focusRingColor="#635bff"
+            />
+            {error && <Field.ErrorText>{error}</Field.ErrorText>}
+          </Field.Root>
+          <HStack gap="2" flexWrap="wrap">
+            <Button type="button" variant="outline" size="sm" disabled={disabled || !draft.trim()} onClick={add}>
+              <Plus size={16} aria-hidden="true" />
+              添加模型
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={disabled && !fetching}
+              loading={fetching}
+              onClick={onFetch}
+            >
+              <Download size={16} aria-hidden="true" />
+              从上游拉取
+            </Button>
+            <Text fontSize="xs" color="gray.500">
+              已添加 {value.length} / 1000
+            </Text>
+          </HStack>
+          <ErrorText>{fetchError}</ErrorText>
+          {fetchNotice && (
+            <Text role="status" fontSize="sm" color="gray.500">
+              {fetchNotice}
+            </Text>
+          )}
+          {value.length > 0 && (
+            <Grid
+              templateColumns={{ base: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' }}
+              rowGap="1"
+              columnGap="4"
+              maxH="240px"
+              overflowY="auto"
+              borderWidth="1px"
+              borderColor="gray.200"
+              borderRadius="lg"
+              p="2"
+            >
+              {value.map((model) => {
+                const existing = models.find((item) => item.name === model.name);
+                return (
+                  <HStack key={model.name} justify="space-between" gap="3" px="2" py="1" minW="0">
+                    <HStack gap="2" flexWrap="wrap" minW="0">
+                      <Text fontSize="sm" overflowWrap="anywhere">
+                        {model.name}
+                      </Text>
+                      {!existing ? (
+                        <Badge colorPalette="gray">待创建</Badge>
+                      ) : (
+                        !existing.priced && <Badge colorPalette="gray">未定价</Badge>
+                      )}
+                      {existing && !existing.enabled && <Badge colorPalette="gray">已禁用</Badge>}
+                    </HStack>
+                    {!derived && (
+                      <IconButton
+                        type="button"
+                        aria-label={`移除 ${model.name}`}
+                        variant="ghost"
+                        size="xs"
+                        disabled={disabled}
+                        flexShrink="0"
+                        onClick={() => onChange(value.filter((item) => item.name !== model.name))}
+                      >
+                        <X size={14} aria-hidden="true" />
+                      </IconButton>
                     )}
-                    {existing && !existing.enabled && <Badge colorPalette="gray">已禁用</Badge>}
                   </HStack>
-                  {!derived && (
-                    <IconButton
-                      type="button"
-                      aria-label={`移除 ${model.name}`}
-                      variant="ghost"
-                      size="xs"
-                      disabled={disabled}
-                      flexShrink="0"
-                      onClick={() => onChange(value.filter((item) => item.name !== model.name))}
-                    >
-                      <X size={14} aria-hidden="true" />
-                    </IconButton>
-                  )}
-                </HStack>
-              );
-            })}
-          </Grid>
-        )}
-      </Stack>
-      {value.length > 0 && (
+                );
+              })}
+            </Grid>
+          )}
+        </Stack>
+      )}
+      {editableMultipliers && value.length > 0 && (
         <Box as="fieldset" minW="0">
           <Text as="legend" fontSize="sm" fontWeight="500" mb="2">
             模型专属倍率

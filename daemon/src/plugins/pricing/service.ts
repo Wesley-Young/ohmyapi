@@ -1,17 +1,13 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AuthService, Principal } from '../auth/service.js';
 import { formatMoney, parseMoney } from '../billing/conventions.js';
-import {
-  adminAuditLogs,
-  effectiveChannelModels as channelAvailableModels,
-  channels,
-  models,
-  priceRules,
-} from '../database/schema/index.js';
+import { pricingModes } from '../catalog/channel-types.js';
+import { adminAuditLogs, channelModelPrices, channels, models, priceRules } from '../database/schema/index.js';
+import { GatewayError } from '../gateway/errors.js';
 import type { KeyService } from '../keys/service.js';
 import {
   expandRules,
@@ -55,6 +51,11 @@ const serializeRule = (r: Rule) => ({
   webSearchPrice: r.webSearchPriceMicros === null ? null : formatMoney(r.webSearchPriceMicros),
   webSearchPreviewPrice: r.webSearchPreviewPriceMicros === null ? null : formatMoney(r.webSearchPreviewPriceMicros),
 });
+const routingSnapshot = z.object({
+  entryChannelId: z.uuid(),
+  executionChannelId: z.uuid(),
+  pricingChannelId: z.uuid(),
+});
 const snapshotInput = z.object({
   modelId: z.uuid(),
   rules: z
@@ -63,6 +64,8 @@ const snapshotInput = z.object({
     .max(200),
   multiplier: multiplierInput,
   multiplierSource: z.enum(['model', 'channel']),
+  pricingMode: z.enum(pricingModes).default('unified'),
+  routing: routingSnapshot.optional(),
   receivedAt: z.iso.datetime({ offset: true }),
 });
 export type LockedPrice = {
@@ -70,8 +73,19 @@ export type LockedPrice = {
   rules: Rule[];
   multiplierMicros: bigint;
   multiplierSource: 'model' | 'channel';
+  pricingMode: (typeof pricingModes)[number];
+  routing?: z.infer<typeof routingSnapshot>;
   receivedAt: Date;
 };
+
+// 用户账单展示实际倍率和计费模式，成员标识仅供管理员核对。
+export function publicPricingSnapshot(value: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!value) return null;
+  const { routing: _routing, ...visible } = value;
+  if (visible.pricing && typeof visible.pricing === 'object' && !Array.isArray(visible.pricing))
+    visible.pricing = publicPricingSnapshot(visible.pricing as Record<string, unknown>);
+  return visible;
+}
 
 export class PricingService {
   static readonly token = serviceToken<PricingService>('ohmyapi/pricing');
@@ -116,6 +130,8 @@ export class PricingService {
               id: row.channelId,
               name: row.channelName,
               multiplier: formatMoney(row.multiplierMicros),
+              maxMultiplier: formatMoney(row.maxMultiplierMicros),
+              pricingMode: row.pricingMode,
               endpoints: rows.filter((r) => r.channelId === row.channelId).map((r) => r.endpoint),
               rules: rules
                 .filter((rule) => rule.modelId === id)
@@ -123,6 +139,17 @@ export class PricingService {
                   const effective = applySearchDefaults(rule, model.modelName);
                   return {
                     ...serializeRule(effective),
+                    maximum: {
+                      inputPrice: scaledPrice(rule.inputPriceMicros, row.maxMultiplierMicros) as string,
+                      outputPrice: scaledPrice(rule.outputPriceMicros, row.maxMultiplierMicros) as string,
+                      cacheReadPrice: scaledPrice(rule.cacheReadPriceMicros, row.maxMultiplierMicros),
+                      cacheWritePrice: scaledPrice(rule.cacheWritePriceMicros, row.maxMultiplierMicros),
+                      webSearchPrice: scaledPrice(effective.webSearchPriceMicros, row.maxMultiplierMicros),
+                      webSearchPreviewPrice: scaledPrice(
+                        effective.webSearchPreviewPriceMicros,
+                        row.maxMultiplierMicros,
+                      ),
+                    },
                     inputPrice: scaledPrice(rule.inputPriceMicros, row.multiplierMicros) as string,
                     outputPrice: scaledPrice(rule.outputPriceMicros, row.multiplierMicros) as string,
                     cacheReadPrice: scaledPrice(rule.cacheReadPriceMicros, row.multiplierMicros),
@@ -137,6 +164,7 @@ export class PricingService {
             name: model.modelName,
             inputTokenLimit: model.inputTokenLimit,
             outputTokenLimit: model.outputTokenLimit,
+            lowestPriceVariable: channelPrices[0].pricingMode === 'passthrough',
             lowestPrice: channelPrices[0].rules.find((rule) => rule.kind === 'default') ?? null,
             channels: channelPrices,
           };
@@ -202,6 +230,43 @@ export class PricingService {
     });
   }
 
+  async lockRoute(modelId: string, at: Date, entryChannelId: string, executionChannelId: string) {
+    const [selected] = await this.auth.db
+      .select({
+        price: {
+          pricingChannelId: channelModelPrices.pricingChannelId,
+          multiplierMicros: channelModelPrices.multiplierMicros,
+          multiplierSource: channelModelPrices.multiplierSource,
+        },
+        mode: channels.pricingMode,
+      })
+      .from(channelModelPrices)
+      .innerJoin(channels, eq(channels.id, channelModelPrices.channelId))
+      .where(
+        and(
+          eq(channelModelPrices.channelId, entryChannelId),
+          eq(channelModelPrices.modelId, modelId),
+          or(
+            and(eq(channels.pricingMode, 'unified'), eq(channelModelPrices.pricingChannelId, entryChannelId)),
+            and(eq(channels.pricingMode, 'passthrough'), eq(channelModelPrices.pricingChannelId, executionChannelId)),
+          ),
+        ),
+      );
+    if (!selected) throw new GatewayError(503, 'channel_unavailable', 'The selected channel price is unavailable');
+    const locked = await this.lock(modelId, at, selected.price.multiplierMicros, selected.price.multiplierSource);
+    return (
+      locked && {
+        ...locked,
+        pricingMode: selected.mode,
+        routing: {
+          entryChannelId,
+          executionChannelId,
+          pricingChannelId: selected.price.pricingChannelId,
+        },
+      }
+    );
+  }
+
   async lock(
     modelId: string,
     at: Date,
@@ -217,7 +282,7 @@ export class PricingService {
     const rules = rows.map((row) => applySearchDefaults(row.rule, row.modelName));
     if (!rules.length) return null;
     validateRules(rules);
-    return { modelId, rules, multiplierMicros, multiplierSource, receivedAt: at };
+    return { modelId, rules, multiplierMicros, multiplierSource, receivedAt: at, pricingMode: 'unified' };
   }
 
   snapshot(locked: LockedPrice) {
@@ -226,6 +291,8 @@ export class PricingService {
       rules: locked.rules.map(serializeRule),
       multiplier: formatMoney(locked.multiplierMicros),
       multiplierSource: locked.multiplierSource,
+      pricingMode: locked.pricingMode,
+      routing: locked.routing,
       receivedAt: locked.receivedAt.toISOString(),
     };
   }
@@ -241,6 +308,8 @@ export class PricingService {
       receivedAt,
       multiplierMicros: parseMoney(saved.multiplier),
       multiplierSource: saved.multiplierSource,
+      pricingMode: saved.pricingMode,
+      routing: saved.routing,
     };
   }
 
@@ -249,6 +318,8 @@ export class PricingService {
       currency: this.currency,
       ...quote(locked.rules, locked.receivedAt, usage, locked.multiplierMicros),
       multiplierSource: locked.multiplierSource,
+      pricingMode: locked.pricingMode,
+      routing: locked.routing,
       receivedAt: locked.receivedAt.toISOString(),
       billed: false,
     };
@@ -256,26 +327,34 @@ export class PricingService {
 
   async preview(input: z.infer<typeof previewInput>) {
     const at = new Date(input.at);
-    let multiplierMicros = input.multiplier ? parseMoney(input.multiplier) : 1_000_000n;
-    let multiplierSource: 'channel' | 'model' = 'channel';
+    let minimum = {
+      multiplierMicros: parseMoney(input.multiplier ?? '1'),
+      multiplierSource: 'channel' as 'channel' | 'model',
+    };
+    let maximum = minimum;
+    let pricingMode: LockedPrice['pricingMode'] = 'unified';
     if (input.channelId) {
-      const [channel] = await this.auth.db
-        .select({ multiplier: channels.multiplierMicros, override: channelAvailableModels.multiplierMicros })
-        .from(channels)
-        .innerJoin(channelAvailableModels, eq(channels.id, channelAvailableModels.channelId))
-        .where(
-          and(
-            eq(channels.id, input.channelId),
-            eq(channelAvailableModels.modelId, input.modelId),
-            isNull(channels.deletedAt),
-          ),
-        );
-      if (!channel) throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道未提供此模型' });
-      multiplierMicros = channel.override ?? channel.multiplier;
-      multiplierSource = channel.override === null ? 'channel' : 'model';
+      const options = await this.auth.db
+        .select({
+          price: {
+            pricingChannelId: channelModelPrices.pricingChannelId,
+            multiplierMicros: channelModelPrices.multiplierMicros,
+            multiplierSource: channelModelPrices.multiplierSource,
+          },
+          mode: channels.pricingMode,
+        })
+        .from(channelModelPrices)
+        .innerJoin(channels, eq(channels.id, channelModelPrices.channelId))
+        .where(and(eq(channelModelPrices.channelId, input.channelId), eq(channelModelPrices.modelId, input.modelId)))
+        .orderBy(channelModelPrices.multiplierMicros, channelModelPrices.pricingChannelId);
+      if (!options.length) throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道未提供此模型' });
+      minimum = options[0].price;
+      maximum = options[options.length - 1].price;
+      pricingMode = options[0].mode;
     }
-    const locked = await this.lock(input.modelId, at, multiplierMicros, multiplierSource);
+    const locked = await this.lock(input.modelId, at, minimum.multiplierMicros, minimum.multiplierSource);
     if (!locked) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '模型尚未配置价格' });
+    locked.pricingMode = pricingMode;
     const usage = {
       inputTokens: BigInt(input.inputTokens),
       outputTokens: BigInt(input.outputTokens),
@@ -288,7 +367,13 @@ export class PricingService {
     if (usage.contextTokens > 9_223_372_036_854_775_807n)
       throw new TRPCError({ code: 'BAD_REQUEST', message: '上下文总量超出范围' });
     try {
-      return this.calculate(locked, usage);
+      return {
+        ...this.calculate(locked, usage),
+        maximum: this.calculate(
+          { ...locked, multiplierMicros: maximum.multiplierMicros, multiplierSource: maximum.multiplierSource },
+          usage,
+        ),
+      };
     } catch (error) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: (error as Error).message });
     }

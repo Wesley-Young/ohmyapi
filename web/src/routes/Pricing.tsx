@@ -6,7 +6,7 @@ import { useState } from 'react';
 
 import { IconButton } from '../components/icon-button';
 import { ErrorText, FormDialog, FormInput, Loading, Panel, PrimaryButton } from '../components/ui';
-import { formError } from '../lib/format';
+import { displayRange, formError } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './Catalog';
 
@@ -314,7 +314,7 @@ function Preview({ modelId }: { modelId: string }) {
           <Stack gap="3">
             <HStack gap="2" flexWrap="wrap">
               <Text fontWeight="600">
-                {task.data.total} {task.data.currency}
+                {displayRange(task.data.total, task.data.maximum.total)} {task.data.currency}
               </Text>
               <Badge colorPalette="gray">未扣费</Badge>
             </HStack>
@@ -323,9 +323,14 @@ function Preview({ modelId }: { modelId: string }) {
                 {task.data.ruleLabel}
               </Text>
               <Badge colorPalette="gray">{kinds[task.data.ruleKind]}</Badge>
-              <Badge colorPalette="gray">{Number(task.data.multiplier)}×</Badge>
+              <Badge colorPalette="gray">{displayRange(task.data.multiplier, task.data.maximum.multiplier)}×</Badge>
               <Badge colorPalette="gray">上下文 {task.data.contextTokens} Token</Badge>
             </HStack>
+            {task.data.pricingMode === 'passthrough' && (
+              <Text fontSize="sm" color="gray.500">
+                透传倍率：此处按全部成员配置计算费用区间，实际扣费取决于路由成员。
+              </Text>
+            )}
             <Box overflowX="auto">
               <Table.Root size="sm">
                 <Table.Header>
@@ -357,7 +362,13 @@ function Preview({ modelId }: { modelId: string }) {
                       <Table.Cell>
                         {item.price ?? '—'} / {item.unit === 'thousand_calls' ? '千次' : '百万 Token'}
                       </Table.Cell>
-                      <Table.Cell title={item.amount}>{item.amount.replace(/0+$/, '').replace(/\.$/, '')}</Table.Cell>
+                      <Table.Cell>
+                        {displayRange(
+                          item.amount,
+                          task.data.maximum.items.find((entry) => entry.category === item.category)?.amount ??
+                            item.amount,
+                        )}
+                      </Table.Cell>
                     </Table.Row>
                   ))}
                 </Table.Body>

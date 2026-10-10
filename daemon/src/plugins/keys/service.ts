@@ -12,6 +12,7 @@ import {
   apiKeys,
   effectiveChannelModels as channelAvailableModels,
   effectiveChannelEndpoints as channelEndpoints,
+  channelModelPrices,
   channels,
   models,
   priceRules,
@@ -49,10 +50,8 @@ export class KeyService {
       .selectDistinct({
         channelId: channels.id,
         channelName: channels.name,
-        multiplierMicros:
-          sql<bigint>`coalesce(${channelAvailableModels.multiplierMicros}, ${channels.multiplierMicros})`.mapWith(
-            BigInt,
-          ),
+        multiplierMicros: channelModelPrices.multiplierMicros,
+        pricingMode: channels.pricingMode,
         endpoint: channelEndpoints.endpoint,
         inputTokenLimit: models.inputTokenLimit,
         outputTokenLimit: models.outputTokenLimit,
@@ -62,6 +61,10 @@ export class KeyService {
       .from(channels)
       .innerJoin(channelAvailableModels, eq(channels.id, channelAvailableModels.channelId))
       .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
+      .innerJoin(
+        channelModelPrices,
+        and(eq(channelModelPrices.channelId, channels.id), eq(channelModelPrices.modelId, models.id)),
+      )
       .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
       .leftJoin(
         userChannelGrants,
@@ -79,7 +82,18 @@ export class KeyService {
         ),
       )
       .orderBy(channels.name, models.name);
-    return base;
+    const rows = await base;
+    const ranges = new Map<string, (typeof rows)[number] & { maxMultiplierMicros: bigint }>();
+    for (const row of rows) {
+      const key = `${row.channelId}:${row.modelId}:${row.endpoint}`;
+      const previous = ranges.get(key);
+      if (!previous) ranges.set(key, { ...row, maxMultiplierMicros: row.multiplierMicros });
+      else {
+        if (row.multiplierMicros < previous.multiplierMicros) previous.multiplierMicros = row.multiplierMicros;
+        if (row.multiplierMicros > previous.maxMultiplierMicros) previous.maxMultiplierMicros = row.multiplierMicros;
+      }
+    }
+    return [...ranges.values()];
   }
 
   async availableChannels(principal: Principal) {

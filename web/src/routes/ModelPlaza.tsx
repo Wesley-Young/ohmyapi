@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { ErrorText, FormDialog, Loading, Title } from '../components/ui';
-import { displayMoney, formError } from '../lib/format';
+import { displayMoney, displayRange, formError } from '../lib/format';
 import { trpc } from '../lib/trpc';
 
 type Model = RouterOutputs['modelPlaza']['models'][number];
@@ -32,10 +32,18 @@ function currencySymbol(currency: string) {
   }
 }
 
-function Price({ value, symbol }: { value: string | null | undefined; symbol: string }) {
+function Price({
+  value,
+  maximum,
+  symbol,
+}: {
+  value: string | null | undefined;
+  maximum?: string | null;
+  symbol: string;
+}) {
   return (
     <Text as="span" fontFamily="mono" fontVariantNumeric="tabular-nums" whiteSpace="nowrap">
-      {value == null ? '—' : `${symbol}${displayMoney(value)}`}
+      {value == null ? '—' : `${symbol}${maximum == null ? displayMoney(value) : displayRange(value, maximum)}`}
     </Text>
   );
 }
@@ -74,7 +82,7 @@ export default function ModelPlaza() {
     <Stack gap="6" minW="0">
       <Title>模型广场</Title>
       <Text fontSize="sm" color="gray.500">
-        已包含渠道倍率，展示最低价渠道的默认价格；动态定价以实际命中的规则为准。
+        已包含渠道倍率，展示默认规则下的最低配置价格；透传倍率按实际路由成员计费，动态定价以实际命中的规则为准。
       </Text>
       <ErrorText>{formError(query.error)?.message}</ErrorText>
       {query.isPending ? (
@@ -141,6 +149,11 @@ export default function ModelPlaza() {
                                   <Text fontSize="xs" color="gray.500">
                                     / 1M tokens
                                   </Text>
+                                  {model.lowestPriceVariable && (
+                                    <Badge colorPalette="gray" size="sm">
+                                      起价
+                                    </Badge>
+                                  )}
                                   {dynamic && (
                                     <Badge colorPalette="blue" size="sm">
                                       动态计费
@@ -196,8 +209,14 @@ export default function ModelPlaza() {
                   <Heading as="h3" fontSize="md" overflowWrap="anywhere">
                     {channel.name}
                   </Heading>
-                  <Badge colorPalette="gray">{Number(channel.multiplier)}×</Badge>
+                  <Badge colorPalette="gray">{displayRange(channel.multiplier, channel.maxMultiplier)}×</Badge>
+                  {channel.pricingMode === 'passthrough' && <Badge colorPalette="gray">透传倍率</Badge>}
                 </HStack>
+                {channel.pricingMode === 'passthrough' && (
+                  <Text fontSize="sm" color="gray.500">
+                    显示全部成员的配置价格区间，实际价格取决于路由成员。
+                  </Text>
+                )}
                 {channel.rules.length ? (
                   <Box overflowX="auto">
                     <Table.Root size="sm">
@@ -217,7 +236,7 @@ export default function ModelPlaza() {
                             </Table.Cell>
                             {categories.map(([key]) => (
                               <Table.Cell key={key} whiteSpace="nowrap">
-                                <Price value={rule[key]} symbol={symbol} />
+                                <Price value={rule[key]} maximum={rule.maximum[key]} symbol={symbol} />
                               </Table.Cell>
                             ))}
                           </Table.Row>

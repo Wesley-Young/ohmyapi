@@ -16,3 +16,9 @@ export function formError(error: unknown) {
 export const localDate = (value: string) =>
   new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 export const displayMoney = (value: string) => value.replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
+
+export function displayRange(minimum: string, maximum: string) {
+  const low = displayMoney(minimum);
+  const high = displayMoney(maximum);
+  return low === high ? low : `${low}–${high}`;
+}

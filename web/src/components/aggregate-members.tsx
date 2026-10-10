@@ -23,7 +23,7 @@ export function AggregateMembers({
       </Text>
       <Stack gap="3">
         <Text fontSize="sm" color="gray.500">
-          模型和端点取全部子渠道的交集。优先级越大越优先，同优先级按权重分配。
+          模型和端点取全部子渠道的交集；优先级越大越优先调用该渠道，同优先级内按权重分流。
         </Text>
         {candidates.map((channel) => {
           const member = value.find((entry) => entry.channelId === channel.id);
@@ -41,17 +41,20 @@ export function AggregateMembers({
               >
                 <Checkbox.HiddenInput />
                 <Checkbox.Control />
-                <Checkbox.Label overflowWrap="anywhere">{channel.name}</Checkbox.Label>
+                <Checkbox.Label overflowWrap="anywhere">
+                  <HStack gap="2" flexWrap="wrap">
+                    {channel.name}
+                    <Badge>{channel.type === 'api' ? 'API 渠道' : '订阅渠道'}</Badge>
+                    {!channel.enabled && <Badge>已禁用</Badge>}
+                    {!channel.isPublic && <Badge>非公开</Badge>}
+                  </HStack>
+                </Checkbox.Label>
               </Checkbox.Root>
-              <HStack gap="2" flexWrap="wrap">
-                <Badge>{channel.type === 'api' ? 'API 渠道' : '订阅渠道'}</Badge>
-                {!channel.enabled && <Badge>已禁用</Badge>}
-                {!channel.isPublic && <Badge>非公开</Badge>}
-              </HStack>
+
               {member && (
                 <Grid templateColumns="repeat(2, minmax(0, 1fr))" gap="3">
                   <FormInput
-                    label={`${channel.name} 优先级`}
+                    label="优先级"
                     type="number"
                     min={0}
                     max={1000}
@@ -66,7 +69,7 @@ export function AggregateMembers({
                     }
                   />
                   <FormInput
-                    label={`${channel.name} 权重`}
+                    label="权重"
                     type="number"
                     min={1}
                     max={1000}

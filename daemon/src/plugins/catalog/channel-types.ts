@@ -1,5 +1,6 @@
 export const channelTypes = ['api', 'subscription', 'aggregate'] as const;
 export type ChannelType = (typeof channelTypes)[number];
+export const pricingModes = ['unified', 'passthrough'] as const;
 
 // 接通转发适配器后，再开放对应类型的创建和调用。
 export const supportedChannelTypes = ['api', 'subscription', 'aggregate'] as const satisfies readonly ChannelType[];

@@ -22,7 +22,7 @@ import {
 } from '../database/schema/index.js';
 import { expandRules, multiplierInput, ruleInput, validateRules } from '../pricing/rules.js';
 import { type SubscriptionService, subscriptionInput } from '../subscription/service.js';
-import { channelTypes } from './channel-types.js';
+import { channelTypes, pricingModes } from './channel-types.js';
 import type { CredentialVault } from './vault.js';
 
 export { CredentialVault } from './vault.js';
@@ -35,6 +35,7 @@ export const channelInput = z.object({
   id: z.uuid().optional(),
   name,
   type: z.enum(channelTypes).default('api'),
+  pricingMode: z.enum(pricingModes).optional(),
   baseUrl: z
     .url()
     .refine((value) => {
@@ -52,12 +53,12 @@ export const channelInput = z.object({
   enabled: z.boolean(),
   isPublic: z.boolean().default(true),
   timeoutMs: z.number().int().min(100).max(600_000),
-  multiplier: multiplierInput.default('1'),
+  multiplier: multiplierInput.optional(),
   availableModels: z
     .array(z.object({ name: modelName, multiplier: multiplierInput.nullable() }))
     .max(1000, '每个渠道最多添加 1000 个模型')
     .refine((items) => new Set(items.map((item) => item.name)).size === items.length, '模型不能重复')
-    .default([]),
+    .optional(),
   members: z
     .array(
       z.object({
@@ -119,6 +120,7 @@ export class CatalogService {
           id: channels.id,
           name: channels.name,
           type: channels.type,
+          pricingMode: channels.pricingMode,
           subscription: {
             id: subscriptionAccounts.id,
             provider: subscriptionAccounts.provider,
@@ -331,6 +333,26 @@ export class CatalogService {
             .for('update')
         : [];
       if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在' });
+      const pricingMode = input.pricingMode ?? existing?.pricingMode ?? 'unified';
+      if (input.type !== 'aggregate' && pricingMode !== 'unified')
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '仅聚合渠道支持透传倍率' });
+      const passthrough = pricingMode === 'passthrough';
+      const previousModels =
+        existing && input.availableModels === undefined && !passthrough
+          ? await tx
+              .select({ name: models.name, multiplierMicros: channelAvailableModels.multiplierMicros })
+              .from(channelAvailableModels)
+              .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
+              .where(and(eq(channelAvailableModels.channelId, existing.id), isNull(models.deletedAt)))
+          : [];
+      const configuredModels = passthrough
+        ? []
+        : (input.availableModels ??
+          previousModels.map((model) => ({
+            name: model.name,
+            multiplier: model.multiplierMicros === null ? null : formatMoney(model.multiplierMicros),
+          })));
+
       if (existing && existing.type !== input.type)
         throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道类型创建后不可更改，请新建渠道' });
       if (input.type !== 'aggregate' && (!input.endpoints.length || input.members.length))
@@ -379,7 +401,10 @@ export class CatalogService {
         );
         if (input.enabled && (!aggregateModels.length || !hasCommonEndpoint))
           throw new TRPCError({ code: 'BAD_REQUEST', message: '子渠道需至少有一个共同模型和共同端点' });
-        if (input.availableModels.some((model) => !aggregateModels.some((common) => common.name === model.name)))
+        if (
+          input.availableModels &&
+          configuredModels.some((model) => !aggregateModels.some((common) => common.name === model.name))
+        )
           throw new TRPCError({ code: 'BAD_REQUEST', message: '只能为子渠道的共同模型设置倍率，请刷新后重试' });
       } else if (input.type === 'api') {
         if (!input.baseUrl || (!existing && !input.credential))
@@ -397,7 +422,7 @@ export class CatalogService {
         .from(channels)
         .where(and(eq(channels.name, input.name), isNull(channels.deletedAt)));
       if (duplicate && duplicate.id !== input.id) throw new TRPCError({ code: 'CONFLICT', message: '渠道名称已存在' });
-      const names = (input.type === 'aggregate' ? aggregateModels : input.availableModels).map((m) => m.name).sort();
+      const names = (input.type === 'aggregate' ? aggregateModels : configuredModels).map((m) => m.name).sort();
       if (names.length && input.type !== 'aggregate') {
         const created = await tx
           .insert(models)
@@ -423,7 +448,7 @@ export class CatalogService {
       if (resolved.length !== names.length) throw new TRPCError({ code: 'CONFLICT', message: '模型已变更，请重试' });
       const available = resolved.map((model) => ({
         modelId: model.id,
-        multiplier: input.availableModels.find((row) => row.name === model.name)?.multiplier ?? null,
+        multiplier: configuredModels.find((row) => row.name === model.name)?.multiplier ?? null,
       }));
       const subscriptionAccountId =
         input.type === 'subscription' && input.subscription
@@ -441,12 +466,16 @@ export class CatalogService {
       const values = {
         name: input.name,
         type: input.type,
+        pricingMode,
         baseUrl: input.type === 'api' ? input.baseUrl?.replace(/\/+$/, '') : null,
         subscriptionAccountId,
         enabled: input.enabled,
         isPublic: input.isPublic,
         timeoutMs: input.timeoutMs,
-        multiplierMicros: parseMoney(input.multiplier),
+        multiplierMicros:
+          passthrough && existing
+            ? existing.multiplierMicros
+            : parseMoney(input.multiplier ?? (existing ? formatMoney(existing.multiplierMicros) : '1')),
         credentialEncrypted:
           input.type !== 'api'
             ? null
@@ -475,8 +504,8 @@ export class CatalogService {
             weight: member.weight,
           })),
         );
-      await tx.delete(channelAvailableModels).where(eq(channelAvailableModels.channelId, row.id));
-      if (available.length)
+      if (!passthrough) await tx.delete(channelAvailableModels).where(eq(channelAvailableModels.channelId, row.id));
+      if (!passthrough && available.length)
         await tx.insert(channelAvailableModels).values(
           available.map((m) => ({
             channelId: row.id,
@@ -490,8 +519,9 @@ export class CatalogService {
         endpoints: input.endpoints,
         enabled: input.enabled,
         isPublic: input.isPublic,
-        multiplier: input.multiplier,
-        availableModels: input.availableModels,
+        pricingMode,
+        multiplier: formatMoney(values.multiplierMicros),
+        availableModels: configuredModels,
         members: input.members,
         credentialChanged: Boolean(input.credential || credentials),
         maxConcurrent: input.subscription?.maxConcurrent,

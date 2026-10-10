@@ -46,6 +46,7 @@ export const refreshCatalog = () =>
     queryClient.invalidateQueries(trpc.admin.catalog.openAIQuota.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.openAIResetCredits.pathFilter()),
     queryClient.invalidateQueries(trpc.keys.models.queryFilter()),
+    queryClient.invalidateQueries(trpc.modelPlaza.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.channels.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.list.pathFilter()),
     queryClient.invalidateQueries(trpc.keys.playgroundOptions.queryFilter()),
@@ -150,6 +151,8 @@ function ChannelForm({
 }) {
   const [name, setName] = useState(initial?.name ?? '');
   const [type, setType] = useState(initial?.type ?? 'api');
+  const [pricingMode, setPricingMode] = useState(initial?.pricingMode ?? 'unified');
+  const passthrough = type === 'aggregate' && pricingMode === 'passthrough';
   const [members, setMembers] = useState<CatalogData['channels'][number]['members']>(initial?.members ?? []);
   const [maximum, setMaximum] = useState(String(initial?.subscription?.maxConcurrent ?? 5));
   const [mode, setMode] = useState('oauth');
@@ -241,6 +244,7 @@ function ChannelForm({
               id: initial?.id,
               name,
               type,
+              pricingMode: type === 'aggregate' ? pricingMode : 'unified',
               baseUrl: type === 'api' ? baseUrl : undefined,
               credential: type === 'api' ? credential || undefined : undefined,
               subscription:
@@ -256,8 +260,8 @@ function ChannelForm({
               isPublic,
               endpoints: type === 'aggregate' ? [] : scopes,
               members: type === 'aggregate' ? members : [],
-              multiplier,
-              availableModels: type === 'aggregate' ? commonModels : available,
+              multiplier: passthrough ? undefined : multiplier,
+              availableModels: passthrough ? undefined : type === 'aggregate' ? commonModels : available,
             });
         }}
       >
@@ -438,7 +442,7 @@ function ChannelForm({
             {type === 'aggregate' ? (
               <Stack gap="2">
                 <Text fontSize="sm" fontWeight="500">
-                  共同端点
+                  支持端点
                 </Text>
                 <HStack gap="2" flexWrap="wrap">
                   {commonEndpoints.map((endpoint) => (
@@ -454,16 +458,37 @@ function ChannelForm({
             ) : (
               <EndpointFields value={scopes} onChange={setScopes} subscription={type === 'subscription'} />
             )}
-            <FormInput
-              label="整体扣费倍率"
-              value={multiplier}
-              inputMode="decimal"
-              onChange={(e) => setMultiplier(e.target.value)}
-              required
-              helper="0–1000，最多六位小数；模型专属倍率覆盖此值"
-            />
+            {type === 'aggregate' && (
+              <Stack gap="2">
+                <SelectField
+                  label="计费模式"
+                  value={pricingMode}
+                  onChange={(value) => setPricingMode(value === 'passthrough' ? 'passthrough' : 'unified')}
+                  options={[
+                    { id: 'unified', name: '统一倍率' },
+                    { id: 'passthrough', name: '透传倍率' },
+                  ]}
+                />
+                {passthrough && (
+                  <Text fontSize="sm" color="gray.500">
+                    按实际子渠道的模型专属倍率或整体倍率扣费。
+                  </Text>
+                )}
+              </Stack>
+            )}
+            {!passthrough && (
+              <FormInput
+                label="整体扣费倍率"
+                value={multiplier}
+                inputMode="decimal"
+                onChange={(e) => setMultiplier(e.target.value)}
+                required
+                helper="0–1000，最多六位小数；模型专属倍率覆盖此值"
+              />
+            )}
             <ChannelModels
               derived={type === 'aggregate'}
+              editableMultipliers={!passthrough}
               value={type === 'aggregate' ? commonModels : available}
               onChange={setAvailable}
               models={data.models}
@@ -648,7 +673,7 @@ export default function Catalog() {
               <Table.Root size="sm">
                 <Table.Header>
                   <Table.Row>
-                    {['名称', '类型', '通用倍率', '状态', '额度', '操作'].map((h) => (
+                    {['名称', '类型', '扣费倍率', '状态', '额度', '操作'].map((h) => (
                       <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                     ))}
                   </Table.Row>
@@ -664,13 +689,9 @@ export default function Catalog() {
                           {channelTypeLabels[c.type]} {c.subscription && `(${providerLabels[c.subscription.provider]})`}
                         </Text>
                         {c.type === 'aggregate' && (
-                          <HStack gap="1" flexWrap="wrap" mt="1">
-                            <Badge>{c.members.length} 个子渠道</Badge>
-                            <Badge>{c.availableModels.length} 个共同模型</Badge>
-                            {c.endpoints.map((endpoint) => (
-                              <Badge key={endpoint}>{endpoint}</Badge>
-                            ))}
-                          </HStack>
+                          <Text fontSize="xs" color="gray.500">
+                            {c.members.length} 个子渠道
+                          </Text>
                         )}
                         {c.subscription && (
                           <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
@@ -680,12 +701,17 @@ export default function Catalog() {
                       </Table.Cell>
                       <Table.Cell>
                         <Stack gap="1" align="start">
-                          <Text>{Number(c.multiplier)}×</Text>
-                          {c.availableModels.some((model) => model.multiplier !== null) && (
-                            <Text fontSize="xs" color="gray.500">
-                              {c.availableModels.filter((model) => model.multiplier !== null).length} 个模型有专属倍率
-                            </Text>
+                          {c.pricingMode === 'passthrough' ? (
+                            <Badge>透传</Badge>
+                          ) : (
+                            <Badge>{Number(c.multiplier)}×</Badge>
                           )}
+                          {c.pricingMode !== 'passthrough' &&
+                            c.availableModels.some((model) => model.multiplier !== null) && (
+                              <Text fontSize="xs" color="gray.500">
+                                {c.availableModels.filter((model) => model.multiplier !== null).length} 个模型有专属倍率
+                              </Text>
+                            )}
                         </Stack>
                       </Table.Cell>
                       <Table.Cell whiteSpace="nowrap">

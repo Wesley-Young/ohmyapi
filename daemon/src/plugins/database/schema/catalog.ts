@@ -14,7 +14,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { channelTypes } from '../../catalog/channel-types.js';
+import { channelTypes, pricingModes } from '../../catalog/channel-types.js';
 import { createdAt, endpoint, id } from './common.js';
 import { apiKeys, users } from './identity.js';
 import { subscriptionAccounts } from './subscription.js';
@@ -37,6 +37,7 @@ export const models = pgTable(
 );
 
 export const channelType = pgEnum('channel_type', channelTypes);
+export const channelPricingMode = pgEnum('channel_pricing_mode', pricingModes);
 
 export const channels = pgTable(
   'channels',
@@ -44,6 +45,7 @@ export const channels = pgTable(
     id: id(),
     name: text('name').notNull(),
     type: channelType('type').default('api').notNull(),
+    pricingMode: channelPricingMode('pricing_mode').default('unified').notNull(),
     baseUrl: text('base_url'),
     // API 渠道的凭据使用认证加密保存；其他类型由各自的账号或成员配置提供连接信息。
     credentialEncrypted: text('credential_encrypted'),
@@ -70,6 +72,7 @@ export const channels = pgTable(
       sql`(${table.type} = 'api' and ${table.baseUrl} is not null and ${table.credentialEncrypted} is not null) or (${table.type} <> 'api' and ${table.baseUrl} is null and ${table.credentialEncrypted} is null)`,
     ),
     check('channels_multiplier_range', sql`${table.multiplierMicros} between 0 and 1000000000`),
+    check('channels_pricing_mode_type', sql`${table.type} = 'aggregate' or ${table.pricingMode} = 'unified'`),
   ],
 );
 
