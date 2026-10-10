@@ -9,6 +9,8 @@ export class GatewayError extends Error {
 }
 
 const requestErrors: Record<string, string> = {
+  aggregate_unavailable: '聚合渠道当前没有可执行请求的子渠道。',
+  aggregate_request_unsupported: '当前子渠道无法保留本次请求的参数，请调整参数或使用兼容的 API 渠道。',
   subscription_unavailable: '订阅账号未启用、已删除或需要重新授权。',
   subscription_reauthorization_required: '订阅凭据已失效，请重新授权或导入凭据。',
   subscription_refresh_failed: '订阅令牌刷新失败，请稍后重试。',

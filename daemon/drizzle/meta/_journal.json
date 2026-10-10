@@ -57,6 +57,13 @@
       "when": 1791556212051,
       "tag": "0007_openai_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791567646679,
+      "tag": "0008_aggregate_channels",
+      "breakpoints": true
     }
   ]
 }

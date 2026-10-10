@@ -15,7 +15,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import type { UsageEstimate } from '../../billing/estimation.js';
-import { channels, models } from './catalog.js';
+import { channels, channelType, models } from './catalog.js';
 import { createdAt, endpoint, id, micros, tokenCount } from './common.js';
 import { apiKeys, users } from './identity.js';
 import { subscriptionAccounts } from './subscription.js';
@@ -83,6 +83,45 @@ export const requests = pgTable(
       'requests_amounts_nonnegative',
       sql`${table.reservedMicros} >= 0 and (${table.chargedMicros} is null or ${table.chargedMicros} >= 0)`,
     ),
+  ],
+);
+
+export const requestAttemptStatus = pgEnum('request_attempt_status', [
+  'prepared',
+  'forwarding',
+  'completed',
+  'failed',
+  'unknown',
+]);
+
+export const requestAttempts = pgTable(
+  'request_attempts',
+  {
+    id: id(),
+    requestId: uuid('request_id')
+      .notNull()
+      .references(() => requests.id),
+    sequence: integer('sequence').notNull(),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channels.id),
+    channelName: text('channel_name').notNull(),
+    channelType: channelType('channel_type').notNull(),
+    subscriptionAccountId: uuid('subscription_account_id').references(() => subscriptionAccounts.id),
+    status: requestAttemptStatus('status').default('prepared').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
+    dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    noExecution: boolean('no_execution'),
+    httpStatus: integer('http_status'),
+    upstreamRequestId: text('upstream_request_id'),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+  },
+  (table) => [
+    unique('request_attempt_sequence_unique').on(table.requestId, table.sequence),
+    check('request_attempt_sequence_positive', sql`${table.sequence} > 0`),
+    check('request_attempt_leaf_channel', sql`${table.channelType} <> 'aggregate'`),
   ],
 );
 

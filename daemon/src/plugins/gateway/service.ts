@@ -13,11 +13,12 @@ import {
   apiKeyChannels,
   apiKeyModelGrants,
   apiKeys,
-  channelAvailableModels,
-  channelEndpoints,
+  effectiveChannelModels as channelAvailableModels,
+  effectiveChannelEndpoints as channelEndpoints,
   channels,
   models,
   priceRules,
+  requestAttempts,
   requests,
   requestUsage,
   userChannelGrants,
@@ -32,6 +33,7 @@ import { ForwardBillingSession } from './billing-session.js';
 import { cacheReadForDisplay } from './cache-usage.js';
 import { GatewayError } from './errors.js';
 import { RequestLifecycle } from './lifecycle.js';
+import { selectExecutionChannel } from './routing.js';
 
 import { randomUUID } from 'node:crypto';
 
@@ -179,7 +181,7 @@ export class GatewayService implements Disposable {
           ),
         );
       if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
-      channelAdapter(channel.type, this.subscription);
+      if (channel.type !== 'aggregate') channelAdapter(channel.type, this.subscription);
       const available = await this.db
         .selectDistinct({ name: models.name, createdAt: models.createdAt })
         .from(models)
@@ -367,6 +369,7 @@ export class GatewayService implements Disposable {
       endpoint,
       config: this.config,
       billing: this.billing,
+      db: this.db,
       logger: this.logger,
       sampleLog: this.sampleLog,
     });
@@ -398,13 +401,27 @@ export class GatewayService implements Disposable {
         receivedAt,
         userId: identity.user.id,
         apiKeyId: identity.key.id,
+        channelId: identity.channelId,
         requestedModel: parsed.model as string,
         endpoint,
         streaming,
       });
       session.recorded = true;
       const { model, channel, override } = await this.resolveRoute(identity, parsed.model as string, endpoint, session);
-      const adapter = channelAdapter(channel.type, this.subscription);
+      const executionChannel = await selectExecutionChannel(this.db, this.subscription, channel, parsed, endpoint);
+      session.executionChannelId = executionChannel.id;
+      const attemptId = randomUUID();
+      await this.db.insert(requestAttempts).values({
+        id: attemptId,
+        requestId: id,
+        sequence: 1,
+        channelId: executionChannel.id,
+        channelName: executionChannel.name,
+        channelType: executionChannel.type,
+        subscriptionAccountId: executionChannel.subscriptionAccountId,
+      });
+      session.attemptId = attemptId;
+      const adapter = channelAdapter(executionChannel.type, this.subscription);
       const lockedPrice = await this.pricing.lock(
         model.id,
         receivedAt,
@@ -413,12 +430,14 @@ export class GatewayService implements Disposable {
       );
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
       const requestedOutputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
-      const outputLimit = channel.type === 'subscription' ? model.outputTokenLimit : requestedOutputLimit;
+      const outputLimit = executionChannel.type === 'subscription' ? model.outputTokenLimit : requestedOutputLimit;
       session.collector.configureSearch(searchRequest(parsed, endpoint));
-      lifecycle.setTimeout('upstream_timeout', channel.timeoutMs);
+      const timeoutMs = Math.min(channel.timeoutMs, executionChannel.timeoutMs);
+      session.upstreamTimeoutMs = timeoutMs;
+      lifecycle.setTimeout('upstream_timeout', timeoutMs);
       lifecycle.syncClientAbort();
       const prepared = await adapter.prepareRequest({
-        channel,
+        channel: executionChannel,
         request: req,
         endpoint,
         parsed,
@@ -429,10 +448,10 @@ export class GatewayService implements Disposable {
 
       lifecycle.releaseUpstream = prepared.release;
       const { url, body, headers } = prepared;
-      if (channel.subscriptionAccountId)
+      if (executionChannel.subscriptionAccountId)
         await this.db
           .update(requests)
-          .set({ subscriptionAccountId: channel.subscriptionAccountId })
+          .set({ subscriptionAccountId: executionChannel.subscriptionAccountId })
           .where(eq(requests.id, id));
       const reservation = await this.billing.reserve({
         requestId: id,
@@ -440,6 +459,7 @@ export class GatewayService implements Disposable {
         keyId: identity.key.id,
         modelId: model.id,
         channelId: channel.id,
+        executionChannel,
         price: lockedPrice,
         inputLimit: model.inputTokenLimit,
         outputLimit,
@@ -450,13 +470,18 @@ export class GatewayService implements Disposable {
       lifecycle.syncClientAbort();
       if (abort.signal.aborted)
         throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
-      await this.billing.forwarding(id);
+      await this.billing.forwarding(id, attemptId, {
+        channelId: channel.id,
+        modelId: model.id,
+        endpoint,
+        executionChannel,
+      });
 
-      lifecycle.setTimeout('upstream_timeout', channel.timeoutMs);
+      lifecycle.setTimeout('upstream_timeout', timeoutMs);
       lifecycle.syncClientAbort();
       if (abort.signal.aborted)
         throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
-      if (channel.type === 'subscription') lifecycle.retainUpstreamOnDisconnect(60_000);
+      if (executionChannel.type === 'subscription') lifecycle.retainUpstreamOnDisconnect(60_000);
       session.dispatched = true;
       const upstream = await fetch(url, {
         method: 'POST',

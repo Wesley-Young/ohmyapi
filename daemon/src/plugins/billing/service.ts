@@ -12,10 +12,11 @@ import {
   apiKeyChannels,
   apiKeyModelGrants,
   apiKeys,
-  channelAvailableModels,
-  channelEndpoints,
+  effectiveChannelModels as channelAvailableModels,
+  effectiveChannelEndpoints as channelEndpoints,
   channels,
   models,
+  requestAttempts,
   requests,
   requestUsage,
   userChannelGrants,
@@ -25,6 +26,7 @@ import {
 } from '../database/schema/index.js';
 import { cacheReadForDisplay, reportedCacheReadTokens } from '../gateway/cache-usage.js';
 import { GatewayError, requestErrorMessage } from '../gateway/errors.js';
+import { lockExecutionRoute } from '../gateway/routing.js';
 import type { Usage } from '../gateway/usage.js';
 import { priceInput, searchCountInput, tokenInput } from '../pricing/rules.js';
 import type { LockedPrice, PricingService } from '../pricing/service.js';
@@ -224,6 +226,7 @@ export class BillingService implements Disposable {
     keyId: string;
     modelId: string;
     channelId: string;
+    executionChannel: typeof channels.$inferSelect;
     price: LockedPrice;
     inputLimit: number;
     outputLimit: number;
@@ -294,6 +297,7 @@ export class BillingService implements Disposable {
           )
           .for('share', { of: [channels, models] });
         if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
+        await lockExecutionRoute(tx, input);
         if (
           user.role !== 'admin' &&
           !channel.isPublic &&
@@ -383,14 +387,29 @@ export class BillingService implements Disposable {
     return { amount, estimate };
   }
 
-  async forwarding(id: string) {
+  async forwarding(id: string, attemptId: string, route: Parameters<typeof lockExecutionRoute>[1]) {
     this.assertReady();
-    const [r] = await this.auth.db
-      .update(requests)
-      .set({ status: 'forwarding', heartbeatAt: new Date() })
-      .where(and(eq(requests.id, id), eq(requests.ownerId, this.ownerId), eq(requests.status, 'reserved')))
-      .returning({ id: requests.id });
-    if (!r) throw new Error('Request reservation lost');
+    await this.auth.db.transaction(async (tx) => {
+      await lockExecutionRoute(tx, route);
+      const [r] = await tx
+        .update(requests)
+        .set({ status: 'forwarding', heartbeatAt: new Date() })
+        .where(and(eq(requests.id, id), eq(requests.ownerId, this.ownerId), eq(requests.status, 'reserved')))
+        .returning({ id: requests.id });
+      if (!r) throw new Error('Request reservation lost');
+      const [attempt] = await tx
+        .update(requestAttempts)
+        .set({ status: 'forwarding', dispatchedAt: new Date() })
+        .where(
+          and(
+            eq(requestAttempts.id, attemptId),
+            eq(requestAttempts.requestId, id),
+            eq(requestAttempts.status, 'prepared'),
+          ),
+        )
+        .returning({ id: requestAttempts.id });
+      if (!attempt) throw new Error('Request attempt state changed');
+    });
   }
 
   private async writeUsage(tx: Transaction, id: string, usage: Usage) {
@@ -812,6 +831,14 @@ export class BillingService implements Disposable {
       );
     if (!r) throw new TRPCError({ code: 'NOT_FOUND', message: '请求不存在' });
     const [usage] = await this.auth.db.select().from(requestUsage).where(eq(requestUsage.requestId, id));
+    const attempts =
+      principal.user.role === 'admin'
+        ? await this.auth.db
+            .select()
+            .from(requestAttempts)
+            .where(eq(requestAttempts.requestId, id))
+            .orderBy(requestAttempts.sequence)
+        : [];
     const ledger = await this.auth.db
       .select({ entry: walletLedger, actor: users.username })
       .from(walletLedger)
@@ -837,6 +864,13 @@ export class BillingService implements Disposable {
       model: r.requestedModel,
       endpoint: r.endpoint,
       subscriptionAccountId: principal.user.role === 'admin' ? r.subscriptionAccountId : null,
+      channelId: r.channelId,
+      attempts: attempts.map((attempt) => ({
+        ...attempt,
+        startedAt: attempt.startedAt.toISOString(),
+        dispatchedAt: attempt.dispatchedAt?.toISOString() ?? null,
+        finishedAt: attempt.finishedAt?.toISOString() ?? null,
+      })),
       billingEnabled: r.billingEnabled,
       usageFinal: r.usageFinal,
       usageEstimate: r.usageEstimate,

@@ -8,9 +8,12 @@ import type { AuthService, Principal, Transaction } from '../auth/service.js';
 import { formatMoney, parseMoney } from '../billing/conventions.js';
 import {
   adminAuditLogs,
+  aggregateChannelMembers,
   channelAvailableModels,
   channelEndpoints,
   channels,
+  effectiveChannelEndpoints,
+  effectiveChannelModels,
   models,
   priceRules,
   subscriptionAccounts,
@@ -19,7 +22,7 @@ import {
 } from '../database/schema/index.js';
 import { expandRules, multiplierInput, ruleInput, validateRules } from '../pricing/rules.js';
 import { type SubscriptionService, subscriptionInput } from '../subscription/service.js';
-import { channelTypes, isSupportedChannelType } from './channel-types.js';
+import { channelTypes } from './channel-types.js';
 import type { CredentialVault } from './vault.js';
 
 export { CredentialVault } from './vault.js';
@@ -55,11 +58,22 @@ export const channelInput = z.object({
     .max(1000, '每个渠道最多添加 1000 个模型')
     .refine((items) => new Set(items.map((item) => item.name)).size === items.length, '模型不能重复')
     .default([]),
+  members: z
+    .array(
+      z.object({
+        channelId: z.uuid(),
+        priority: z.number().int().min(0).max(1000).default(0),
+        weight: z.number().int().min(1).max(1000).default(1),
+      }),
+    )
+    .max(100)
+    .refine((items) => new Set(items.map((item) => item.channelId)).size === items.length, '子渠道不能重复')
+    .default([]),
   endpoints: z
     .array(z.enum(endpoints))
-    .min(1)
     .max(4)
-    .refine((v) => new Set(v).size === v.length),
+    .refine((v) => new Set(v).size === v.length)
+    .default([]),
 });
 export const fetchChannelModelsInput = channelInput
   .pick({ id: true, baseUrl: true, credential: true })
@@ -99,7 +113,7 @@ export class CatalogService {
   }
 
   async list() {
-    const [channelRows, modelRows, channelScopes, available, activePrices] = await Promise.all([
+    const [channelRows, modelRows, channelScopes, available, activePrices, members] = await Promise.all([
       this.auth.db
         .select({
           id: channels.id,
@@ -125,9 +139,10 @@ export class CatalogService {
         .where(isNull(channels.deletedAt))
         .orderBy(asc(channels.name)),
       this.auth.db.select().from(models).where(isNull(models.deletedAt)).orderBy(asc(models.name)),
-      this.auth.db.select().from(channelEndpoints),
-      this.auth.db.select().from(channelAvailableModels),
+      this.auth.db.select().from(effectiveChannelEndpoints),
+      this.auth.db.select().from(effectiveChannelModels),
       this.auth.db.select({ modelId: priceRules.modelId }).from(priceRules).where(eq(priceRules.kind, 'default')),
+      this.auth.db.select().from(aggregateChannelMembers),
     ]);
     return {
       channels: channelRows.map(({ multiplierMicros, ...c }) => ({
@@ -143,6 +158,13 @@ export class CatalogService {
               active: this.subscription.concurrency.active(c.subscription.id),
             }
           : null,
+        members: members
+          .filter((member) => member.aggregateChannelId === c.id)
+          .map((member) => ({
+            channelId: member.memberChannelId,
+            priority: member.priority,
+            weight: member.weight,
+          })),
         multiplier: formatMoney(multiplierMicros),
         availableModels: available
           .filter((a) => a.channelId === c.id && modelRows.some((m) => m.id === a.modelId))
@@ -309,11 +331,57 @@ export class CatalogService {
             .for('update')
         : [];
       if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在' });
-      if (!isSupportedChannelType(input.type))
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '聚合渠道尚未开放' });
       if (existing && existing.type !== input.type)
         throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道类型创建后不可更改，请新建渠道' });
-      if (input.type === 'api') {
+      if (input.type !== 'aggregate' && (!input.endpoints.length || input.members.length))
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '普通渠道需配置端点，且不能配置子渠道' });
+      let aggregateModels: { id: string; name: string }[] = [];
+      if (input.type === 'aggregate') {
+        if (input.baseUrl || input.credential || input.subscription || input.endpoints.length)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '聚合渠道的连接和端点由子渠道提供' });
+        if (!input.members.length || input.members.some((member) => member.channelId === input.id))
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '至少选择一个子渠道，且不能引用自身' });
+        const memberIds = input.members.map((member) => member.channelId).sort();
+        const children = await tx
+          .select({ id: channels.id })
+          .from(channels)
+          .where(
+            and(
+              inArray(channels.id, memberIds),
+              inArray(channels.type, ['api', 'subscription']),
+              isNull(channels.deletedAt),
+            ),
+          )
+          .orderBy(channels.id)
+          .for('share');
+        if (children.length !== memberIds.length)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '子渠道不存在、已删除或属于聚合类型' });
+        const childModels = await tx
+          .select({ channelId: channelAvailableModels.channelId, id: models.id, name: models.name })
+          .from(channelAvailableModels)
+          .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
+          .where(and(inArray(channelAvailableModels.channelId, memberIds), isNull(models.deletedAt)));
+        aggregateModels = childModels
+          .filter(
+            (model) =>
+              model.channelId === memberIds[0] &&
+              memberIds.every((id) => childModels.some((other) => other.channelId === id && other.id === model.id)),
+          )
+          .map(({ id, name }) => ({ id, name }));
+        const childEndpoints = await tx
+          .select()
+          .from(channelEndpoints)
+          .where(inArray(channelEndpoints.channelId, memberIds));
+        const hasCommonEndpoint = endpoints.some((endpoint) =>
+          memberIds.every((id) =>
+            childEndpoints.some((entry) => entry.channelId === id && entry.endpoint === endpoint),
+          ),
+        );
+        if (input.enabled && (!aggregateModels.length || !hasCommonEndpoint))
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '子渠道需至少有一个共同模型和共同端点' });
+        if (input.availableModels.some((model) => !aggregateModels.some((common) => common.name === model.name)))
+          throw new TRPCError({ code: 'BAD_REQUEST', message: '只能为子渠道的共同模型设置倍率，请刷新后重试' });
+      } else if (input.type === 'api') {
         if (!input.baseUrl || (!existing && !input.credential))
           throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写 Base URL 和上游凭据' });
         if (input.subscription) throw new TRPCError({ code: 'BAD_REQUEST', message: 'API 渠道不能配置订阅凭据' });
@@ -329,8 +397,8 @@ export class CatalogService {
         .from(channels)
         .where(and(eq(channels.name, input.name), isNull(channels.deletedAt)));
       if (duplicate && duplicate.id !== input.id) throw new TRPCError({ code: 'CONFLICT', message: '渠道名称已存在' });
-      const names = input.availableModels.map((m) => m.name).sort();
-      if (names.length) {
+      const names = (input.type === 'aggregate' ? aggregateModels : input.availableModels).map((m) => m.name).sort();
+      if (names.length && input.type !== 'aggregate') {
         const created = await tx
           .insert(models)
           .values(names.map((name) => ({ name, inputTokenLimit: 1_000_000, outputTokenLimit: 128_000 })))
@@ -392,10 +460,21 @@ export class CatalogService {
       await tx
         .delete(channelEndpoints)
         .where(and(eq(channelEndpoints.channelId, row.id), notInArray(channelEndpoints.endpoint, input.endpoints)));
-      await tx
-        .insert(channelEndpoints)
-        .values(input.endpoints.map((endpoint) => ({ channelId: row.id, endpoint })))
-        .onConflictDoNothing();
+      if (input.endpoints.length)
+        await tx
+          .insert(channelEndpoints)
+          .values(input.endpoints.map((endpoint) => ({ channelId: row.id, endpoint })))
+          .onConflictDoNothing();
+      await tx.delete(aggregateChannelMembers).where(eq(aggregateChannelMembers.aggregateChannelId, row.id));
+      if (input.type === 'aggregate')
+        await tx.insert(aggregateChannelMembers).values(
+          input.members.map((member) => ({
+            aggregateChannelId: row.id,
+            memberChannelId: member.channelId,
+            priority: member.priority,
+            weight: member.weight,
+          })),
+        );
       await tx.delete(channelAvailableModels).where(eq(channelAvailableModels.channelId, row.id));
       if (available.length)
         await tx.insert(channelAvailableModels).values(
@@ -413,6 +492,7 @@ export class CatalogService {
         isPublic: input.isPublic,
         multiplier: input.multiplier,
         availableModels: input.availableModels,
+        members: input.members,
         credentialChanged: Boolean(input.credential || credentials),
         maxConcurrent: input.subscription?.maxConcurrent,
       });
@@ -545,7 +625,16 @@ export class CatalogService {
         .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)))
         .for('update');
       if (!channel) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在或已删除' });
+      const [reference] = await tx
+        .select({ name: channels.name })
+        .from(aggregateChannelMembers)
+        .innerJoin(channels, eq(channels.id, aggregateChannelMembers.aggregateChannelId))
+        .where(and(eq(aggregateChannelMembers.memberChannelId, channelId), isNull(channels.deletedAt)))
+        .limit(1);
+      if (reference)
+        throw new TRPCError({ code: 'CONFLICT', message: `请先从聚合渠道「${reference.name}」移除此子渠道` });
       if (channel.subscriptionAccountId) await this.subscription.removeAccount(tx, channel.subscriptionAccountId);
+      await tx.delete(aggregateChannelMembers).where(eq(aggregateChannelMembers.aggregateChannelId, channelId));
       await tx.update(channels).set({ deletedAt: new Date(), enabled: false }).where(eq(channels.id, channel.id));
       await this.audit(tx, actor.id, 'channel.delete', channel.id, { name: channel.name });
       return { success: true };

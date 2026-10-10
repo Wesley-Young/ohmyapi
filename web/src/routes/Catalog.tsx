@@ -18,6 +18,7 @@ import { Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
+import { AggregateMembers } from '../components/aggregate-members';
 import { type ChannelModel, ChannelModels } from '../components/channel-models';
 import { IconButton } from '../components/icon-button';
 import { OpenAIQuota } from '../components/openai-quota';
@@ -37,7 +38,7 @@ const channelTypeLabels = {
 } satisfies Record<CatalogData['channels'][number]['type'], string>;
 const providerLabels: Partial<Record<string, string>> = {
   openai: 'OpenAI',
-}
+};
 
 export const refreshCatalog = () =>
   Promise.all([
@@ -47,6 +48,7 @@ export const refreshCatalog = () =>
     queryClient.invalidateQueries(trpc.keys.models.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.channels.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.list.pathFilter()),
+    queryClient.invalidateQueries(trpc.keys.playgroundOptions.queryFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
   ]);
 
@@ -148,6 +150,7 @@ function ChannelForm({
 }) {
   const [name, setName] = useState(initial?.name ?? '');
   const [type, setType] = useState(initial?.type ?? 'api');
+  const [members, setMembers] = useState<CatalogData['channels'][number]['members']>(initial?.members ?? []);
   const [maximum, setMaximum] = useState(String(initial?.subscription?.maxConcurrent ?? 5));
   const [mode, setMode] = useState('oauth');
   const [credentials, setCredentials] = useState('');
@@ -177,6 +180,22 @@ function ChannelForm({
       return model ? [{ name: model.name, multiplier: entry.multiplier }] : [];
     }) ?? [],
   );
+  const selectedChannels = members.flatMap((member) =>
+    data.channels.filter((channel) => channel.id === member.channelId),
+  );
+  const commonEndpoints = selectedChannels.length
+    ? endpoints.filter((endpoint) => selectedChannels.every((channel) => channel.endpoints.includes(endpoint)))
+    : [];
+  const commonModels = selectedChannels.length
+    ? data.models
+        .filter((model) =>
+          selectedChannels.every((channel) => channel.availableModels.some((entry) => entry.modelId === model.id)),
+        )
+        .map((model) => ({
+          name: model.name,
+          multiplier: available.find((entry) => entry.name === model.name)?.multiplier ?? null,
+        }))
+    : [];
   const [fetchNotice, setFetchNotice] = useState<string>();
   const [fetchError, setFetchError] = useState<string>();
   const fetchOptions = {
@@ -235,9 +254,10 @@ function ChannelForm({
               timeoutMs: Number(timeout),
               enabled,
               isPublic,
-              endpoints: scopes,
+              endpoints: type === 'aggregate' ? [] : scopes,
+              members: type === 'aggregate' ? members : [],
               multiplier,
-              availableModels: available,
+              availableModels: type === 'aggregate' ? commonModels : available,
             });
         }}
       >
@@ -259,14 +279,14 @@ function ChannelForm({
                 >
                   <option value="api">API 渠道</option>
                   <option value="subscription">订阅渠道</option>
-                  <option value="aggregate" disabled>
-                    聚合渠道
-                  </option>
+                  <option value="aggregate">聚合渠道</option>
                 </NativeSelect.Field>
                 <NativeSelect.Indicator />
               </NativeSelect.Root>
             </Field.Root>
-            {type === 'subscription' ? (
+            {type === 'aggregate' ? (
+              <AggregateMembers value={members} onChange={setMembers} channels={data.channels} />
+            ) : type === 'subscription' ? (
               <Stack gap="5">
                 <Field.Root>
                   <Field.Label>订阅平台</Field.Label>
@@ -415,7 +435,25 @@ function ChannelForm({
               onChange={(e) => setTimeout(e.target.value)}
               required
             />
-            <EndpointFields value={scopes} onChange={setScopes} subscription={type === 'subscription'} />
+            {type === 'aggregate' ? (
+              <Stack gap="2">
+                <Text fontSize="sm" fontWeight="500">
+                  共同端点
+                </Text>
+                <HStack gap="2" flexWrap="wrap">
+                  {commonEndpoints.map((endpoint) => (
+                    <Badge key={endpoint}>{endpoint}</Badge>
+                  ))}
+                </HStack>
+                {(!commonEndpoints.length || !commonModels.length) && (
+                  <Text fontSize="sm" color="gray.500">
+                    请选择至少有一个共同模型和共同端点的子渠道。
+                  </Text>
+                )}
+              </Stack>
+            ) : (
+              <EndpointFields value={scopes} onChange={setScopes} subscription={type === 'subscription'} />
+            )}
             <FormInput
               label="整体扣费倍率"
               value={multiplier}
@@ -425,7 +463,8 @@ function ChannelForm({
               helper="0–1000，最多六位小数；模型专属倍率覆盖此值"
             />
             <ChannelModels
-              value={available}
+              derived={type === 'aggregate'}
+              value={type === 'aggregate' ? commonModels : available}
               onChange={setAvailable}
               models={data.models}
               disabled={busy}
@@ -460,7 +499,13 @@ function ChannelForm({
           <PrimaryButton
             type="submit"
             loading={task.isPending}
-            disabled={fetching || startOAuth.isPending || renew.isPending}
+            disabled={
+              fetching ||
+              startOAuth.isPending ||
+              renew.isPending ||
+              (type === 'aggregate' &&
+                (!members.length || (enabled && (!commonModels.length || !commonEndpoints.length))))
+            }
           >
             保存渠道
           </PrimaryButton>
@@ -615,7 +660,18 @@ export default function Catalog() {
                         <Text>{c.name}</Text>
                       </Table.Cell>
                       <Table.Cell>
-                        <Text>{channelTypeLabels[c.type]} {c.subscription && `(${providerLabels[c.subscription.provider]})`}</Text>
+                        <Text>
+                          {channelTypeLabels[c.type]} {c.subscription && `(${providerLabels[c.subscription.provider]})`}
+                        </Text>
+                        {c.type === 'aggregate' && (
+                          <HStack gap="1" flexWrap="wrap" mt="1">
+                            <Badge>{c.members.length} 个子渠道</Badge>
+                            <Badge>{c.availableModels.length} 个共同模型</Badge>
+                            {c.endpoints.map((endpoint) => (
+                              <Badge key={endpoint}>{endpoint}</Badge>
+                            ))}
+                          </HStack>
+                        )}
                         {c.subscription && (
                           <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
                             {c.subscription.email ?? '未获取邮箱'}

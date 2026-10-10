@@ -137,9 +137,7 @@ export function OpenAIResetCredits({
       {selected && (
         <FormDialog open title="使用重置卡" busy={consume.isPending} onClose={() => setSelected(undefined)}>
           <Stack gap="4">
-            <Text fontSize="sm">
-              将为渠道「{channelName}」消耗最近到期的 1 张可用重置卡。重置卡使用后无法撤销。
-            </Text>
+            <Text fontSize="sm">将为渠道「{channelName}」消耗最近到期的 1 张可用重置卡。重置卡使用后无法撤销。</Text>
             <Text fontSize="sm" color="gray.500">
               所选卡有效期至 {new Date(selected.expiresAt).toLocaleString()}
             </Text>

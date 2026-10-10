@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  index,
   integer,
   pgEnum,
   pgTable,
@@ -81,6 +82,27 @@ export const channelEndpoints = pgTable(
     endpoint: endpoint('endpoint').notNull(),
   },
   (table) => [primaryKey({ columns: [table.channelId, table.endpoint] })],
+);
+
+export const aggregateChannelMembers = pgTable(
+  'aggregate_channel_members',
+  {
+    aggregateChannelId: uuid('aggregate_channel_id')
+      .notNull()
+      .references(() => channels.id),
+    memberChannelId: uuid('member_channel_id')
+      .notNull()
+      .references(() => channels.id),
+    priority: integer('priority').default(0).notNull(),
+    weight: integer('weight').default(1).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.aggregateChannelId, table.memberChannelId] }),
+    index('aggregate_members_member_idx').on(table.memberChannelId),
+    check('aggregate_members_no_self', sql`${table.aggregateChannelId} <> ${table.memberChannelId}`),
+    check('aggregate_members_priority_range', sql`${table.priority} between 0 and 1000`),
+    check('aggregate_members_weight_range', sql`${table.weight} between 1 and 1000`),
+  ],
 );
 
 export const channelAvailableModels = pgTable(

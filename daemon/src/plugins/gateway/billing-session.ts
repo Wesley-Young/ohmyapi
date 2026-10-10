@@ -1,7 +1,11 @@
+import { eq } from 'drizzle-orm';
+
 import type { readGatewayConfig } from '../../config.js';
 import { type EventLogger, errorDetails, type LogFields } from '../../logging.js';
 import type { BillingService, BillingSummary } from '../billing/service.js';
 import type { Endpoint } from '../catalog/service.js';
+import type { Database } from '../database/client.js';
+import { requestAttempts } from '../database/schema/index.js';
 import { requestErrorMessage } from './errors.js';
 import { UsageCollector } from './usage.js';
 
@@ -11,6 +15,7 @@ type Options = {
   endpoint: Endpoint;
   config: ReturnType<typeof readGatewayConfig>;
   billing: BillingService;
+  db: Database;
   logger: EventLogger;
   sampleLog: (key: string) => boolean;
 };
@@ -20,6 +25,8 @@ export class ForwardBillingSession {
   readonly bodyStats = { bytes: 0 };
   userId?: string;
   channelId?: string;
+  executionChannelId?: string;
+  attemptId?: string;
   modelName?: string;
   streaming?: boolean;
   httpStatus?: number;
@@ -105,6 +112,26 @@ export class ForwardBillingSession {
 
   async finish(result: BillingSummary) {
     const { id, billing, logger } = this.options;
+    if (this.attemptId) {
+      try {
+        await this.options.db
+          .update(requestAttempts)
+          .set({
+            status: result.errorCode ? (result.noExecution || result.usageFinal ? 'failed' : 'unknown') : 'completed',
+            noExecution: result.noExecution,
+            finishedAt: new Date(),
+            httpStatus: this.upstreamStatus,
+            upstreamRequestId: result.upstreamRequestId,
+            errorCode: result.errorCode,
+            errorMessage: result.errorMessage,
+          })
+          .where(eq(requestAttempts.id, this.attemptId));
+      } catch (error) {
+        logger.error(
+          `上游尝试记录保存失败 ${JSON.stringify({ requestId: id, attemptId: this.attemptId, ...errorDetails(error) })}`,
+        );
+      }
+    }
     try {
       if (this.recorded) await billing.finish(id, result);
     } catch (error) {
@@ -150,6 +177,8 @@ export class ForwardBillingSession {
           endpoint,
           userId,
           channelId,
+          executionChannelId: this.executionChannelId,
+          attemptId: this.attemptId,
           model: modelName,
           streaming,
           dispatched,

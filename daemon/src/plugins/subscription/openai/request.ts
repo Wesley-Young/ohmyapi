@@ -5,6 +5,34 @@ import { createHash } from 'node:crypto';
 
 export const openAIEndpoints = ['/v1/responses', '/v1/responses/compact'] as const;
 
+const removedResponseFields = [
+  'max_output_tokens',
+  'max_completion_tokens',
+  'temperature',
+  'top_p',
+  'frequency_penalty',
+  'presence_penalty',
+  'metadata',
+  'user',
+  'prompt_cache_retention',
+  'safety_identifier',
+  'stream_options',
+  'truncation',
+] as const;
+
+export function supportsAggregateRequest(body: Record<string, unknown>, endpoint: Endpoint) {
+  if (endpoint === '/v1/responses/compact')
+    return (
+      Object.keys(body).every((key) => ['model', 'input', 'instructions', 'stream'].includes(key)) &&
+      body.stream !== true
+    );
+  return (
+    endpoint === '/v1/responses' &&
+    body.store !== true &&
+    removedResponseFields.every((field) => body[field] === undefined || body[field] === null)
+  );
+}
+
 export function prepareBody(parsed: Record<string, unknown>, endpoint: Endpoint) {
   if (!openAIEndpoints.some((value) => value === endpoint))
     throw new GatewayError(
@@ -50,21 +78,7 @@ export function prepareBody(parsed: Record<string, unknown>, endpoint: Endpoint)
   }
   body.store = false;
   body.stream = true;
-  for (const field of [
-    'max_output_tokens',
-    'max_completion_tokens',
-    'temperature',
-    'top_p',
-    'frequency_penalty',
-    'presence_penalty',
-    'metadata',
-    'user',
-    'prompt_cache_retention',
-    'safety_identifier',
-    'stream_options',
-    'truncation',
-  ])
-    delete body[field];
+  for (const field of removedResponseFields) delete body[field];
   const instructions: string[] = [];
   for (const item of body.input as Record<string, unknown>[]) {
     if (!item || typeof item !== 'object' || item.role !== 'system') continue;

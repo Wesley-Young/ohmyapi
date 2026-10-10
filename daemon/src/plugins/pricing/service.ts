@@ -5,7 +5,13 @@ import { z } from 'zod';
 
 import type { AuthService, Principal } from '../auth/service.js';
 import { formatMoney, parseMoney } from '../billing/conventions.js';
-import { adminAuditLogs, channelAvailableModels, channels, models, priceRules } from '../database/schema/index.js';
+import {
+  adminAuditLogs,
+  effectiveChannelModels as channelAvailableModels,
+  channels,
+  models,
+  priceRules,
+} from '../database/schema/index.js';
 import type { KeyService } from '../keys/service.js';
 import {
   expandRules,

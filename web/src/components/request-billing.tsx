@@ -104,6 +104,32 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                   订阅账号 ID：{r.subscriptionAccountId}
                 </Text>
               )}
+              {r.attempts.length > 0 && (
+                <Stack gap="2">
+                  <Text fontSize="sm" fontWeight="500">
+                    实际转发渠道
+                  </Text>
+                  {r.attempts.map((attempt) => (
+                    <HStack key={attempt.id} gap="2" flexWrap="wrap">
+                      <Text fontSize="sm" overflowWrap="anywhere">
+                        {attempt.channelName}
+                      </Text>
+                      <Badge>{attempt.channelType === 'api' ? 'API 渠道' : '订阅渠道'}</Badge>
+                      <Badge>
+                        {
+                          {
+                            prepared: '准备中',
+                            forwarding: '转发中',
+                            completed: '已完成',
+                            failed: '失败',
+                            unknown: '执行结果待核对',
+                          }[attempt.status]
+                        }
+                      </Badge>
+                    </HStack>
+                  ))}
+                </Stack>
+              )}
               {r.upstreamRequestId && (
                 <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
                   上游请求 ID：{r.upstreamRequestId}
