@@ -79,7 +79,7 @@ export default function ModelPlaza() {
   const models = query.data?.models ?? [];
   const symbol = currencySymbol(query.data?.currency ?? 'CNY');
   return (
-    <Stack gap="6" minW="0">
+    <Stack gap="7" minW="0">
       <Title>模型广场</Title>
       <Text fontSize="sm" color="gray.500">
         已包含渠道倍率，展示默认规则下的最低配置价格；透传倍率按实际路由成员计费，动态定价以实际命中的规则为准。
@@ -88,113 +88,86 @@ export default function ModelPlaza() {
       {query.isPending ? (
         <Loading />
       ) : (
-        query.data && (
-          <Stack gap="3" minW="0">
-            {models.length ? (
-              <Box borderWidth="1px" borderColor="gray.200" borderRadius="2xl" overflow="hidden" bg="white">
-                <Box overflowX="auto">
-                  <Table.Root
-                    size="md"
-                    minW="720px"
-                    css={{
-                      '& th': { padding: '10px 24px', color: 'gray.500', fontWeight: '500', fontSize: '13px' },
-                      '& td': { padding: '10px 24px', borderColor: 'gray.200', verticalAlign: 'middle' },
-                      '& tbody tr:last-child td': { borderBottomWidth: '0' },
-                    }}
-                  >
-                    <Table.Caption srOnly>模型定价，输入、输出及缓存价格均按百万 Token 计费</Table.Caption>
-                    <Table.Header>
-                      <Table.Row bg="gray.50">
-                        <Table.ColumnHeader w="40%">模型</Table.ColumnHeader>
-                        <Table.ColumnHeader w="35%">价格</Table.ColumnHeader>
-                        <Table.ColumnHeader w="25%">缓存</Table.ColumnHeader>
-                      </Table.Row>
-                    </Table.Header>
-                    <Table.Body>
-                      {models.map((model) => {
-                        const rules = model.channels[0]?.rules ?? [];
-                        const dynamic = rules.some((rule) => rule.kind !== 'default');
-                        return (
-                          <Table.Row key={model.id} _hover={{ bg: 'gray.50' }}>
-                            <Table.Cell minW="220px">
-                              <Button
-                                variant="plain"
-                                h="auto"
-                                p="0"
-                                maxW="full"
-                                fontSize="sm"
-                                fontWeight="500"
-                                textAlign="start"
-                                whiteSpace="normal"
-                                overflowWrap="anywhere"
-                                aria-label={`查看 ${model.name} 定价详情`}
-                                aria-haspopup="dialog"
-                                onClick={() => setSelectedId(model.id)}
-                                _hover={{ color: '#635bff' }}
-                                _focusVisible={{ outline: '2px solid #635bff', outlineOffset: '4px' }}
-                              >
-                                {model.name}
-                              </Button>
-                            </Table.Cell>
-                            <Table.Cell>
-                              <Stack gap="0.5" lineHeight="1.35">
-                                <HStack gap="2" fontSize="sm" flexWrap="wrap" aria-label="输入 / 输出价格">
-                                  <Price value={model.lowestPrice?.inputPrice} symbol={symbol} />
-                                  <Text as="span" color="gray.300" aria-hidden="true">
-                                    /
-                                  </Text>
-                                  <Price value={model.lowestPrice?.outputPrice} symbol={symbol} />
-                                </HStack>
-                                <HStack gap="2" flexWrap="wrap">
-                                  <Text fontSize="xs" color="gray.500">
-                                    / 1M tokens
-                                  </Text>
-                                  {model.lowestPriceVariable && (
-                                    <Badge colorPalette="gray" size="sm">
-                                      起价
-                                    </Badge>
-                                  )}
-                                  {dynamic && (
-                                    <Badge colorPalette="blue" size="sm">
-                                      动态计费
-                                    </Badge>
-                                  )}
-                                </HStack>
-                              </Stack>
-                            </Table.Cell>
-                            <Table.Cell>
-                              <Stack gap="0.5" lineHeight="1.35">
-                                <Text fontSize="sm" aria-label="缓存读取价格">
-                                  <Price value={model.lowestPrice?.cacheReadPrice} symbol={symbol} />
-                                </Text>
-                                <Text fontSize="xs" color="gray.500">
-                                  / 1M tokens
-                                </Text>
-                              </Stack>
-                            </Table.Cell>
-                          </Table.Row>
-                        );
-                      })}
-                    </Table.Body>
-                  </Table.Root>
-                </Box>
-              </Box>
-            ) : (
-              <Text
-                borderWidth="1px"
-                borderColor="gray.200"
-                borderRadius="2xl"
-                py="12"
-                px="6"
-                textAlign="center"
-                color="gray.500"
-                fontSize="sm"
-              >
-                暂无已定价的可用模型。
-              </Text>
-            )}
-          </Stack>
-        )
+        query.data &&
+        (models.length ? (
+          <Box overflowX="auto">
+            <Table.Root size="sm">
+              <Table.Caption srOnly>模型定价，输入、输出及缓存价格均按百万 Token 计费</Table.Caption>
+              <Table.Header>
+                <Table.Row>
+                  <Table.ColumnHeader>模型</Table.ColumnHeader>
+                  <Table.ColumnHeader>价格</Table.ColumnHeader>
+                  <Table.ColumnHeader>缓存</Table.ColumnHeader>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {models.map((model) => {
+                  const rules = model.channels[0]?.rules ?? [];
+                  const dynamic = rules.some((rule) => rule.kind !== 'default');
+                  return (
+                    <Table.Row key={model.id}>
+                      <Table.Cell minW="220px">
+                        <Button
+                          variant="plain"
+                          h="auto"
+                          p="0"
+                          maxW="full"
+                          fontSize="sm"
+                          fontWeight="500"
+                          textAlign="start"
+                          whiteSpace="normal"
+                          overflowWrap="anywhere"
+                          aria-label={`查看 ${model.name} 定价详情`}
+                          aria-haspopup="dialog"
+                          onClick={() => setSelectedId(model.id)}
+                          _hover={{ color: '#635bff' }}
+                          _focusVisible={{ outline: '2px solid #635bff', outlineOffset: '4px' }}
+                        >
+                          {model.name}
+                        </Button>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <Stack gap="0.5" lineHeight="1.35">
+                          <HStack gap="2" fontSize="sm" flexWrap="wrap" aria-label="输入 / 输出价格">
+                            <Price value={model.lowestPrice?.inputPrice} symbol={symbol} />
+                            <Text as="span" color="gray.300" aria-hidden="true">
+                              /
+                            </Text>
+                            <Price value={model.lowestPrice?.outputPrice} symbol={symbol} />
+                          </HStack>
+                          <HStack gap="2" flexWrap="wrap">
+                            <Text fontSize="xs" color="gray.500">
+                              / 1M tokens
+                            </Text>
+                            {dynamic && (
+                              <Badge colorPalette="blue" size="sm">
+                                动态计费
+                              </Badge>
+                            )}
+                          </HStack>
+                        </Stack>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <Stack gap="0.5" lineHeight="1.35">
+                          <Text fontSize="sm" aria-label="缓存读取价格">
+                            <Price value={model.lowestPrice?.cacheReadPrice} symbol={symbol} />
+                          </Text>
+                          <Text fontSize="xs" color="gray.500">
+                            / 1M tokens
+                          </Text>
+                        </Stack>
+                      </Table.Cell>
+                    </Table.Row>
+                  );
+                })}
+              </Table.Body>
+            </Table.Root>
+          </Box>
+        ) : (
+          <Text py="8" color="gray.500" fontSize="sm">
+            暂无已定价的可用模型。
+          </Text>
+        ))
       )}
       {selected && (
         <FormDialog open title={selected.name} onClose={() => setSelectedId(undefined)} size="xl">
