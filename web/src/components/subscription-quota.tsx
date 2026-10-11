@@ -61,25 +61,30 @@ function QuotaWindow({
   );
 }
 
-export function OpenAIQuota({
+export function SubscriptionQuota({
+  provider,
   channelId,
   enabled,
   reauthorizationRequired,
 }: {
+  provider: 'openai' | 'claude';
   channelId: string;
   enabled: boolean;
   reauthorizationRequired: boolean;
 }) {
   const canFetch = enabled && !reauthorizationRequired;
-  const quotaKey = trpc.admin.catalog.openAIQuota.queryKey({ channelId });
+  const quotaEndpoint = provider === 'claude' ? trpc.admin.catalog.claudeQuota : trpc.admin.catalog.openAIQuota;
+  const refreshEndpoint =
+    provider === 'claude' ? trpc.admin.catalog.refreshClaudeQuota : trpc.admin.catalog.refreshOpenAIQuota;
+  const quotaKey = quotaEndpoint.queryKey({ channelId });
   const refresh = useMutation(
-    trpc.admin.catalog.refreshOpenAIQuota.mutationOptions({
+    refreshEndpoint.mutationOptions({
       onMutate: () => queryClient.cancelQueries({ queryKey: quotaKey, exact: true }),
       onSuccess: (quota) => queryClient.setQueryData(quotaKey, quota),
     }),
   );
   const query = useQuery(
-    trpc.admin.catalog.openAIQuota.queryOptions(
+    quotaEndpoint.queryOptions(
       { channelId },
       {
         enabled: canFetch && !refresh.isPending,

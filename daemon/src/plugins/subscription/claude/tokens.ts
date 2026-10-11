@@ -31,6 +31,23 @@ export class ClaudeTokens {
     return task;
   }
 
+  private async proxy(id: string, db: Pick<Database, 'select'> = this.db) {
+    const [channel] = await db
+      .select({ encrypted: channels.proxyUrlEncrypted })
+      .from(channels)
+      .where(and(eq(channels.subscriptionAccountId, id), isNull(channels.deletedAt)));
+    if (!channel) throw new GatewayError(503, 'subscription_unavailable', 'The subscription channel is unavailable');
+    return channel.encrypted ? this.vault.decrypt(channel.encrypted) : null;
+  }
+
+  async authorize(id: string) {
+    const proxyUrl = await this.proxy(id);
+    return {
+      credentials: await this.get(id, false, proxyUrl),
+      request: this.outbound.forProxy(proxyUrl),
+    };
+  }
+
   private async refresh(id: string, force: boolean, proxyUrl?: string | null) {
     const result = await this.db.transaction(async (tx) => {
       const [row] = await tx
@@ -60,15 +77,7 @@ export class ClaudeTokens {
       }
       if (row.cooldownUntil && row.cooldownUntil.getTime() > Date.now())
         throw new GatewayError(429, 'subscription_rate_limited', 'The Claude account is cooling down');
-      if (proxyUrl === undefined) {
-        const [channel] = await tx
-          .select({ proxy: channels.proxyUrlEncrypted })
-          .from(channels)
-          .where(and(eq(channels.subscriptionAccountId, id), isNull(channels.deletedAt)));
-        if (!channel)
-          throw new GatewayError(503, 'subscription_unavailable', 'The subscription channel is unavailable');
-        proxyUrl = channel.proxy ? this.vault.decrypt(channel.proxy) : null;
-      }
+      if (proxyUrl === undefined) proxyUrl = await this.proxy(id, tx);
       let next = this.rotated.get(id)?.credentials;
       if (!next) {
         try {

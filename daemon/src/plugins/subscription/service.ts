@@ -12,6 +12,7 @@ import { type OutboundHttp, proxyUrlInput } from '../outbound/index.js';
 import { importClaudeCredentials } from './claude/client.js';
 import { type ClaudeCredentials, claudeCredentialsSchema } from './claude/credentials.js';
 import { ClaudeOAuth } from './claude/oauth.js';
+import { ClaudeQuota } from './claude/quota.js';
 import { claudeRateLimit } from './claude/ratelimit.js';
 import { ClaudeSessions } from './claude/session.js';
 import { ClaudeTokens } from './claude/tokens.js';
@@ -44,6 +45,7 @@ export class SubscriptionService implements Disposable {
   private readonly oauth = new OpenAIOAuth();
   private readonly claudeOAuth = new ClaudeOAuth();
   private readonly openaiQuota = new OpenAIQuota();
+  private readonly claudeQuota = new ClaudeQuota();
   private readonly openaiResetCredits = new OpenAIResetCredits();
   private readonly timer: ReturnType<typeof setInterval>;
   private refreshing = false;
@@ -207,6 +209,7 @@ export class SubscriptionService implements Disposable {
       row = created;
     }
     this.openaiQuota.invalidate(row.id);
+    this.claudeQuota.invalidate(row.id);
     return row.id;
   }
 
@@ -220,24 +223,29 @@ export class SubscriptionService implements Disposable {
     try {
       await ((await this.provider(id)) === 'claude' ? this.claudeTokens : this.tokens).get(id, true);
       this.openaiQuota.invalidate(id);
+      this.claudeQuota.invalidate(id);
     } catch {
       throw new TRPCError({ code: 'BAD_REQUEST', message: '刷新失败，请检查账号状态或重新授权' });
     }
     return { success: true };
   }
   async openAIQuota(principal: Principal, channelId: string, force = false) {
-    const id = await this.openAIAccountForChannel(principal, channelId);
+    const id = await this.providerAccountForChannel(principal, channelId, 'openai');
     return this.openaiQuota.get(this.tokens, id, force);
   }
+  async claudeUsage(principal: Principal, channelId: string, force = false) {
+    const id = await this.providerAccountForChannel(principal, channelId, 'claude');
+    return this.claudeQuota.get(this.claudeTokens, id, force);
+  }
   async listOpenAIResetCredits(principal: Principal, channelId: string) {
-    const id = await this.openAIAccountForChannel(principal, channelId);
+    const id = await this.providerAccountForChannel(principal, channelId, 'openai');
     return this.openaiResetCredits.list(this.tokens, id);
   }
   async consumeOpenAIResetCredit(
     principal: Principal,
     input: { channelId: string; creditId: string; redeemRequestId: string },
   ) {
-    const id = await this.openAIAccountForChannel(principal, input.channelId);
+    const id = await this.providerAccountForChannel(principal, input.channelId, 'openai');
     try {
       const result = await this.openaiResetCredits.consume(this.tokens, id, input.creditId, input.redeemRequestId);
       // 上游已完成的兑换不因本地状态更新失败而被报告为使用失败。
@@ -257,14 +265,14 @@ export class SubscriptionService implements Disposable {
       this.openaiQuota.invalidate(id);
     }
   }
-  private async openAIAccountForChannel(principal: Principal, channelId: string) {
+  private async providerAccountForChannel(principal: Principal, channelId: string, provider: 'openai' | 'claude') {
     const id = await this.accountForChannel(principal, channelId);
     const [account] = await this.auth.db
       .select({ provider: subscriptionAccounts.provider, enabled: subscriptionAccounts.enabled })
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
-    if (account?.provider !== 'openai' || !account.enabled)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '该 OpenAI 订阅渠道未启用或已删除' });
+    if (account?.provider !== provider || !account.enabled)
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '订阅平台不匹配，或渠道未启用、已删除' });
     return id;
   }
   private async accountForChannel(principal: Principal, channelId: string) {
@@ -506,6 +514,7 @@ export class SubscriptionService implements Disposable {
     this.oauth.dispose();
     this.claudeOAuth.dispose();
     this.openaiQuota.dispose();
+    this.claudeQuota.dispose();
     await Promise.all([this.tokens.dispose(), this.claudeTokens.dispose()]);
   }
 }

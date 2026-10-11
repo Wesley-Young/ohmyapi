@@ -205,6 +205,12 @@ export const appRouter = t.router({
       openAIQuota: adminProcedure
         .input(z.object({ channelId: z.uuid() }))
         .query(({ ctx, input }) => ctx.subscription.openAIQuota(ctx.principal, input.channelId)),
+      refreshClaudeQuota: adminProcedure
+        .input(z.object({ channelId: z.uuid() }))
+        .mutation(({ ctx, input }) => ctx.subscription.claudeUsage(ctx.principal, input.channelId, true)),
+      claudeQuota: adminProcedure
+        .input(z.object({ channelId: z.uuid() }))
+        .query(({ ctx, input }) => ctx.subscription.claudeUsage(ctx.principal, input.channelId)),
       startSubscriptionOAuth: adminProcedure
         .input(z.object({ provider: z.enum(['openai', 'claude']).default('openai') }).optional())
         .mutation(({ ctx, input }) => ctx.subscription.startOAuth(ctx.principal, input?.provider)),

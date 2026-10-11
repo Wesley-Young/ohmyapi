@@ -22,8 +22,8 @@ import { AggregateMembers } from '../components/aggregate-members';
 import { ChannelUsersDialog } from '../components/channel-grants';
 import { type ChannelModel, ChannelModels } from '../components/channel-models';
 import { IconButton } from '../components/icon-button';
-import { OpenAIQuota } from '../components/openai-quota';
 import { OpenAIResetCredits } from '../components/openai-reset-credits';
+import { SubscriptionQuota } from '../components/subscription-quota';
 import { ConfirmAction, ErrorText, FormDialog, FormInput, Loading, PrimaryButton, Title } from '../components/ui';
 import { formError } from '../lib/format';
 import { queryClient, trpc, trpcClient } from '../lib/trpc';
@@ -46,6 +46,7 @@ export const refreshCatalog = () =>
   Promise.all([
     queryClient.invalidateQueries(trpc.admin.catalog.list.queryFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.openAIQuota.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.catalog.claudeQuota.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.openAIResetCredits.pathFilter()),
     queryClient.invalidateQueries(trpc.keys.models.queryFilter()),
     queryClient.invalidateQueries(trpc.modelPlaza.queryFilter()),
@@ -843,8 +844,10 @@ export default function Catalog() {
                         </Stack>
                       </Table.Cell>
                       <Table.Cell>
-                        {c.type === 'subscription' && c.subscription?.provider === 'openai' ? (
-                          <OpenAIQuota
+                        {c.type === 'subscription' &&
+                        (c.subscription?.provider === 'openai' || c.subscription?.provider === 'claude') ? (
+                          <SubscriptionQuota
+                            provider={c.subscription.provider}
                             channelId={c.id}
                             enabled={c.enabled}
                             reauthorizationRequired={!!c.subscription.errorCode}
