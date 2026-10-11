@@ -16,6 +16,7 @@ import {
   PrimaryButton,
   Title,
 } from '../components/ui';
+import { UserRoleAction } from '../components/user-role-action';
 import { WalletAdjustmentDialog } from '../components/wallet-adjustment';
 import { displayMoney, formError, localDate } from '../lib/format';
 import { invalidateUser, queryClient, trpc, trpcClient } from '../lib/trpc';
@@ -227,7 +228,9 @@ export default function Users() {
                     {data.data.items.map((user) => (
                       <Table.Row key={user.id}>
                         <Table.Cell fontWeight="500">{user.username}</Table.Cell>
-                        <Table.Cell whiteSpace="nowrap">{user.role === 'admin' ? '管理员' : '用户'}</Table.Cell>
+                        <Table.Cell whiteSpace="nowrap">
+                          <Badge>{user.role === 'admin' ? '管理员' : '普通用户'}</Badge>
+                        </Table.Cell>
                         <Table.Cell whiteSpace="nowrap" color={user.status === 'disabled' ? 'gray.500' : undefined}>
                           {user.status === 'active' ? '启用' : '已禁用'}
                         </Table.Cell>
@@ -254,6 +257,7 @@ export default function Users() {
                                 <Settings2 size={16} aria-hidden="true" />
                               </RouterLink>
                             </IconButton>
+                            <UserRoleAction user={user} compact />
                             {user.role === 'user' && (
                               <ConfirmAction
                                 label="删除"

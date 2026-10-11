@@ -265,6 +265,9 @@ export const appRouter = t.router({
       create: adminProcedure
         .input(z.object({ username, password: password.optional() }))
         .mutation(({ ctx, input }) => ctx.users.create(ctx.principal, input.username, input.password)),
+      setRole: adminProcedure
+        .input(userId.extend({ role: z.enum(['admin', 'user']) }))
+        .mutation(({ ctx, input }) => ctx.users.setRole(ctx.principal, input.userId, input.role)),
       setStatus: adminProcedure
         .input(userId.extend({ status: z.enum(['active', 'disabled']) }))
         .mutation(({ ctx, input }) =>

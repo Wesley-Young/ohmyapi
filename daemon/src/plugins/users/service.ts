@@ -69,6 +69,34 @@ export class UserService {
     });
   }
 
+  async setRole(principal: Principal, userId: string, role: 'admin' | 'user') {
+    return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
+      const [target] = await tx
+        .select()
+        .from(users)
+        .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+        .for('update');
+      if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: '用户不存在' });
+      if (target.role === role) return publicUser(target);
+      if (actor.id === userId) throw new TRPCError({ code: 'FORBIDDEN', message: '请由其他管理员将你降级为普通用户' });
+      if (role === 'admin' && target.status !== 'active')
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '请先启用该用户，再提升为管理员' });
+      const [updated] = await tx.update(users).set({ role }).where(eq(users.id, userId)).returning();
+      await tx
+        .update(sessions)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+      await tx.insert(adminAuditLogs).values({
+        actorId: actor.id,
+        action: 'user.set_role',
+        targetType: 'user',
+        targetId: userId,
+        metadata: { username: target.username, previousRole: target.role, role },
+      });
+      return publicUser(updated);
+    });
+  }
+
   async manage(
     principal: Principal,
     userId: string,

@@ -15,6 +15,7 @@ import {
   PrimaryButton,
   Title,
 } from '../components/ui';
+import { UserRoleAction } from '../components/user-role-action';
 import { Ledger, WalletSummary } from '../components/wallet';
 import { formError } from '../lib/format';
 import { invalidateUser, trpc, trpcClient } from '../lib/trpc';
@@ -97,6 +98,7 @@ export default function UserDetail() {
             <Title
               action={
                 <HStack gap="3" flexWrap="wrap">
+                  {!user.data.deleted && <UserRoleAction user={user.data} />}
                   {user.data.role === 'user' && !user.data.deleted && (
                     <>
                       {user.data.role === 'user' && !user.data.deleted && (
@@ -139,8 +141,9 @@ export default function UserDetail() {
                 </HStack>
               }
             >
-              <HStack gap="3">
+              <HStack gap="3" flexWrap="wrap">
                 <Text>{user.data.username}</Text>
+                <Badge letterSpacing="normal">{user.data.role === 'admin' ? '管理员' : '普通用户'}</Badge>
                 <Badge
                   colorPalette={user.data.deleted || user.data.status === 'disabled' ? 'gray' : 'green'}
                   letterSpacing="normal"
