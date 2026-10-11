@@ -211,27 +211,31 @@ export class KeyService {
     });
   }
 
-  async list(userId: string, page: number) {
-    const rows = await this.auth.db
-      .select({
-        id: apiKeys.id,
-        name: apiKeys.name,
-        token: apiKeys.key,
-        expiresAt: apiKeys.expiresAt,
-        revokedAt: apiKeys.revokedAt,
-        createdAt: apiKeys.createdAt,
-        restrictModels: apiKeys.restrictModels,
-        channelId: apiKeyChannels.channelId,
-        channelName: channels.name,
-        channelDeleted: sql<boolean>`${channels.deletedAt} is not null`,
-      })
-      .from(apiKeys)
-      .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
-      .leftJoin(channels, eq(channels.id, apiKeyChannels.channelId))
-      .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.deletedAt)))
-      .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
-      .limit(pageSize + 1)
-      .offset(page * pageSize);
+  async list(principal: Principal, page: number) {
+    const userId = principal.user.id;
+    const [offerings, rows] = await Promise.all([
+      this.offerings(this.auth.db, userId, principal.user.role),
+      this.auth.db
+        .select({
+          id: apiKeys.id,
+          name: apiKeys.name,
+          token: apiKeys.key,
+          expiresAt: apiKeys.expiresAt,
+          revokedAt: apiKeys.revokedAt,
+          createdAt: apiKeys.createdAt,
+          restrictModels: apiKeys.restrictModels,
+          channelId: apiKeyChannels.channelId,
+          channelName: channels.name,
+          channelDeleted: sql<boolean>`${channels.deletedAt} is not null`,
+        })
+        .from(apiKeys)
+        .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
+        .leftJoin(channels, eq(channels.id, apiKeyChannels.channelId))
+        .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.deletedAt)))
+        .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
+        .limit(pageSize + 1)
+        .offset(page * pageSize),
+    ]);
     const items = rows.slice(0, pageSize);
     const grants = items.length
       ? await this.auth.db
@@ -245,9 +249,14 @@ export class KeyService {
             ),
           )
       : [];
+    // CC Switch export needs an available channel that serves more than the Anthropic Messages endpoint.
+    const exportableChannels = new Set(
+      offerings.filter((row) => row.endpoint !== '/v1/messages').map((row) => row.channelId),
+    );
     return {
       items: items.map((key) => ({
         ...key,
+        exportable: !key.revokedAt && key.channelId !== null && exportableChannels.has(key.channelId),
         expiresAt: key.expiresAt?.toISOString() ?? null,
         revokedAt: key.revokedAt?.toISOString() ?? null,
         createdAt: key.createdAt.toISOString(),

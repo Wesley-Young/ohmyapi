@@ -123,9 +123,7 @@ export const appRouter = t.router({
   }),
   keys: t.router({
     playgroundOptions: protectedProcedure.query(({ ctx }) => ctx.keys.playgroundOptions(ctx.principal)),
-    list: protectedProcedure
-      .input(pagination)
-      .query(({ ctx, input }) => ctx.keys.list(ctx.principal.user.id, input.page)),
+    list: protectedProcedure.input(pagination).query(({ ctx, input }) => ctx.keys.list(ctx.principal, input.page)),
     channels: protectedProcedure.query(({ ctx }) => ctx.keys.availableChannels(ctx.principal)),
     bindChannel: protectedProcedure
       .input(z.object({ keyId: z.uuid(), channelId: z.uuid() }))

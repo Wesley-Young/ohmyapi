@@ -20,11 +20,6 @@ function dateTimeInput(value: string | null) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, -1);
 }
 
-function isAnthropicOnly(channel: RouterOutputs['keys']['channels'][number] | undefined) {
-  if (!channel) return true; // unable to determine, assume true to disable export
-  return channel.endpoints.length === 1 && channel.endpoints[0] === '/v1/messages';
-}
-
 export default function Keys() {
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -339,11 +334,7 @@ export default function Keys() {
                               aria-label={`导出「${key.name}」到 CC Switch`}
                               variant="outline"
                               size="sm"
-                              disabled={
-                                !channels.data ||
-                                isAnthropicOnly(channels.data.find((channel) => channel.id === key.channelId)) ||
-                                Boolean(key.revokedAt || expired || key.channelDeleted || !key.channelId)
-                              }
+                              disabled={!key.exportable || expired}
                               onClick={() => setExportingKeyId(key.id)}
                             >
                               <Download size={16} aria-hidden="true" />
