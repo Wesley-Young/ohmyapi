@@ -1,5 +1,5 @@
 export const ccSwitchApps = [
-  { id: 'claude', label: 'Claude Code', endpoint: '/v1/messages' },
+  { id: 'claude', label: 'Claude', endpoint: '/v1/messages' },
   { id: 'codex', label: 'Codex', endpoint: '/v1/responses' },
 ] as const;
 

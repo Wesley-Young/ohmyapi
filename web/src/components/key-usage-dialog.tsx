@@ -11,8 +11,8 @@ export function KeyUsageDialog({ onClose }: { onClose: () => void }) {
         <Stack gap="3">
           <Text fontWeight="600">客户端 Base URL</Text>
           {[
-            { label: 'Codex', url: `${origin}/v1` },
-            { label: 'Claude Code', url: origin },
+            { label: 'OpenAI Responses 兼容客户端', url: `${origin}/v1` },
+            { label: 'Anthropic Messages 兼容客户端（Claude Code 除外）', url: origin },
           ].map(({ label, url }) => (
             <Stack key={label} gap="1" minW="0">
               <Text color="gray.600">{label}</Text>
@@ -24,11 +24,14 @@ export function KeyUsageDialog({ onClose }: { onClose: () => void }) {
         </Stack>
         <Text color="gray.600">设置客户端基础地址到本站点，并且复制列表中的 API Key 到客户端配置中。</Text>
         <Text color="gray.600">
-          此外，也可以点击对应 API Key 的 “导出” 按钮，将配置一键导入到{' '}
+          点击对应 API Key 的“导出”按钮，可将配置导入{' '}
           <Link href="https://ccswitch.io/" color="#656bff">
             CC Switch
           </Link>{' '}
-          中。
+          管理。
+        </Text>
+        <Text color="gray.600">
+          本站<b>不支持 Claude Code 客户端</b>。
         </Text>
       </Stack>
     </FormDialog>

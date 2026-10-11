@@ -27,7 +27,7 @@ export function CCSwitchDialog({ keyId, onClose }: { keyId: string; onClose: () 
       ) : !selectedKey ? (
         <ErrorText>此 Key 已失效，或渠道没有已授权且已定价的可用模型。</ErrorText>
       ) : !ccSwitchApps.some((app) => selectedKey.endpoints.includes(app.endpoint)) ? (
-        <ErrorText>此 Key 的渠道未支持 Claude Code 或 Codex 所需的端点。</ErrorText>
+        <ErrorText>此 Key 的渠道未提供 CC Switch 配置所需的 Messages 或 Responses 端点。</ErrorText>
       ) : (
         <ExportForm key={selectedKey.id} apiKey={selectedKey} refreshing={options.isFetching} onClose={onClose} />
       )}
@@ -73,7 +73,7 @@ function ExportForm({ apiKey, refreshing, onClose }: { apiKey: ExportKey; refres
     >
       <Stack gap="5">
         <Field.Root>
-          <Field.Label>应用</Field.Label>
+          <Field.Label>配置类型</Field.Label>
           <NativeSelect.Root>
             <NativeSelect.Field
               value={app.id}
@@ -132,7 +132,7 @@ function ExportForm({ apiKey, refreshing, onClose }: { apiKey: ExportKey; refres
         <ErrorText>{launchError}</ErrorText>
         <HStack gap="3" flexWrap="wrap">
           <PrimaryButton type="submit" disabled={refreshing}>
-            打开 CC Switch
+            导入 CC Switch
           </PrimaryButton>
           <Button type="button" variant="ghost" onClick={onClose}>
             关闭

@@ -401,6 +401,12 @@ export class GatewayService implements Disposable {
 
     try {
       if (this.stopping) throw new GatewayError(503, 'server_stopping', 'Gateway is stopping');
+      if (endpoint === '/v1/messages' && /^claude-(?:cli|code)\//i.test(req.headers.get('user-agent')?.trim() ?? ''))
+        throw new GatewayError(
+          403,
+          'client_not_allowed',
+          '此端点不支持 Claude Code 客户端，请在其他兼容 Anthropic Messages 的客户端中使用。',
+        );
       this.billing.assertReady();
       const identity = await this.identify(req, endpoint);
       session.userId = identity.user.id;
