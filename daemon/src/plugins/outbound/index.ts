@@ -1,5 +1,5 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
-import { Agent, type Dispatcher, ProxyAgent } from 'undici';
+import { Agent, type Dispatcher, fetch as outboundFetch, ProxyAgent } from 'undici';
 import { z } from 'zod';
 
 import { definePlugin } from '../../kernel.js';
@@ -87,7 +87,8 @@ export class OutboundHttp implements Disposable {
         ...init,
         dispatcher: this.dispatcher(proxyUrl),
       };
-      return fetch(url, options);
+      // 使用锁定的 undici 版本，保证 CC 协商的 zstd 解压不依赖 Node 内置 fetch 版本。
+      return outboundFetch(url, options as Parameters<typeof outboundFetch>[1]) as unknown as Promise<Response>;
     };
   }
 

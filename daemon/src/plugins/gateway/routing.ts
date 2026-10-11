@@ -27,10 +27,16 @@ export async function selectExecutionChannel(
   endpoint: Endpoint,
   request: Request,
   cache: ChannelAffinity,
+  userId: string,
 ): Promise<{ channel: Channel; affinity?: AffinitySelection }> {
   if (entry.type !== 'aggregate') return { channel: entry };
   const session = requestSession(request, parsed, endpoint);
-  const affinity = session ? cache.lookup(entry.id, String(parsed.model), session) : undefined;
+  const affinity = session
+    ? cache.lookup(entry.id, String(parsed.model), {
+        family: session.family,
+        value: JSON.stringify([userId, session.value]),
+      })
+    : undefined;
   const rows = await db
     .select({ channel: channels, member: aggregateChannelMembers, account: subscriptionAccounts })
     .from(aggregateChannelMembers)
@@ -46,8 +52,12 @@ export async function selectExecutionChannel(
     )
     .orderBy(desc(aggregateChannelMembers.priority), channels.id);
   const compatible = rows.filter(
-    ({ channel }) =>
-      channel.type === 'api' || (channel.type === 'subscription' && supportsAggregateRequest(parsed, endpoint)),
+    ({ channel, account }) =>
+      channel.type === 'api' ||
+      (channel.type === 'subscription' &&
+        (account?.provider === 'claude'
+          ? endpoint === '/v1/messages'
+          : account?.provider === 'openai' && supportsAggregateRequest(parsed, endpoint))),
   );
   if (rows.length && !compatible.length)
     throw new GatewayError(400, 'aggregate_request_unsupported', 'No member can preserve the requested parameters');
@@ -56,6 +66,7 @@ export async function selectExecutionChannel(
       channel.type === 'api' ||
       (account &&
         (!account.cooldownUntil || account.cooldownUntil.getTime() <= Date.now()) &&
+        !(Date.parse(account.modelCooldowns[String(parsed.model)] ?? '') > Date.now()) &&
         subscription.concurrency.active(account.id) < account.maxConcurrent),
   );
   if (!available.length)

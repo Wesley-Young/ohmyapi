@@ -141,6 +141,7 @@ export class CatalogService {
             expiresAt: subscriptionAccounts.expiresAt,
             errorCode: subscriptionAccounts.errorCode,
             cooldownUntil: subscriptionAccounts.cooldownUntil,
+            modelCooldowns: subscriptionAccounts.modelCooldowns,
           },
           baseUrl: channels.baseUrl,
           proxyUrlEncrypted: channels.proxyUrlEncrypted,
@@ -166,11 +167,12 @@ export class CatalogService {
         subscription: c.subscription
           ? {
               provider: c.subscription.provider,
-              email: this.subscription.accountEmail(c.subscription.credentialEncrypted),
+              email: this.subscription.accountEmail(c.subscription.credentialEncrypted, c.subscription.provider),
               maxConcurrent: c.subscription.maxConcurrent,
               expiresAt: c.subscription.expiresAt.toISOString(),
               errorCode: c.subscription.errorCode,
               cooldownUntil: c.subscription.cooldownUntil?.toISOString() ?? null,
+              modelCooldowns: c.subscription.modelCooldowns,
               active: this.subscription.concurrency.active(c.subscription.id),
             }
           : null,
@@ -434,8 +436,16 @@ export class CatalogService {
         if (!input.subscription) throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写订阅配置' });
         if (input.baseUrl || input.credential)
           throw new TRPCError({ code: 'BAD_REQUEST', message: '订阅渠道使用账号凭据，无需填写 API 连接信息' });
-        if (input.endpoints.some((endpoint) => endpoint !== '/v1/responses' && endpoint !== '/v1/responses/compact'))
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'OpenAI 订阅渠道仅支持 Responses 和 compact' });
+        const allowed =
+          input.subscription.provider === 'claude' ? ['/v1/messages'] : ['/v1/responses', '/v1/responses/compact'];
+        if (input.endpoints.some((endpoint) => !allowed.includes(endpoint)))
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              input.subscription.provider === 'claude'
+                ? 'Claude 订阅渠道仅支持 Messages'
+                : 'OpenAI 订阅渠道仅支持 Responses 和 compact',
+          });
       }
       const [duplicate] = await tx
         .select({ id: channels.id })
@@ -479,6 +489,7 @@ export class CatalogService {
                 name: input.name,
                 enabled: input.enabled,
                 maxConcurrent: input.subscription.maxConcurrent,
+                provider: input.subscription.provider,
               },
               credentials,
             )
@@ -575,7 +586,7 @@ export class CatalogService {
       return { ...row, unpricedModels: resolved.filter((m) => !priced.some((p) => p.modelId === m.id)) };
     });
     if (input.type === 'subscription' && input.subscription?.callbackUrl)
-      this.subscription.consumeAuthorization(principal, input.subscription.callbackUrl);
+      this.subscription.consumeAuthorization(principal, input.subscription.callbackUrl, input.subscription.provider);
     return result;
   }
 

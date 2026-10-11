@@ -1,6 +1,6 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { and, eq, isNull, lt } from 'drizzle-orm';
+import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AuthService, Principal, Transaction } from '../auth/service.js';
@@ -9,6 +9,12 @@ import type { CredentialVault } from '../catalog/vault.js';
 import { channels, subscriptionAccounts } from '../database/schema/index.js';
 import { GatewayError } from '../gateway/errors.js';
 import { type OutboundHttp, proxyUrlInput } from '../outbound/index.js';
+import { importClaudeCredentials } from './claude/client.js';
+import { type ClaudeCredentials, claudeCredentialsSchema } from './claude/credentials.js';
+import { ClaudeOAuth } from './claude/oauth.js';
+import { claudeRateLimit } from './claude/ratelimit.js';
+import { ClaudeSessions } from './claude/session.js';
+import { ClaudeTokens } from './claude/tokens.js';
 import { SubscriptionConcurrency } from './concurrency.js';
 import { accountHeaders, codexBaseUrl, latestCodexClientVersion, readJson } from './openai/client.js';
 import { credentialsSchema, type OpenAICredentials, parseCredentials } from './openai/credentials.js';
@@ -18,6 +24,7 @@ import { OpenAIResetCredits } from './openai/reset-credits.js';
 import { OpenAITokens } from './openai/tokens.js';
 
 const credentialInput = z.object({
+  provider: z.enum(['openai', 'claude']).default('openai'),
   credentials: z.string().min(1).max(60000).optional(),
   callbackUrl: z.url().max(8192).optional(),
 });
@@ -32,7 +39,10 @@ export class SubscriptionService implements Disposable {
   static readonly token = serviceToken<SubscriptionService>('ohmyapi/subscription');
   readonly concurrency = new SubscriptionConcurrency();
   readonly tokens: OpenAITokens;
+  readonly claudeTokens: ClaudeTokens;
+  readonly claudeSessions = new ClaudeSessions();
   private readonly oauth = new OpenAIOAuth();
+  private readonly claudeOAuth = new ClaudeOAuth();
   private readonly openaiQuota = new OpenAIQuota();
   private readonly openaiResetCredits = new OpenAIResetCredits();
   private readonly timer: ReturnType<typeof setInterval>;
@@ -47,34 +57,49 @@ export class SubscriptionService implements Disposable {
     this.vault = vault;
     this.outbound = outbound;
     this.tokens = new OpenAITokens(auth.db, vault, outbound);
+    this.claudeTokens = new ClaudeTokens(auth.db, vault, outbound);
     this.timer = setInterval(() => {
       this.oauth.prune();
+      this.claudeOAuth.prune();
       void this.refreshExpiring().catch(() => {});
     }, 30_000);
     this.timer.unref();
   }
 
-  accountEmail(encrypted: string): string | null {
+  accountEmail(encrypted: string, provider = 'openai'): string | null {
     try {
       // 已保存的旧凭据可从 access_token 读取邮箱，后续刷新会写入 email。
-      return parseCredentials(JSON.parse(this.vault.decrypt(encrypted))).email ?? null;
+      const raw = JSON.parse(this.vault.decrypt(encrypted));
+      return (provider === 'claude' ? claudeCredentialsSchema.parse(raw) : parseCredentials(raw)).email ?? null;
     } catch {
       return null;
     }
   }
 
-  consumeAuthorization(principal: Principal, callbackUrl: string) {
-    this.oauth.consume(principal.user.id, callbackUrl);
+  consumeAuthorization(principal: Principal, callbackUrl: string, provider: 'openai' | 'claude') {
+    (provider === 'claude' ? this.claudeOAuth : this.oauth).consume(principal.user.id, callbackUrl);
   }
 
   async prepareCredentials(principal: Principal, input: z.infer<typeof credentialInput>, proxyUrl: string | null) {
     await this.auth.authorized(principal, { admin: true }, async () => {});
     if (input.callbackUrl) {
       try {
-        return await this.oauth.complete(principal.user.id, input.callbackUrl, this.outbound.forProxy(proxyUrl));
+        const oauth = input.provider === 'claude' ? this.claudeOAuth : this.oauth;
+        return await oauth.complete(principal.user.id, input.callbackUrl, this.outbound.forProxy(proxyUrl));
       } catch (error) {
         if (error instanceof TRPCError) throw error;
         throw new TRPCError({ code: 'BAD_REQUEST', message: '授权失败，请重新授权并粘贴完整回调地址' });
+      }
+    }
+    if (input.provider === 'claude') {
+      if (!input.credentials) return;
+      try {
+        return await importClaudeCredentials(JSON.parse(input.credentials), this.outbound.forProxy(proxyUrl));
+      } catch {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Claude 凭据无效；需要 OAuth 令牌、有效期及 account_uuid，缺少账号信息时将通过代理查询',
+        });
       }
     }
     if (input.credentials) {
@@ -91,8 +116,8 @@ export class SubscriptionService implements Disposable {
 
   async saveAccount(
     tx: Transaction,
-    input: { id?: string; name: string; enabled: boolean; maxConcurrent: number },
-    credentials?: OpenAICredentials,
+    input: { id?: string; name: string; enabled: boolean; maxConcurrent: number; provider: 'openai' | 'claude' },
+    credentials?: OpenAICredentials | ClaudeCredentials,
   ) {
     const [existing] = input.id
       ? await tx
@@ -101,6 +126,8 @@ export class SubscriptionService implements Disposable {
           .where(and(eq(subscriptionAccounts.id, input.id), isNull(subscriptionAccounts.deletedAt)))
           .for('update')
       : [];
+    if (existing && existing.provider !== input.provider)
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '订阅平台不可更改，请新建渠道' });
     if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '订阅账号不存在' });
     if (!existing && !credentials) throw new TRPCError({ code: 'BAD_REQUEST', message: '请导入凭据或完成授权' });
     if (
@@ -111,11 +138,18 @@ export class SubscriptionService implements Disposable {
       throw new TRPCError({ code: 'BAD_REQUEST', message: '新凭据属于其他账号，请新建订阅渠道' });
     if (credentials) {
       if (existing) {
-        const saved = credentialsSchema.parse(JSON.parse(this.vault.decrypt(existing.credentialEncrypted)));
+        const raw = JSON.parse(this.vault.decrypt(existing.credentialEncrypted));
+        const saved =
+          existing.provider === 'claude' ? claudeCredentialsSchema.parse(raw) : credentialsSchema.parse(raw);
         credentials = {
           ...credentials,
+          ...('deviceId' in saved ? { deviceId: saved.deviceId } : {}),
           refreshToken: credentials.refreshToken ?? saved.refreshToken,
-          email: credentials.email ?? saved.email ?? this.accountEmail(existing.credentialEncrypted) ?? undefined,
+          email:
+            credentials.email ??
+            saved.email ??
+            this.accountEmail(existing.credentialEncrypted, existing.provider) ??
+            undefined,
         };
       }
       const [duplicate] = await tx
@@ -123,16 +157,18 @@ export class SubscriptionService implements Disposable {
         .from(subscriptionAccounts)
         .where(
           and(
+            eq(subscriptionAccounts.provider, input.provider),
             eq(subscriptionAccounts.accountId, credentials.accountId),
             eq(subscriptionAccounts.userId, credentials.userId),
             isNull(subscriptionAccounts.deletedAt),
           ),
         );
       if (duplicate && duplicate.id !== input.id)
-        throw new TRPCError({ code: 'CONFLICT', message: '该 OpenAI 账号已存在，请编辑对应订阅渠道' });
+        throw new TRPCError({ code: 'CONFLICT', message: '该订阅账号已存在，请编辑对应订阅渠道' });
     }
     const values = {
       name: input.name,
+      provider: input.provider,
       enabled: input.enabled,
       maxConcurrent: input.maxConcurrent,
       ...(credentials
@@ -143,6 +179,7 @@ export class SubscriptionService implements Disposable {
             expiresAt: new Date(credentials.expiresAt),
             errorCode: null,
             cooldownUntil: null,
+            modelCooldowns: {},
           }
         : {}),
     };
@@ -166,20 +203,22 @@ export class SubscriptionService implements Disposable {
         })
         .onConflictDoNothing()
         .returning({ id: subscriptionAccounts.id });
-      if (!created) throw new TRPCError({ code: 'CONFLICT', message: '该 OpenAI 账号已存在，请编辑对应订阅渠道' });
+      if (!created) throw new TRPCError({ code: 'CONFLICT', message: '该订阅账号已存在，请编辑对应订阅渠道' });
       row = created;
     }
     this.openaiQuota.invalidate(row.id);
     return row.id;
   }
 
-  async startOAuth(principal: Principal) {
-    return this.auth.authorized(principal, { admin: true }, async () => this.oauth.start(principal.user.id));
+  async startOAuth(principal: Principal, provider: 'openai' | 'claude' = 'openai') {
+    return this.auth.authorized(principal, { admin: true }, async () =>
+      (provider === 'claude' ? this.claudeOAuth : this.oauth).start(principal.user.id),
+    );
   }
   async refresh(principal: Principal, channelId: string) {
     const id = await this.accountForChannel(principal, channelId);
     try {
-      await this.tokens.get(id, true);
+      await ((await this.provider(id)) === 'claude' ? this.claudeTokens : this.tokens).get(id, true);
       this.openaiQuota.invalidate(id);
     } catch {
       throw new TRPCError({ code: 'BAD_REQUEST', message: '刷新失败，请检查账号状态或重新授权' });
@@ -258,7 +297,7 @@ export class SubscriptionService implements Disposable {
       .select()
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
-    if (this.stopped || !row?.enabled || row.errorCode === 'subscription_reauthorization_required')
+    if (this.stopped || !row?.enabled || row.provider !== 'openai' || row.errorCode)
       throw new GatewayError(503, 'subscription_unavailable', 'The subscription account is unavailable');
     if (row.cooldownUntil && row.cooldownUntil.getTime() > Date.now())
       throw new GatewayError(429, 'subscription_rate_limited', 'The subscription account is cooling down');
@@ -281,6 +320,94 @@ export class SubscriptionService implements Disposable {
     } finally {
       signal.removeEventListener('abort', onAbort);
     }
+  }
+
+  async provider(id: string) {
+    const [row] = await this.auth.db
+      .select({ provider: subscriptionAccounts.provider })
+      .from(subscriptionAccounts)
+      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
+    if (!row) throw new GatewayError(503, 'subscription_unavailable', 'The subscription account is unavailable');
+    return row.provider;
+  }
+
+  async acquireClaude(id: string, signal: AbortSignal, model: string, proxyUrl: string | null) {
+    const [row] = await this.auth.db
+      .select()
+      .from(subscriptionAccounts)
+      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
+    if (this.stopped || !row?.enabled || row.provider !== 'claude' || row.errorCode)
+      throw new GatewayError(503, 'subscription_unavailable', 'The Claude account is unavailable');
+    if ((row.cooldownUntil?.getTime() ?? 0) > Date.now() || Date.parse(row.modelCooldowns[model] ?? '') > Date.now())
+      throw new GatewayError(429, 'subscription_rate_limited', 'The Claude account or model is cooling down');
+    const release = this.concurrency.acquire(id, row.maxConcurrent);
+    const cancelled = () => new GatewayError(400, 'request_cancelled', 'Request cancelled before forwarding');
+    let onAbort = () => {};
+    try {
+      if (signal.aborted) throw cancelled();
+      const credentials = await Promise.race([
+        this.claudeTokens.get(id, false, proxyUrl),
+        new Promise<never>((_resolve, reject) => {
+          onAbort = () => reject(cancelled());
+          signal.addEventListener('abort', onAbort, { once: true });
+        }),
+      ]);
+      return { credentials, release };
+    } catch (error) {
+      release();
+      throw error;
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  async reportClaudeStatus(id: string, model: string, response: Response, accessToken: string) {
+    let errorBody = '';
+    if (response.status === 429) {
+      const reader = response.clone().body?.getReader();
+      if (reader) {
+        const chunks: Uint8Array[] = [];
+        let size = 0;
+        try {
+          while (size < 16_384) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            const part = value.subarray(0, 16_384 - size);
+            chunks.push(part);
+            size += part.byteLength;
+          }
+          errorBody = Buffer.concat(chunks).toString('utf8');
+        } finally {
+          // tee 的另一个分支由响应转发消费，不能等待此分支取消完成。
+          void reader.cancel().catch(() => {});
+          reader.releaseLock();
+        }
+      }
+    }
+    const limit = claudeRateLimit(response.headers, response.status, errorBody);
+    if (response.status !== 401 && !limit) return;
+    const [row] = await this.auth.db.select().from(subscriptionAccounts).where(eq(subscriptionAccounts.id, id));
+    if (
+      row?.provider !== 'claude' ||
+      claudeCredentialsSchema.parse(JSON.parse(this.vault.decrypt(row.credentialEncrypted))).accessToken !== accessToken
+    )
+      return;
+    const values =
+      response.status === 401
+        ? { errorCode: 'subscription_reauthorization_required' }
+        : limit?.modelOnly
+          ? {
+              modelCooldowns: sql`jsonb_set(${subscriptionAccounts.modelCooldowns}, ARRAY[${model}]::text[], to_jsonb(greatest(${subscriptionAccounts.modelCooldowns}->>${model}, ${limit.until.toISOString()}::text)))`,
+            }
+          : {
+              cooldownUntil: sql`greatest(${subscriptionAccounts.cooldownUntil}, ${limit?.until.toISOString()}::timestamptz)`,
+            };
+    await this.auth.db
+      .update(subscriptionAccounts)
+      .set(values)
+      .where(
+        and(eq(subscriptionAccounts.id, id), eq(subscriptionAccounts.credentialEncrypted, row.credentialEncrypted)),
+      );
   }
 
   async reportStatus(id: string, status: number, headers: Headers, accessToken: string) {
@@ -311,6 +438,8 @@ export class SubscriptionService implements Disposable {
 
   async models(principal: Principal, input: z.infer<typeof fetchSubscriptionModelsInput>) {
     const id = input.channelId ? await this.accountForChannel(principal, input.channelId) : undefined;
+    if (input.provider === 'claude' || (id && (await this.provider(id)) === 'claude'))
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Claude 订阅请手动配置模型' });
     const proxyUrl = await channelProxy(this.auth, this.vault, principal, input.channelId, input.proxyUrl);
     const request = this.outbound.forProxy(proxyUrl);
     const provided = await this.prepareCredentials(principal, input, proxyUrl);
@@ -352,7 +481,7 @@ export class SubscriptionService implements Disposable {
     this.refreshing = true;
     try {
       const rows = await this.auth.db
-        .select({ id: subscriptionAccounts.id })
+        .select({ id: subscriptionAccounts.id, provider: subscriptionAccounts.provider })
         .from(subscriptionAccounts)
         .where(
           and(
@@ -365,7 +494,7 @@ export class SubscriptionService implements Disposable {
         .limit(100);
       for (const row of rows) {
         if (this.stopped) break;
-        await this.tokens.get(row.id).catch(() => {});
+        await (row.provider === 'claude' ? this.claudeTokens : this.tokens).get(row.id).catch(() => {});
       }
     } finally {
       this.refreshing = false;
@@ -375,7 +504,8 @@ export class SubscriptionService implements Disposable {
     this.stopped = true;
     clearInterval(this.timer);
     this.oauth.dispose();
+    this.claudeOAuth.dispose();
     this.openaiQuota.dispose();
-    await this.tokens.dispose();
+    await Promise.all([this.tokens.dispose(), this.claudeTokens.dispose()]);
   }
 }

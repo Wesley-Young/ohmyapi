@@ -39,6 +39,7 @@ const channelTypeLabels = {
 } satisfies Record<CatalogData['channels'][number]['type'], string>;
 const providerLabels: Partial<Record<string, string>> = {
   openai: 'OpenAI',
+  claude: 'Claude',
 };
 
 export const refreshCatalog = () =>
@@ -59,10 +60,12 @@ export function EndpointFields({
   value,
   onChange,
   subscription = false,
+  provider = 'openai',
 }: {
   value: Endpoint[];
   onChange: (value: Endpoint[]) => void;
   subscription?: boolean;
+  provider?: string;
 }) {
   return (
     <Box as="fieldset">
@@ -71,7 +74,11 @@ export function EndpointFields({
       </Text>
       <Stack gap="3">
         {endpoints
-          .filter((endpoint) => endpoint !== '/v1/responses/compact' && (!subscription || endpoint === '/v1/responses'))
+          .filter(
+            (endpoint) =>
+              endpoint !== '/v1/responses/compact' &&
+              (!subscription || endpoint === (provider === 'claude' ? '/v1/messages' : '/v1/responses')),
+          )
           .map((endpoint) => (
             <Checkbox.Root
               key={endpoint}
@@ -157,6 +164,9 @@ function ChannelForm({
   const passthrough = type === 'aggregate' && pricingMode === 'passthrough';
   const [members, setMembers] = useState<CatalogData['channels'][number]['members']>(initial?.members ?? []);
   const [maximum, setMaximum] = useState(String(initial?.subscription?.maxConcurrent ?? 5));
+  const [provider, setProvider] = useState<'openai' | 'claude'>(
+    initial?.subscription?.provider === 'claude' ? 'claude' : 'openai',
+  );
   const [mode, setMode] = useState('oauth');
   const [credentials, setCredentials] = useState('');
   const [callback, setCallback] = useState('');
@@ -255,6 +265,7 @@ function ChannelForm({
               subscription:
                 type === 'subscription'
                   ? {
+                      provider,
                       maxConcurrent: Number(maximum),
                       credentials: mode === 'import' ? credentials || undefined : undefined,
                       callbackUrl: mode === 'oauth' ? callback || undefined : undefined,
@@ -281,7 +292,13 @@ function ChannelForm({
                   value={type}
                   onChange={(e) => {
                     setType(e.target.value as typeof type);
-                    setScopes(e.target.value === 'subscription' ? [...responsesEndpoints] : []);
+                    setScopes(
+                      e.target.value === 'subscription'
+                        ? provider === 'claude'
+                          ? ['/v1/messages']
+                          : [...responsesEndpoints]
+                        : [],
+                    );
                     setAvailable([]);
                     setFetchNotice(undefined);
                   }}
@@ -299,9 +316,23 @@ function ChannelForm({
               <Stack gap="5">
                 <Field.Root>
                   <Field.Label>订阅平台</Field.Label>
-                  <NativeSelect.Root>
-                    <NativeSelect.Field aria-label="订阅平台" defaultValue="openai">
+                  <NativeSelect.Root disabled={!!initial || busy}>
+                    <NativeSelect.Field
+                      aria-label="订阅平台"
+                      value={provider}
+                      onChange={(e) => {
+                        const next = e.target.value === 'claude' ? 'claude' : 'openai';
+                        setProvider(next);
+                        setMode('oauth');
+                        startOAuth.reset();
+                        setCredentials('');
+                        setCallback('');
+                        setAvailable([]);
+                        setScopes(next === 'claude' ? ['/v1/messages'] : [...responsesEndpoints]);
+                      }}
+                    >
                       <option value="openai">OpenAI</option>
+                      <option value="claude">Claude</option>
                     </NativeSelect.Field>
                     <NativeSelect.Indicator />
                   </NativeSelect.Root>
@@ -377,7 +408,11 @@ function ChannelForm({
                       autoComplete="off"
                       spellCheck={false}
                     />
-                    <Field.HelperText>粘贴 ~/.codex/auth.json 文件内容</Field.HelperText>
+                    <Field.HelperText>
+                      {provider === 'claude'
+                        ? '粘贴 CPA Claude 凭据或 claudeAiOauth JSON；缺少账号 ID 时通过出站代理查询'
+                        : '粘贴 ~/.codex/auth.json 文件内容'}
+                    </Field.HelperText>
                   </Field.Root>
                 ) : (
                   <Stack gap="3">
@@ -386,20 +421,22 @@ function ChannelForm({
                       variant="outline"
                       onClick={() => {
                         setCallback('');
-                        startOAuth.mutate();
+                        startOAuth.reset();
+                        startOAuth.mutate({ provider });
                       }}
                       loading={startOAuth.isPending}
+                      disabled={busy}
                     >
                       生成授权链接
                     </Button>
                     {startOAuth.data && (
                       <>
                         <Link href={startOAuth.data.url} target="_blank" rel="noreferrer" color="#635bff">
-                          打开 OpenAI 授权页面
+                          打开 {provider === 'claude' ? 'Claude' : 'OpenAI'} 授权页面
                         </Link>
                         <Text fontSize="sm" color="gray.500">
-                          授权后将重定向到 localhost:1455，浏览器会报错无法访问，请复制浏览器地址栏的完整 URL
-                          并粘贴到下方输入框中。
+                          授权后将跳转到 localhost:{provider === 'claude' ? '54545/callback' : '1455/auth/callback'}
+                          ，即使页面提示无法访问，也请复制地址栏的完整 URL 并粘贴到下方。
                         </Text>
                       </>
                     )}
@@ -410,6 +447,8 @@ function ChannelForm({
                       type="url"
                       required={!initial || Boolean(startOAuth.data)}
                       autoComplete="off"
+                      maxLength={8192}
+                      spellCheck={false}
                     />
                   </Stack>
                 )}
@@ -476,7 +515,12 @@ function ChannelForm({
                 )}
               </Stack>
             ) : (
-              <EndpointFields value={scopes} onChange={setScopes} subscription={type === 'subscription'} />
+              <EndpointFields
+                value={scopes}
+                onChange={setScopes}
+                subscription={type === 'subscription'}
+                provider={provider}
+              />
             )}
             {type === 'aggregate' && (
               <Stack gap="2">
@@ -514,10 +558,12 @@ function ChannelForm({
               models={data.models}
               disabled={busy}
               fetching={fetching}
+              canFetch={!(type === 'subscription' && provider === 'claude')}
               onFetch={() =>
                 type === 'subscription'
                   ? fetchSubscriptionModels.mutate({
                       channelId: initial?.id,
+                      provider,
                       proxyUrl: proxyInput,
                       credentials: mode === 'import' ? credentials || undefined : undefined,
                       callbackUrl: mode === 'oauth' ? callback || undefined : undefined,
@@ -770,7 +816,24 @@ export default function Catalog() {
                               >
                                 并发 {c.subscription.active} / {c.subscription.maxConcurrent}
                               </Badge>
-                              {c.subscription.errorCode && <Badge colorPalette="red">需要重新授权</Badge>}
+                              {c.subscription.errorCode && (
+                                <Badge colorPalette="red">
+                                  {c.subscription.errorCode === 'subscription_refresh_uncertain'
+                                    ? '需重新导入凭据'
+                                    : '需要重新授权'}
+                                </Badge>
+                              )}
+                              {Object.entries(c.subscription.modelCooldowns)
+                                .filter(([, until]) => Date.parse(until) > Date.now())
+                                .map(([model, until]) => (
+                                  <Badge
+                                    key={model}
+                                    colorPalette="orange"
+                                    title={`恢复时间：${new Date(until).toLocaleString()}`}
+                                  >
+                                    {model} 冷却中
+                                  </Badge>
+                                ))}
                               {c.subscription.cooldownUntil &&
                                 new Date(c.subscription.cooldownUntil).getTime() > Date.now() && (
                                   <Badge colorPalette="orange">限流冷却中</Badge>

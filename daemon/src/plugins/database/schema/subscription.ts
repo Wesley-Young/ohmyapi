@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, integer, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { boolean, check, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
 import { createdAt, id } from './common.js';
 
@@ -16,6 +16,7 @@ export const subscriptionAccounts = pgTable(
     enabled: boolean('enabled').default(true).notNull(),
     maxConcurrent: integer('max_concurrent').default(5).notNull(),
     errorCode: text('error_code'),
+    modelCooldowns: jsonb('model_cooldowns').$type<Record<string, string>>().default({}).notNull(),
     cooldownUntil: timestamp('cooldown_until', { withTimezone: true }),
     createdAt: createdAt(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -24,7 +25,7 @@ export const subscriptionAccounts = pgTable(
     uniqueIndex('subscription_accounts_identity_unique')
       .on(table.provider, table.accountId, table.userId)
       .where(sql`${table.deletedAt} is null`),
-    check('subscription_accounts_provider', sql`${table.provider} = 'openai'`),
+    check('subscription_accounts_provider', sql`${table.provider} in ('openai', 'claude')`),
     check('subscription_accounts_concurrency', sql`${table.maxConcurrent} between 1 and 100`),
   ],
 );

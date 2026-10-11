@@ -176,7 +176,7 @@ export class GatewayService implements Disposable {
       if (!identity.channelId)
         throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
       const [channel] = await this.db
-        .select({ isPublic: channels.isPublic, type: channels.type })
+        .select()
         .from(channels)
         .where(
           and(
@@ -187,7 +187,7 @@ export class GatewayService implements Disposable {
           ),
         );
       if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
-      if (channel.type !== 'aggregate') channelAdapter(channel.type, this.subscription);
+      if (channel.type !== 'aggregate') await channelAdapter(channel, this.subscription);
       const available = await this.db
         .selectDistinct({ name: models.name, createdAt: models.createdAt })
         .from(models)
@@ -434,6 +434,7 @@ export class GatewayService implements Disposable {
         endpoint,
         req,
         this.affinity,
+        identity.user.id,
       );
       if (affinity) binding = { selection: affinity, channelId: executionChannel.id };
       session.executionChannelId = executionChannel.id;
@@ -448,17 +449,21 @@ export class GatewayService implements Disposable {
         subscriptionAccountId: executionChannel.subscriptionAccountId,
       });
       session.attemptId = attemptId;
-      const adapter = channelAdapter(executionChannel.type, this.subscription);
+      const adapter = await channelAdapter(executionChannel, this.subscription);
       const lockedPrice = await this.pricing.lockRoute(model.id, receivedAt, channel.id, executionChannel.id);
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
       const requestedOutputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
-      const outputLimit = executionChannel.type === 'subscription' ? model.outputTokenLimit : requestedOutputLimit;
+      const outputLimit =
+        executionChannel.type === 'subscription' && endpoint !== '/v1/messages'
+          ? model.outputTokenLimit
+          : requestedOutputLimit;
       session.collector.configureSearch(searchRequest(parsed, endpoint));
       const timeoutMs = Math.min(channel.timeoutMs, executionChannel.timeoutMs);
       session.upstreamTimeoutMs = timeoutMs;
       lifecycle.setTimeout('upstream_timeout', timeoutMs);
       lifecycle.syncClientAbort();
       const prepared = await adapter.prepareRequest({
+        userId: identity.user.id,
         channel: executionChannel,
         request: req,
         endpoint,
@@ -488,7 +493,7 @@ export class GatewayService implements Disposable {
         price: lockedPrice,
         inputLimit: model.inputTokenLimit,
         outputLimit,
-        body: parsed,
+        body: prepared.billingBody ?? parsed,
         endpoint,
       });
       session.collector.estimate.input = reservation.estimate;
@@ -518,7 +523,7 @@ export class GatewayService implements Disposable {
       if (prepared.onResponse) await prepared.onResponse(upstream).catch(() => {});
       session.httpStatus = upstream.status;
       session.upstreamStatus = upstream.status;
-      return await adapter.forwardResponse({
+      return await (prepared.forwardResponse ?? adapter.forwardResponse)({
         upstream,
         endpoint,
         streaming,

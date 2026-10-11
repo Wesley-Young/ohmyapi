@@ -1,6 +1,7 @@
 import type { ChannelType } from '../catalog/channel-types.js';
 import type { CredentialVault, Endpoint } from '../catalog/service.js';
 import type { channels } from '../database/schema/catalog.js';
+import { claudeAdapter } from '../subscription/claude/adapter.js';
 import { openAIAdapter } from '../subscription/openai/adapter.js';
 import type { SubscriptionService } from '../subscription/service.js';
 import { GatewayError } from './errors.js';
@@ -8,6 +9,7 @@ import { upstreamBody, upstreamHeaders, upstreamUrl } from './protocol.js';
 import { type ForwardResponseOptions, forwardResponse } from './response.js';
 
 type PrepareRequestOptions = {
+  userId: string;
   channel: typeof channels.$inferSelect;
   request: Request;
   endpoint: Endpoint;
@@ -18,6 +20,8 @@ type PrepareRequestOptions = {
 };
 
 type PreparedRequest = {
+  billingBody?: Record<string, unknown>;
+  forwardResponse?: (options: ForwardResponseOptions) => Promise<Response>;
   url: string;
   headers: Headers;
   body: Buffer<ArrayBuffer>;
@@ -51,8 +55,19 @@ const adapters: Record<ChannelType, ChannelAdapter | undefined> = {
   aggregate: undefined,
 };
 
-export function channelAdapter(type: ChannelType, subscription: SubscriptionService): ChannelAdapter {
-  if (type === 'subscription') return openAIAdapter(subscription);
+export async function channelAdapter(
+  channel: typeof channels.$inferSelect,
+  subscription: SubscriptionService,
+): Promise<ChannelAdapter> {
+  const type = channel.type;
+  if (type === 'subscription') {
+    if (!channel.subscriptionAccountId)
+      throw new GatewayError(503, 'subscription_unavailable', 'Bind a subscription account first');
+    const provider = await subscription.provider(channel.subscriptionAccountId);
+    if (provider === 'claude') return claudeAdapter(subscription);
+    if (provider === 'openai') return openAIAdapter(subscription);
+    throw new GatewayError(503, 'subscription_unavailable', 'Unsupported subscription provider');
+  }
   const adapter = adapters[type];
   if (!adapter) throw new GatewayError(503, 'channel_type_unsupported', 'This channel type is not available yet');
   return adapter;

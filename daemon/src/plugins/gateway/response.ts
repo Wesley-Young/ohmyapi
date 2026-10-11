@@ -134,7 +134,7 @@ export async function forwardResponse(options: ForwardResponseOptions): Promise<
         }
       }
       if (!abort.signal.aborted && !clientClosed && !lifecycle.clientDisconnected) responseController.enqueue(value);
-      if (options.stopAtTerminal && collector.complete) {
+      if (options.stopAtTerminal && (collector.complete || collector.failed)) {
         await reader.cancel().catch(() => {});
         await finalizeResponse(
           collector.failed ? 'upstream_error' : lifecycle.clientDisconnected ? 'client_disconnected' : undefined,
