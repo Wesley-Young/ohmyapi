@@ -91,9 +91,20 @@ export async function forwardOpenAIResponse(options: ForwardResponseOptions): Pr
   const { streaming, lifecycle, collector, config } = options;
   if (streaming) return forwardResponse({ ...options, stopAtTerminal: true });
   let terminal: Record<string, unknown> | undefined;
+  const outputItems = new Map<number, unknown>();
   const observer = new SseObserver(collector, config.maxUsageEventBytes, (value) => {
     if (!value || typeof value !== 'object') return;
     const event = value as Record<string, unknown>;
+    if (
+      event.type === 'response.output_item.done' &&
+      typeof event.output_index === 'number' &&
+      Number.isSafeInteger(event.output_index) &&
+      event.output_index >= 0 &&
+      event.item &&
+      typeof event.item === 'object' &&
+      !Array.isArray(event.item)
+    )
+      outputItems.set(event.output_index, event.item);
     if (
       ['response.completed', 'response.done', 'response.failed', 'response.incomplete', 'response.cancelled'].includes(
         String(event.type),
@@ -127,6 +138,14 @@ export async function forwardOpenAIResponse(options: ForwardResponseOptions): Pr
     if (!terminal) throw new GatewayError(502, 'usage_not_final', 'Upstream response ended without a terminal event');
     if (collector.failed)
       throw new GatewayError(502, 'upstream_error', collector.errorMessage ?? 'OpenAI response failed');
+    if (outputItems.size) {
+      // 上游结束事件可能省略输出项；按索引补齐，并优先保留结束事件提供的内容。
+      if (Array.isArray(terminal.output))
+        terminal.output.forEach((item, index) => {
+          outputItems.set(index, item);
+        });
+      terminal = { ...terminal, output: [...outputItems].sort(([a], [b]) => a - b).map(([, item]) => item) };
+    }
     const headers = responseHeaders(upstream.headers, lifecycle.id);
     headers.set('content-type', 'application/json');
     await reader.cancel().catch(() => {});
