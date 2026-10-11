@@ -1,11 +1,12 @@
 import { Badge, Box, Button, Checkbox, Field, HStack, NativeSelect, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Copy, Download, Pencil, Trash2 } from 'lucide-react';
+import { BookOpen, Check, Copy, Download, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { CCSwitchDialog } from '../components/cc-switch-dialog';
 import { IconButton } from '../components/icon-button';
+import { KeyUsageDialog } from '../components/key-usage-dialog';
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton, Title } from '../components/ui';
 import { formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
@@ -22,6 +23,7 @@ function dateTimeInput(value: string | null) {
 export default function Keys() {
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [showingUsage, setShowingUsage] = useState(false);
   const [exportingKeyId, setExportingKeyId] = useState<string>();
   const data = useQuery(trpc.keys.list.queryOptions({ page }));
   const channels = useQuery(trpc.keys.channels.queryOptions());
@@ -98,15 +100,21 @@ export default function Keys() {
     <Stack gap="7">
       <Title
         action={
-          <PrimaryButton
-            size="sm"
-            onClick={() => {
-              close();
-              setCreating(true);
-            }}
-          >
-            创建 Key
-          </PrimaryButton>
+          <HStack gap="3" flexWrap="wrap">
+            <Button type="button" size="sm" variant="ghost" onClick={() => setShowingUsage(true)}>
+              <BookOpen size={16} aria-hidden="true" />
+              使用说明
+            </Button>
+            <PrimaryButton
+              size="sm"
+              onClick={() => {
+                close();
+                setCreating(true);
+              }}
+            >
+              创建 Key
+            </PrimaryButton>
+          </HStack>
         }
       >
         API Key
@@ -114,6 +122,7 @@ export default function Keys() {
       <ErrorText>{formError(data.error ?? channels.error)?.message}</ErrorText>
       <ErrorText>{copyError}</ErrorText>
       <ErrorText>{formError(deletion.error)?.message}</ErrorText>
+      {showingUsage && <KeyUsageDialog onClose={() => setShowingUsage(false)} />}
       {exportingKeyId && <CCSwitchDialog keyId={exportingKeyId} onClose={() => setExportingKeyId(undefined)} />}
       {(creating || editing) && (
         <FormDialog open title={editing ? '编辑 Key' : '创建 Key'} busy={saveTask.isPending} onClose={close}>
