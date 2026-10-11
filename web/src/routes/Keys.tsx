@@ -72,7 +72,12 @@ export default function Keys() {
   const saveTask = editing ? update : task;
   const channelOptions = [...(channels.data ?? [])];
   if (editing?.channelId && !channelOptions.some((channel) => channel.id === editing.channelId))
-    channelOptions.push({ id: editing.channelId, name: `${editing.channelName ?? '原渠道'}（不可用）`, models: [] });
+    channelOptions.push({
+      id: editing.channelId,
+      name: `${editing.channelName ?? '原渠道'}（不可用）`,
+      endpoints: [],
+      models: [],
+    });
   const models = [...(channels.data?.find((channel) => channel.id === channelId)?.models ?? [])];
   if (editing && channelId === editing.channelId)
     for (const [index, id] of editing.modelIds.entries())
@@ -158,20 +163,31 @@ export default function Keys() {
           >
             <Stack gap="5">
               <FormInput label="名称" value={name} required maxLength={64} onChange={(e) => setName(e.target.value)} />
-              <SelectField
-                label="绑定渠道"
-                value={channelId}
-                onChange={(id) => {
-                  setChannelId(id);
-                  setModelIds([]);
-                }}
-                options={channelOptions}
-              />
-              {!channels.isPending && !channels.data?.length && (
-                <Text fontSize="sm" color="gray.500">
-                  暂无可用渠道，请联系管理员配置渠道和模型授权。
-                </Text>
-              )}
+              <Stack gap="2">
+                <SelectField
+                  label="绑定渠道"
+                  value={channelId}
+                  onChange={(id) => {
+                    setChannelId(id);
+                    setModelIds([]);
+                  }}
+                  options={channelOptions}
+                />
+                {channelId && (
+                  <Text fontSize="sm" color="gray.500">
+                    支持端点：
+                    {channels.data
+                      ?.find((channel) => channel.id === channelId)
+                      ?.endpoints.filter((endpoint) => endpoint !== '/v1/responses/compact')
+                      .join(', ') ?? '—'}
+                  </Text>
+                )}
+                {!channels.isPending && !channels.data?.length && (
+                  <Text fontSize="sm" color="gray.500">
+                    暂无可用渠道，请联系管理员配置渠道和授权。
+                  </Text>
+                )}
+              </Stack>
               <FormInput
                 label="有效期"
                 type="datetime-local"

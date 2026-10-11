@@ -98,15 +98,15 @@ export class KeyService {
 
   async availableChannels(principal: Principal) {
     const rows = await this.offerings(this.auth.db, principal.user.id, principal.user.role);
-    return [...new Set(rows.map((r) => r.channelId))].map((id) => ({
-      id,
-      name: rows.find((r) => r.channelId === id)?.channelName as string,
-      models: [
-        ...new Map(
-          rows.filter((r) => r.channelId === id).map((r) => [r.modelId, { id: r.modelId, name: r.modelName }]),
-        ).values(),
-      ],
-    }));
+    return [...new Set(rows.map((r) => r.channelId))].map((id) => {
+      const filteredRows = rows.filter((r) => r.channelId === id);
+      return {
+        id,
+        name: filteredRows[0].channelName,
+        endpoints: [...new Set(filteredRows.map((r) => r.endpoint))],
+        models: [...new Map(filteredRows.map((r) => [r.modelId, { id: r.modelId, name: r.modelName }])).values()],
+      };
+    });
   }
 
   async playgroundOptions(principal: Principal) {
