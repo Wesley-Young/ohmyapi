@@ -44,9 +44,9 @@ export default function Console() {
     { to: '/console/requests', label: '请求', end: false, icon: 'requests' },
     ...(auth.data.role === 'admin'
       ? [
-          { to: '/console/users', label: '用户', end: false, icon: 'users' as const },
           { to: '/console/channels', label: '渠道', end: false, icon: 'channels' as const },
           { to: '/console/models', label: '模型', end: false, icon: 'models' as const },
+          { to: '/console/users', label: '用户', end: false, icon: 'users' as const },
         ]
       : []),
   ];
