@@ -142,7 +142,8 @@ export class GatewayService implements Disposable {
   private async identify(req: Request, endpoint: Endpoint | '/v1/models') {
     const authorization = req.headers.get('authorization');
     const bearer = authorization?.match(/^Bearer (sk-[A-Za-z0-9_-]{43})$/i)?.[1];
-    const headerKey = endpoint === '/v1/messages' ? req.headers.get('x-api-key') : null;
+    // 模型列表同时服务 Anthropic 客户端，接受 x-api-key；响应仍使用 OpenAI 格式。
+    const headerKey = endpoint === '/v1/messages' || endpoint === '/v1/models' ? req.headers.get('x-api-key') : null;
     if ((authorization && !bearer) || (bearer && headerKey && bearer !== headerKey))
       throw new GatewayError(401, 'invalid_api_key', 'Invalid API Key');
     const token = bearer ?? headerKey;
@@ -217,6 +218,23 @@ export class GatewayService implements Disposable {
           ),
         )
         .orderBy(models.name);
+      const headers = { 'x-request-id': id, 'cache-control': 'no-store' };
+      // 与 New API 一致：同时带 x-api-key 和 anthropic-version 时返回 Anthropic 格式，其余返回 OpenAI 格式。
+      if (req.headers.get('x-api-key') && req.headers.get('anthropic-version'))
+        return Response.json(
+          {
+            data: available.map((model) => ({
+              type: 'model',
+              id: model.name,
+              display_name: model.name,
+              created_at: model.createdAt.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+            })),
+            has_more: false,
+            first_id: available[0]?.name ?? null,
+            last_id: available.at(-1)?.name ?? null,
+          },
+          { headers },
+        );
       return Response.json(
         {
           object: 'list',
@@ -227,7 +245,7 @@ export class GatewayService implements Disposable {
             owned_by: 'ohmyapi',
           })),
         },
-        { headers: { 'x-request-id': id, 'cache-control': 'no-store' } },
+        { headers },
       );
     } catch (error) {
       const failure =
