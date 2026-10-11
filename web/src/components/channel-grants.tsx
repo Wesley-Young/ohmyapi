@@ -64,19 +64,21 @@ export function ChannelGrants({ userId }: { userId: string }) {
                   暂无非公开渠道
                 </Text>
               )}
-              <PrimaryButton
-                alignSelf="start"
-                loading={task.isPending}
-                disabled={draft === undefined}
-                onClick={() => task.mutate({ userId, channelIds: selected })}
-              >
-                保存授权
-              </PrimaryButton>
-              {task.isSuccess && (
-                <Text role="status" fontSize="sm">
-                  授权已保存
-                </Text>
-              )}
+              <HStack gap="3" flexWrap="wrap">
+                <PrimaryButton
+                  alignSelf="start"
+                  loading={task.isPending}
+                  disabled={draft === undefined}
+                  onClick={() => task.mutate({ userId, channelIds: selected })}
+                >
+                  保存授权
+                </PrimaryButton>
+                {task.isSuccess && (
+                  <Text role="status" fontSize="sm">
+                    授权已保存
+                  </Text>
+                )}
+              </HStack>
             </>
           )
         )}
