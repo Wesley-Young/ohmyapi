@@ -20,6 +20,36 @@ const removedResponseFields = [
   'truncation',
 ] as const;
 
+function ensureWebSearchToolForHistory(body: Record<string, unknown>, input: Record<string, unknown>[]) {
+  const itemType = (item: Record<string, unknown>) => (typeof item.type === 'string' ? item.type.trim() : '');
+  if (!input.some((item) => itemType(item) === 'web_search_call')) return;
+  const tools = Array.isArray(body.tools) ? body.tools : [];
+  const additionalTools = input
+    .filter((item) => itemType(item) === 'additional_tools')
+    .flatMap((item) => (Array.isArray(item.tools) ? item.tools : []));
+  const declaredTools = [...tools, ...additionalTools];
+  if (
+    declaredTools.some(
+      (tool) =>
+        tool &&
+        typeof tool === 'object' &&
+        !Array.isArray(tool) &&
+        typeof tool.type === 'string' &&
+        tool.type.trim().startsWith('web_search'),
+    )
+  )
+    return;
+
+  // 回放搜索历史时，上游要求声明搜索工具，否则会报 response protection is unavailable。
+  body.tools = [...tools, { type: 'web_search', external_web_access: false }];
+  const choice = body.tool_choice;
+  if (
+    declaredTools.length === 0 &&
+    (choice == null || (typeof choice === 'string' && ['', 'auto', 'none'].includes(choice.trim().toLowerCase())))
+  )
+    body.tool_choice = 'none';
+}
+
 export function supportsAggregateRequest(body: Record<string, unknown>, endpoint: Endpoint) {
   if (endpoint === '/v1/responses/compact')
     return (
@@ -91,5 +121,6 @@ export function prepareBody(parsed: Record<string, unknown>, endpoint: Endpoint)
   if (body.include != null && (!Array.isArray(body.include) || body.include.some((value) => typeof value !== 'string')))
     throw new GatewayError(400, 'invalid_request', 'include must be an array of strings');
   body.include = [...new Set([...((body.include as string[] | undefined) ?? []), 'reasoning.encrypted_content'])];
+  ensureWebSearchToolForHistory(body, body.input as Record<string, unknown>[]);
   return body;
 }
