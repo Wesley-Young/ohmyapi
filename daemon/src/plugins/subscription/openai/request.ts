@@ -50,19 +50,6 @@ function ensureWebSearchToolForHistory(body: Record<string, unknown>, input: Rec
     body.tool_choice = 'none';
 }
 
-export function supportsAggregateRequest(body: Record<string, unknown>, endpoint: Endpoint) {
-  if (endpoint === '/v1/responses/compact')
-    return (
-      Object.keys(body).every((key) => ['model', 'input', 'instructions', 'stream'].includes(key)) &&
-      body.stream !== true
-    );
-  return (
-    endpoint === '/v1/responses' &&
-    body.store !== true &&
-    removedResponseFields.every((field) => body[field] === undefined || body[field] === null)
-  );
-}
-
 export function prepareBody(parsed: Record<string, unknown>, endpoint: Endpoint) {
   if (!openAIEndpoints.some((value) => value === endpoint))
     throw new GatewayError(

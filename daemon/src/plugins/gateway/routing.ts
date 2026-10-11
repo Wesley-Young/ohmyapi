@@ -11,7 +11,7 @@ import {
   subscriptionAccounts,
 } from '../database/schema/index.js';
 import { availableSubscription } from '../subscription/availability.js';
-import { supportsAggregateRequest } from '../subscription/openai/request.js';
+import { openAIEndpoints } from '../subscription/openai/request.js';
 import type { SubscriptionService } from '../subscription/service.js';
 import type { AffinitySelection, ChannelAffinity } from './affinity.js';
 import { GatewayError } from './errors.js';
@@ -51,16 +51,17 @@ export async function selectExecutionChannel(
       ),
     )
     .orderBy(desc(aggregateChannelMembers.priority), channels.id);
+  // 只按端点筛选成员；订阅不支持的参数由适配器删除或改写，不影响路由。
   const compatible = rows.filter(
     ({ channel, account }) =>
       channel.type === 'api' ||
       (channel.type === 'subscription' &&
         (account?.provider === 'claude'
           ? endpoint === '/v1/messages'
-          : account?.provider === 'openai' && supportsAggregateRequest(parsed, endpoint))),
+          : account?.provider === 'openai' && openAIEndpoints.some((value) => value === endpoint))),
   );
   if (rows.length && !compatible.length)
-    throw new GatewayError(400, 'aggregate_request_unsupported', 'No member can preserve the requested parameters');
+    throw new GatewayError(400, 'aggregate_request_unsupported', 'No member supports the requested endpoint');
   const available = compatible.filter(
     ({ channel, account }) =>
       channel.type === 'api' ||
