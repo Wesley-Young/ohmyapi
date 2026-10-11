@@ -14,11 +14,12 @@ import {
 } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Pencil, RefreshCw, Trash2 } from 'lucide-react';
+import { Pencil, RefreshCw, Trash2, UserRoundKey } from 'lucide-react';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
 import { AggregateMembers } from '../components/aggregate-members';
+import { ChannelUsersDialog } from '../components/channel-grants';
 import { type ChannelModel, ChannelModels } from '../components/channel-models';
 import { IconButton } from '../components/icon-button';
 import { OpenAIQuota } from '../components/openai-quota';
@@ -51,6 +52,7 @@ export const refreshCatalog = () =>
     queryClient.invalidateQueries(trpc.keys.list.pathFilter()),
     queryClient.invalidateQueries(trpc.keys.playgroundOptions.queryFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.catalog.channelGrants.pathFilter()),
   ]);
 
 export function EndpointFields({
@@ -616,6 +618,7 @@ export function ModelForm({
 export default function Catalog() {
   const data = useQuery(trpc.admin.catalog.list.queryOptions());
   const [edit, setEdit] = useState<{ id?: string }>();
+  const [grantChannel, setGrantChannel] = useState<{ id: string; name: string }>();
   const [saved, setSaved] = useState<RouterOutputs['admin']['catalog']['saveChannel']>();
   const close = () => setEdit(undefined);
   return (
@@ -636,6 +639,14 @@ export default function Catalog() {
         渠道
       </Title>
       <ErrorText>{formError(data.error)?.message}</ErrorText>
+      {grantChannel && (
+        <ChannelUsersDialog
+          key={grantChannel.id}
+          channelId={grantChannel.id}
+          channelName={grantChannel.name}
+          onClose={() => setGrantChannel(undefined)}
+        />
+      )}
       {saved && saved.unpricedModels.length > 0 && (
         <Stack gap="3" borderWidth="1px" borderColor="gray.200" borderRadius="lg" p="4" role="status">
           <Text fontSize="sm">
@@ -757,6 +768,17 @@ export default function Catalog() {
                       </Table.Cell>
                       <Table.Cell>
                         <HStack gap="1" flexWrap="wrap">
+                          {!c.isPublic && (
+                            <IconButton
+                              aria-label={`为「${c.name}」授权用户`}
+                              title="用户授权"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setGrantChannel({ id: c.id, name: c.name })}
+                            >
+                              <UserRoundKey size={16} aria-hidden="true" />
+                            </IconButton>
+                          )}
                           <IconButton
                             aria-label="编辑渠道"
                             variant="ghost"

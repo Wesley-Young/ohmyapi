@@ -1,6 +1,6 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { and, asc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, like, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { type EventLogger, errorDetails } from '../../logging.js';
@@ -22,6 +22,7 @@ import {
 } from '../database/schema/index.js';
 import { expandRules, multiplierInput, ruleInput, validateRules } from '../pricing/rules.js';
 import { type SubscriptionService, subscriptionInput } from '../subscription/service.js';
+import { pageSize } from '../users/service.js';
 import { channelTypes, pricingModes } from './channel-types.js';
 import type { CredentialVault } from './vault.js';
 
@@ -645,6 +646,72 @@ export class CatalogService {
       .from(userChannelGrants)
       .innerJoin(channels, eq(channels.id, userChannelGrants.channelId))
       .where(and(eq(userChannelGrants.userId, userId), isNull(channels.deletedAt), eq(channels.isPublic, false)));
+  }
+
+  async channelGrants(channelId: string, page: number, search: string) {
+    const [channel] = await this.auth.db
+      .select({ isPublic: channels.isPublic })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)));
+    if (!channel) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在或已删除' });
+    if (channel.isPublic) throw new TRPCError({ code: 'BAD_REQUEST', message: '公开渠道默认对所有用户开放' });
+    const rows = await this.auth.db
+      .select({
+        id: users.id,
+        username: users.username,
+        status: users.status,
+        granted: sql<boolean>`${userChannelGrants.userId} is not null`,
+      })
+      .from(users)
+      .leftJoin(
+        userChannelGrants,
+        and(eq(userChannelGrants.userId, users.id), eq(userChannelGrants.channelId, channelId)),
+      )
+      .where(
+        and(
+          eq(users.role, 'user'),
+          isNull(users.deletedAt),
+          search ? like(users.username, `%${search.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`) : undefined,
+        ),
+      )
+      .orderBy(asc(users.username), asc(users.id))
+      .limit(pageSize + 1)
+      .offset(page * pageSize);
+    return { items: rows.slice(0, pageSize), hasMore: rows.length > pageSize };
+  }
+
+  async setChannelGrants(principal: Principal, channelId: string, grants: { userId: string; granted: boolean }[]) {
+    return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
+      const userIds = grants.map((grant) => grant.userId).sort();
+      const validUsers = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(and(inArray(users.id, userIds), eq(users.role, 'user'), isNull(users.deletedAt)))
+        .orderBy(asc(users.id))
+        .for('update');
+      if (validUsers.length !== userIds.length)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '仅为未删除的普通用户设置渠道授权' });
+      const [channel] = await tx
+        .select({ isPublic: channels.isPublic })
+        .from(channels)
+        .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)))
+        .for('share');
+      if (!channel) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在或已删除' });
+      if (channel.isPublic) throw new TRPCError({ code: 'BAD_REQUEST', message: '公开渠道默认对所有用户开放' });
+      const revokedIds = grants.filter((grant) => !grant.granted).map((grant) => grant.userId);
+      if (revokedIds.length)
+        await tx
+          .delete(userChannelGrants)
+          .where(and(eq(userChannelGrants.channelId, channelId), inArray(userChannelGrants.userId, revokedIds)));
+      const grantedUsers = grants.filter((grant) => grant.granted);
+      if (grantedUsers.length)
+        await tx
+          .insert(userChannelGrants)
+          .values(grantedUsers.map(({ userId }) => ({ userId, channelId })))
+          .onConflictDoNothing();
+      await this.audit(tx, actor.id, 'channel.users', channelId, { grants });
+      return { success: true };
+    });
   }
 
   async deleteChannel(principal: Principal, channelId: string) {

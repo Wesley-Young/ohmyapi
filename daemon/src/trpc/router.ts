@@ -232,6 +232,21 @@ export const appRouter = t.router({
         .input(importModelsInput)
         .mutation(({ ctx, input }) => ctx.catalog.importModels(ctx.principal, input)),
       grants: adminProcedure.input(userId).query(({ ctx, input }) => ctx.catalog.grants(input.userId)),
+      channelGrants: adminProcedure
+        .input(z.object({ channelId: z.uuid(), page, search: z.string().trim().max(64).default('') }))
+        .query(({ ctx, input }) => ctx.catalog.channelGrants(input.channelId, input.page, input.search)),
+      setChannelGrants: adminProcedure
+        .input(
+          z.object({
+            channelId: z.uuid(),
+            grants: z
+              .array(z.object({ userId: z.uuid(), granted: z.boolean() }))
+              .min(1, '请选择要修改授权的用户')
+              .max(1000, '每次最多修改 1000 个用户的授权')
+              .refine((grants) => new Set(grants.map((grant) => grant.userId)).size === grants.length, '用户不能重复'),
+          }),
+        )
+        .mutation(({ ctx, input }) => ctx.catalog.setChannelGrants(ctx.principal, input.channelId, input.grants)),
       setGrants: adminProcedure
         .input(userId.extend({ channelIds: z.array(z.uuid()).max(100) }))
         .mutation(({ ctx, input }) => ctx.catalog.setGrants(ctx.principal, input.userId, input.channelIds)),

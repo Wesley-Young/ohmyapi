@@ -62,6 +62,7 @@ export function invalidateUser(userId: string) {
   return Promise.all([
     queryClient.invalidateQueries(trpc.admin.users.get.queryFilter({ userId })),
     queryClient.invalidateQueries(trpc.admin.users.list.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.catalog.channelGrants.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.wallet.get.queryFilter({ userId })),
     queryClient.invalidateQueries(trpc.admin.wallet.ledger.queryFilter({ userId })),
     queryClient.invalidateQueries(trpc.wallet.pathFilter()),
