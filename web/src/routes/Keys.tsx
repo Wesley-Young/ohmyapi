@@ -1,6 +1,7 @@
 import { Badge, Box, Button, Checkbox, Field, HStack, NativeSelect, Stack, Table, Text } from '@chakra-ui/react';
+import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Copy, Download, Link2, Trash2 } from 'lucide-react';
+import { Check, Copy, Download, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { CCSwitchDialog } from '../components/cc-switch-dialog';
@@ -9,6 +10,14 @@ import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton,
 import { formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './Catalog';
+
+type ApiKey = RouterOutputs['keys']['list']['items'][number];
+
+function dateTimeInput(value: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, -1);
+}
 
 export default function Keys() {
   const [page, setPage] = useState(0);
@@ -24,9 +33,8 @@ export default function Keys() {
   const [copiedId, setCopiedId] = useState<string>();
   const [copyError, setCopyError] = useState<string>();
   const [localError, setLocalError] = useState<string>();
-  const [binding, setBinding] = useState<string>();
-  const [bindChannelId, setBindChannelId] = useState('');
-  const refresh = () => queryClient.invalidateQueries(trpc.keys.list.pathFilter());
+  const [editing, setEditing] = useState<ApiKey>();
+  const refresh = () => queryClient.invalidateQueries(trpc.keys.pathFilter());
   const deletion = useMutation(
     trpc.keys.delete.mutationOptions({
       onSuccess: async () => {
@@ -53,18 +61,27 @@ export default function Keys() {
       },
     }),
   );
-  const bind = useMutation(
-    trpc.keys.bindChannel.mutationOptions({
+  const update = useMutation(
+    trpc.keys.update.mutationOptions({
       onSuccess: async () => {
-        setBinding(undefined);
+        close();
         await refresh();
       },
     }),
   );
-  const models = channels.data?.find((c) => c.id === channelId)?.models ?? [];
+  const saveTask = editing ? update : task;
+  const channelOptions = [...(channels.data ?? [])];
+  if (editing?.channelId && !channelOptions.some((channel) => channel.id === editing.channelId))
+    channelOptions.push({ id: editing.channelId, name: `${editing.channelName ?? '原渠道'}（不可用）`, models: [] });
+  const models = [...(channels.data?.find((channel) => channel.id === channelId)?.models ?? [])];
+  if (editing && channelId === editing.channelId)
+    for (const [index, id] of editing.modelIds.entries())
+      if (!models.some((model) => model.id === id)) models.push({ id, name: `${editing.modelNames[index]}（不可用）` });
   const close = () => {
     setCreating(false);
+    setEditing(undefined);
     task.reset();
+    update.reset();
     setName('');
     setChannelId('');
     setExpiresAt('');
@@ -79,8 +96,7 @@ export default function Keys() {
           <PrimaryButton
             size="sm"
             onClick={() => {
-              task.reset();
-              setLocalError(undefined);
+              close();
               setCreating(true);
             }}
           >
@@ -94,21 +110,50 @@ export default function Keys() {
       <ErrorText>{copyError}</ErrorText>
       <ErrorText>{formError(deletion.error)?.message}</ErrorText>
       {exportingKeyId && <CCSwitchDialog keyId={exportingKeyId} onClose={() => setExportingKeyId(undefined)} />}
-      {creating && (
-        <FormDialog open title="创建 Key" busy={task.isPending} onClose={close}>
+      {(creating || editing) && (
+        <FormDialog open title={editing ? '编辑 Key' : '创建 Key'} busy={saveTask.isPending} onClose={close}>
           <form
             onSubmit={(e) => {
               e.preventDefault();
               setLocalError(undefined);
-              if (!channelId) return setLocalError('请选择渠道');
-              if (restricted && !modelIds.length) return setLocalError('至少选择一个模型');
-              if (!task.isPending)
+              if (saveTask.isPending) return;
+              if (!channelId && (!editing || editing.channelId)) return setLocalError('请选择渠道');
+              const modelPermissionsChanged =
+                editing &&
+                (restricted !== editing.restrictModels ||
+                  (restricted &&
+                    (modelIds.length !== editing.modelIds.length ||
+                      modelIds.some((id) => !editing.modelIds.includes(id)))));
+              if (
+                restricted &&
+                !modelIds.length &&
+                (!editing || modelPermissionsChanged || (channelId || null) !== editing.channelId)
+              )
+                return setLocalError('至少选择一个模型');
+              const expiration = expiresAt ? new Date(expiresAt) : null;
+              if (expiration && !Number.isFinite(expiration.getTime())) return setLocalError('请输入有效的日期和时间');
+              const expirationValue =
+                editing && expiresAt === dateTimeInput(editing.expiresAt)
+                  ? editing.expiresAt
+                  : (expiration?.toISOString() ?? null);
+              if (expiration && expiration.getTime() <= Date.now() && expirationValue !== editing?.expiresAt)
+                return setLocalError('有效期必须晚于当前时间');
+              if (editing) {
+                update.mutate({
+                  keyId: editing.id,
+                  name,
+                  channelId: channelId && channelId !== editing.channelId ? channelId : undefined,
+                  expiresAt: expirationValue,
+                  modelIds: modelPermissionsChanged ? (restricted ? modelIds : null) : undefined,
+                });
+              } else {
                 task.mutate({
                   name,
                   channelId,
-                  expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+                  expiresAt: expirationValue ?? undefined,
                   modelIds: restricted ? modelIds : undefined,
                 });
+              }
             }}
           >
             <Stack gap="5">
@@ -120,7 +165,7 @@ export default function Keys() {
                   setChannelId(id);
                   setModelIds([]);
                 }}
-                options={channels.data ?? []}
+                options={channelOptions}
               />
               {!channels.isPending && !channels.data?.length && (
                 <Text fontSize="sm" color="gray.500">
@@ -130,6 +175,7 @@ export default function Keys() {
               <FormInput
                 label="有效期"
                 type="datetime-local"
+                step="any"
                 value={expiresAt}
                 onChange={(e) => setExpiresAt(e.target.value)}
                 helper="留空表示长期有效"
@@ -170,40 +216,21 @@ export default function Keys() {
                   )}
                 </Stack>
               )}
-              <ErrorText>{localError ?? formError(task.error)?.message}</ErrorText>
+              <ErrorText>{localError ?? formError(saveTask.error)?.message}</ErrorText>
               <HStack>
-                <PrimaryButton type="submit" loading={task.isPending} disabled={!channelId}>
-                  创建
+                <PrimaryButton
+                  type="submit"
+                  loading={saveTask.isPending}
+                  disabled={!channelId && (!editing || Boolean(editing.channelId))}
+                >
+                  {editing ? '保存' : '创建'}
                 </PrimaryButton>
-                <Button variant="ghost" disabled={task.isPending} onClick={close}>
+                <Button variant="ghost" disabled={saveTask.isPending} onClick={close}>
                   取消
                 </Button>
               </HStack>
             </Stack>
           </form>
-        </FormDialog>
-      )}
-      {binding && (
-        <FormDialog open title="绑定旧 Key 的渠道" busy={bind.isPending} onClose={() => setBinding(undefined)}>
-          <Stack gap="5">
-            <Text fontSize="sm" color="gray.500">
-              绑定后固定使用此渠道，切换渠道请创建新 Key。
-            </Text>
-            <SelectField
-              label="绑定渠道"
-              value={bindChannelId}
-              onChange={setBindChannelId}
-              options={channels.data ?? []}
-            />
-            <ErrorText>{formError(bind.error)?.message}</ErrorText>
-            <PrimaryButton
-              disabled={!bindChannelId}
-              loading={bind.isPending}
-              onClick={() => bind.mutate({ keyId: binding, channelId: bindChannelId })}
-            >
-              确认绑定
-            </PrimaryButton>
-          </Stack>
         </FormDialog>
       )}
       {data.isPending ? (
@@ -287,20 +314,24 @@ export default function Keys() {
                             >
                               <Download size={16} aria-hidden="true" />
                             </IconButton>
-                            {!key.channelId && !key.revokedAt && !expired && (
-                              <IconButton
-                                aria-label="绑定渠道"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  bind.reset();
-                                  setBindChannelId('');
-                                  setBinding(key.id);
-                                }}
-                              >
-                                <Link2 size={16} aria-hidden="true" />
-                              </IconButton>
-                            )}
+                            <IconButton
+                              aria-label={`编辑 Key「${key.name}」`}
+                              title="编辑 Key"
+                              variant="ghost"
+                              size="sm"
+                              disabled={Boolean(key.revokedAt) || deletion.isPending}
+                              onClick={() => {
+                                close();
+                                setEditing(key);
+                                setName(key.name);
+                                setChannelId(key.channelId ?? '');
+                                setExpiresAt(dateTimeInput(key.expiresAt));
+                                setRestricted(key.restrictModels);
+                                setModelIds(key.modelIds);
+                              }}
+                            >
+                              <Pencil size={16} aria-hidden="true" />
+                            </IconButton>
                             <IconButton
                               variant="ghost"
                               size="sm"

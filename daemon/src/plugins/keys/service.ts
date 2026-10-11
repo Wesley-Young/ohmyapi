@@ -202,7 +202,7 @@ export class KeyService {
       if (key.revokedAt || (key.expiresAt && key.expiresAt <= new Date()))
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Key 已失效' });
       const [existing] = await tx.select().from(apiKeyChannels).where(eq(apiKeyChannels.apiKeyId, keyId));
-      if (existing) throw new TRPCError({ code: 'CONFLICT', message: 'Key 已绑定渠道，请创建新的 Key' });
+      if (existing) throw new TRPCError({ code: 'CONFLICT', message: 'Key 已绑定渠道，请通过编辑修改' });
       const offerings = await this.offerings(tx, user.id, user.role);
       if (!offerings.some((o) => o.channelId === channelId))
         throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用、未授权或没有可用模型' });
@@ -235,16 +235,13 @@ export class KeyService {
     const items = rows.slice(0, pageSize);
     const grants = items.length
       ? await this.auth.db
-          .select({ keyId: apiKeyModelGrants.apiKeyId, name: models.name })
+          .select({ keyId: apiKeyModelGrants.apiKeyId, id: models.id, name: models.name })
           .from(apiKeyModelGrants)
           .innerJoin(models, eq(models.id, apiKeyModelGrants.modelId))
           .where(
-            and(
-              isNull(models.deletedAt),
-              inArray(
-                apiKeyModelGrants.apiKeyId,
-                items.map((key) => key.id),
-              ),
+            inArray(
+              apiKeyModelGrants.apiKeyId,
+              items.map((key) => key.id),
             ),
           )
       : [];
@@ -255,6 +252,7 @@ export class KeyService {
         revokedAt: key.revokedAt?.toISOString() ?? null,
         createdAt: key.createdAt.toISOString(),
         modelNames: grants.filter((grant) => grant.keyId === key.id).map((grant) => grant.name),
+        modelIds: grants.filter((grant) => grant.keyId === key.id).map((grant) => grant.id),
       })),
       hasMore: rows.length > pageSize,
     };
@@ -300,6 +298,73 @@ export class KeyService {
       if (modelIds.length)
         await tx.insert(apiKeyModelGrants).values(modelIds.map((modelId) => ({ apiKeyId: key.id, modelId })));
       return { id: key.id, token };
+    });
+  }
+
+  async update(
+    principal: Principal,
+    input: { keyId: string; name: string; channelId?: string; expiresAt: string | null; modelIds?: string[] | null },
+  ) {
+    return this.auth.authorized(principal, {}, async (tx, user) => {
+      const [key] = await tx
+        .select()
+        .from(apiKeys)
+        .where(and(eq(apiKeys.id, input.keyId), eq(apiKeys.userId, user.id), isNull(apiKeys.deletedAt)))
+        .for('update');
+      if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'Key 不存在或已删除' });
+      if (key.revokedAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Key 已撤销' });
+      const now = new Date();
+      const expiresAt = input.expiresAt ? new Date(input.expiresAt) : null;
+      if (expiresAt && expiresAt <= now && expiresAt.getTime() !== key.expiresAt?.getTime())
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '有效期必须晚于当前时间' });
+      if (key.expiresAt && key.expiresAt <= now && (!expiresAt || expiresAt > now)) {
+        const [{ count }] = await tx
+          .select({ count: sql<number>`count(*)::integer` })
+          .from(apiKeys)
+          .where(
+            and(
+              eq(apiKeys.userId, user.id),
+              isNull(apiKeys.revokedAt),
+              isNull(apiKeys.deletedAt),
+              or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, now)),
+            ),
+          );
+        if (count >= 100) throw new TRPCError({ code: 'BAD_REQUEST', message: '最多保留 100 个有效 Key' });
+      }
+      const [binding] = await tx.select().from(apiKeyChannels).where(eq(apiKeyChannels.apiKeyId, key.id));
+      const channelId = input.channelId ?? binding?.channelId;
+      const channelChanged = channelId !== binding?.channelId;
+      const modelIds =
+        input.modelIds === undefined
+          ? (await tx.select().from(apiKeyModelGrants).where(eq(apiKeyModelGrants.apiKeyId, key.id))).map(
+              (grant) => grant.modelId,
+            )
+          : [...new Set(input.modelIds ?? [])];
+      if (channelChanged || input.modelIds !== undefined) {
+        const offerings = (await this.offerings(tx, user.id, user.role)).filter((o) => o.channelId === channelId);
+        if (!offerings.length) throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用、未授权或没有可用模型' });
+        if (modelIds.some((id) => !offerings.some((o) => o.modelId === id)))
+          throw new TRPCError({ code: 'FORBIDDEN', message: '包含渠道不可用或未授权的模型，请重新选择' });
+      }
+      await tx
+        .update(apiKeys)
+        .set({
+          name: input.name,
+          expiresAt,
+          restrictModels: input.modelIds === undefined ? key.restrictModels : input.modelIds !== null,
+        })
+        .where(eq(apiKeys.id, key.id));
+      if (channelChanged && channelId)
+        await tx
+          .insert(apiKeyChannels)
+          .values({ apiKeyId: key.id, channelId })
+          .onConflictDoUpdate({ target: apiKeyChannels.apiKeyId, set: { channelId } });
+      if (input.modelIds !== undefined) {
+        await tx.delete(apiKeyModelGrants).where(eq(apiKeyModelGrants.apiKeyId, key.id));
+        if (modelIds.length)
+          await tx.insert(apiKeyModelGrants).values(modelIds.map((modelId) => ({ apiKeyId: key.id, modelId })));
+      }
+      return { success: true };
     });
   }
 

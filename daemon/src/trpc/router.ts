@@ -141,6 +141,17 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) => ctx.keys.create(ctx.principal, input)),
+    update: protectedProcedure
+      .input(
+        z.object({
+          keyId: z.uuid(),
+          name: z.string().trim().min(1, '请填写名称').max(64, '名称最多 64 个字符'),
+          channelId: z.uuid().optional(),
+          expiresAt: z.iso.datetime().nullable(),
+          modelIds: z.array(z.uuid()).min(1, '至少选择一个模型').max(100).nullable().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => ctx.keys.update(ctx.principal, input)),
     delete: protectedProcedure
       .input(z.object({ keyId: z.uuid() }))
       .mutation(({ ctx, input }) => ctx.keys.delete(ctx.principal, input.keyId)),
