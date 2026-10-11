@@ -45,7 +45,7 @@ export function ModelImport({
   const [providerId, setProviderId] = useState('');
   const [page, setPage] = useState(0);
   const [selection, setSelection] = useState<Selection[]>();
-  const [rate, setRate] = useState('');
+  const [rate, setRate] = useState('1');
   const source = useQuery({
     queryKey: ['models-dev'],
     queryFn: ({ signal }) => fetchModelsDev(signal),
@@ -320,7 +320,6 @@ export function ModelImport({
                   inputMode="decimal"
                   required
                   disabled={task.isPending}
-                  helper="按你填写的系数换算后保存，不自动获取汇率。"
                   onChange={(event) => setRate(event.target.value)}
                 />
               )}
