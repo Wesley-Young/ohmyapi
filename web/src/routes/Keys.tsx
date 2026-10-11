@@ -21,7 +21,7 @@ function dateTimeInput(value: string | null) {
 }
 
 function isAnthropicOnly(channel: RouterOutputs['keys']['channels'][number] | undefined) {
-  if (!channel) return false;
+  if (!channel) return true; // unable to determine, assume true to disable export
   return channel.endpoints.length === 1 && channel.endpoints[0] === '/v1/messages';
 }
 
@@ -340,7 +340,8 @@ export default function Keys() {
                               variant="outline"
                               size="sm"
                               disabled={
-                                isAnthropicOnly(channels.data?.find((channel) => channel.id === key.channelId)) ||
+                                !channels.data ||
+                                isAnthropicOnly(channels.data.find((channel) => channel.id === key.channelId)) ||
                                 Boolean(key.revokedAt || expired || key.channelDeleted || !key.channelId)
                               }
                               onClick={() => setExportingKeyId(key.id)}
