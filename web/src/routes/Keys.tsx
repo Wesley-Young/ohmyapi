@@ -303,17 +303,18 @@ export default function Keys() {
                                   : '有效'}
                         </Table.Cell>
                         <Table.Cell>
-                          <HStack gap="1">
-                            <IconButton
+                          <HStack gap="2" flexWrap="wrap">
+                            <Button
+                              type="button"
                               aria-label={`导出「${key.name}」到 CC Switch`}
-                              title="导出到 CC Switch"
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
                               disabled={Boolean(key.revokedAt || expired || key.channelDeleted || !key.channelId)}
                               onClick={() => setExportingKeyId(key.id)}
                             >
                               <Download size={16} aria-hidden="true" />
-                            </IconButton>
+                              导出
+                            </Button>
                             <IconButton
                               aria-label={`编辑 Key「${key.name}」`}
                               title="编辑 Key"
