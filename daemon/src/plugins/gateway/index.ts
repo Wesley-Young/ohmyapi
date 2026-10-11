@@ -3,6 +3,7 @@ import { definePlugin } from '../../kernel.js';
 import { BillingService } from '../billing/service.js';
 import { CatalogService } from '../catalog/service.js';
 import { DatabaseService } from '../database/index.js';
+import { OutboundHttp } from '../outbound/index.js';
 import { PricingService } from '../pricing/service.js';
 import { SubscriptionService } from '../subscription/service.js';
 import { GatewayService } from './service.js';
@@ -15,6 +16,7 @@ export const GatewayPlugin = definePlugin({
     billing: BillingService,
     catalog: CatalogService,
     subscription: SubscriptionService,
+    outbound: OutboundHttp,
   },
   provides: [GatewayService],
   apply(ctx) {
@@ -26,6 +28,7 @@ export const GatewayPlugin = definePlugin({
       ctx.subscription,
       readGatewayConfig(),
       ctx.logger,
+      ctx.outbound,
     );
     ctx.provide(GatewayService, gateway);
     ctx.billing.onLeaseLost(() => {

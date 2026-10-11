@@ -47,6 +47,7 @@ export const channels = pgTable(
     type: channelType('type').default('api').notNull(),
     pricingMode: channelPricingMode('pricing_mode').default('unified').notNull(),
     baseUrl: text('base_url'),
+    proxyUrlEncrypted: text('proxy_url_encrypted'),
     // API 渠道的凭据使用认证加密保存；其他类型由各自的账号或成员配置提供连接信息。
     credentialEncrypted: text('credential_encrypted'),
     subscriptionAccountId: uuid('subscription_account_id').references(() => subscriptionAccounts.id),
@@ -62,6 +63,7 @@ export const channels = pgTable(
     uniqueIndex('channels_subscription_account_unique')
       .on(table.subscriptionAccountId)
       .where(sql`${table.deletedAt} is null`),
+    check('channels_proxy_type', sql`${table.type} <> 'aggregate' or ${table.proxyUrlEncrypted} is null`),
     check('channels_timeout_positive', sql`${table.timeoutMs} > 0`),
     check(
       'channels_subscription_config',

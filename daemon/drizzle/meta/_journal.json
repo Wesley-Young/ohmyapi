@@ -71,6 +71,13 @@
       "when": 1791635226053,
       "tag": "0009_aggregate_pricing_modes",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791708470712,
+      "tag": "0010_channel_outbound_proxy",
+      "breakpoints": true
     }
   ]
 }

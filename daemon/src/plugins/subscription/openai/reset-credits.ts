@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import type { OutboundFetch } from '../../outbound/index.js';
 import { accountHeaders, readJson } from './client.js';
 import type { OpenAICredentials } from './credentials.js';
 import type { OpenAITokens } from './tokens.js';
@@ -24,8 +25,8 @@ const resultSchema = z.object({
   windows_reset: z.number().int().nonnegative(),
 });
 
-async function readCredits(credentials: OpenAICredentials) {
-  const response = await fetch(creditsUrl, {
+async function readCredits(credentials: OpenAICredentials, request: OutboundFetch) {
+  const response = await request(creditsUrl, {
     headers: accountHeaders(credentials, 'application/json'),
     signal: AbortSignal.timeout(20_000),
     redirect: 'error',
@@ -52,7 +53,8 @@ export class OpenAIResetCredits {
 
   async list(tokens: OpenAITokens, id: string) {
     try {
-      return await readCredits(await tokens.get(id));
+      const { credentials, request } = await tokens.authorize(id);
+      return await readCredits(credentials, request);
     } catch {
       throw new TRPCError({ code: 'BAD_GATEWAY', message: '获取 OpenAI 重置卡失败，请刷新查询或检查账号凭据' });
     }
@@ -63,8 +65,8 @@ export class OpenAIResetCredits {
       throw new TRPCError({ code: 'CONFLICT', message: '该账号正在使用重置卡，请等待操作完成' });
     this.consuming.add(id);
     try {
-      const credentials = await tokens.get(id);
-      const snapshot = await readCredits(credentials).catch(() => {
+      const { credentials, request } = await tokens.authorize(id);
+      const snapshot = await readCredits(credentials, request).catch(() => {
         throw new TRPCError({ code: 'BAD_GATEWAY', message: '无法确认重置卡状态，尚未提交使用请求，请刷新查询' });
       });
       if (!snapshot.credits.some((credit) => credit.id === creditId && credit.usable))
@@ -73,7 +75,7 @@ export class OpenAIResetCredits {
         throw new TRPCError({ code: 'CONFLICT', message: '最近到期的可用重置卡已变化，请刷新查询后重新确认' });
       try {
         // 固定选中的卡和兑换标识，不自动重试，也不回退到由上游选择另一张卡。
-        const response = await fetch(`${creditsUrl}/consume`, {
+        const response = await request(`${creditsUrl}/consume`, {
           method: 'POST',
           headers: accountHeaders(credentials, 'application/json'),
           body: JSON.stringify({ credit_id: creditId, redeem_request_id: redeemRequestId }),

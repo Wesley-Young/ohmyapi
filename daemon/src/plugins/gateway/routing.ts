@@ -137,6 +137,7 @@ export async function lockExecutionRoute(
     current.type === 'aggregate' ||
     current.type !== selected.type ||
     current.baseUrl !== selected.baseUrl ||
+    current.proxyUrlEncrypted !== selected.proxyUrlEncrypted ||
     current.credentialEncrypted !== selected.credentialEncrypted ||
     current.subscriptionAccountId !== selected.subscriptionAccountId
   )

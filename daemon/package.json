@@ -27,6 +27,7 @@
     "hono": "^4.13.13",
     "js-tiktoken": "^1.0.21",
     "pg": "^8.23.1",
+    "undici": "^7.30.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

@@ -2,8 +2,10 @@ import { and, eq, isNull } from 'drizzle-orm';
 
 import type { CredentialVault } from '../../catalog/vault.js';
 import type { Database } from '../../database/client.js';
+import { channels } from '../../database/schema/catalog.js';
 import { subscriptionAccounts } from '../../database/schema/subscription.js';
 import { GatewayError } from '../../gateway/errors.js';
+import type { OutboundHttp } from '../../outbound/index.js';
 import { exchangeToken } from './client.js';
 import { credentialsSchema, type OpenAICredentials, parseCredentials } from './credentials.js';
 
@@ -12,20 +14,40 @@ export class OpenAITokens {
   private readonly abort = new AbortController();
   private readonly db: Database;
   private readonly vault: CredentialVault;
-  constructor(db: Database, vault: CredentialVault) {
+  private readonly outbound: OutboundHttp;
+  constructor(db: Database, vault: CredentialVault, outbound: OutboundHttp) {
     this.db = db;
     this.vault = vault;
+    this.outbound = outbound;
   }
 
-  get(id: string, force = false) {
-    const pending = this.refreshing.get(id);
+  private async proxy(id: string, db: Pick<Database, 'select'> = this.db) {
+    const [channel] = await db
+      .select({ encrypted: channels.proxyUrlEncrypted })
+      .from(channels)
+      .where(and(eq(channels.subscriptionAccountId, id), isNull(channels.deletedAt)));
+    if (!channel) throw new GatewayError(503, 'subscription_unavailable', 'The subscription channel is unavailable');
+    return channel.encrypted ? this.vault.decrypt(channel.encrypted) : null;
+  }
+
+  async authorize(id: string) {
+    const proxyUrl = await this.proxy(id);
+    return {
+      credentials: await this.get(id, false, proxyUrl),
+      request: this.outbound.forProxy(proxyUrl),
+    };
+  }
+
+  get(id: string, force = false, proxyUrl?: string | null) {
+    const key = JSON.stringify({ id, proxyUrl });
+    const pending = this.refreshing.get(key);
     if (pending) return pending;
-    const task = this.refresh(id, force).finally(() => this.refreshing.delete(id));
-    this.refreshing.set(id, task);
+    const task = this.refresh(id, force, proxyUrl).finally(() => this.refreshing.delete(key));
+    this.refreshing.set(key, task);
     return task;
   }
 
-  private async refresh(id: string, force: boolean) {
+  private async refresh(id: string, force: boolean, proxyUrl?: string | null) {
     let encrypted: string | undefined;
     try {
       return await this.db.transaction(async (tx) => {
@@ -51,6 +73,7 @@ export class OpenAITokens {
           await exchangeToken(
             { grant_type: 'refresh_token', refresh_token: credentials.refreshToken },
             this.abort.signal,
+            this.outbound.forProxy(proxyUrl === undefined ? await this.proxy(id, tx) : proxyUrl),
           ),
           credentials,
         );

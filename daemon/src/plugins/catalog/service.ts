@@ -20,10 +20,12 @@ import {
   userChannelGrants,
   users,
 } from '../database/schema/index.js';
+import { type OutboundHttp, proxyUrlInput } from '../outbound/index.js';
 import { expandRules, multiplierInput, ruleInput, validateRules } from '../pricing/rules.js';
 import { type SubscriptionService, subscriptionInput } from '../subscription/service.js';
 import { pageSize } from '../users/service.js';
 import { channelTypes, pricingModes } from './channel-types.js';
+import { channelProxy } from './proxy.js';
 import type { CredentialVault } from './vault.js';
 
 export { CredentialVault } from './vault.js';
@@ -44,6 +46,7 @@ export const channelInput = z.object({
       return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
     }, 'Base URL 需为无凭据、查询参数和片段的 HTTP(S) 地址')
     .optional(),
+  proxyUrl: proxyUrlInput,
   subscription: subscriptionInput.optional(),
   credential: z
     .string()
@@ -78,7 +81,7 @@ export const channelInput = z.object({
     .default([]),
 });
 export const fetchChannelModelsInput = channelInput
-  .pick({ id: true, baseUrl: true, credential: true })
+  .pick({ id: true, baseUrl: true, credential: true, proxyUrl: true })
   .required({ baseUrl: true });
 export const modelInput = z.object({
   id: z.uuid().optional(),
@@ -107,11 +110,19 @@ export class CatalogService {
   private readonly logger: EventLogger;
   readonly vault: CredentialVault;
   private readonly subscription: SubscriptionService;
-  constructor(auth: AuthService, vault: CredentialVault, logger: EventLogger, subscription: SubscriptionService) {
+  private readonly outbound: OutboundHttp;
+  constructor(
+    auth: AuthService,
+    vault: CredentialVault,
+    logger: EventLogger,
+    subscription: SubscriptionService,
+    outbound: OutboundHttp,
+  ) {
     this.auth = auth;
     this.vault = vault;
     this.logger = logger;
     this.subscription = subscription;
+    this.outbound = outbound;
   }
 
   async list() {
@@ -132,6 +143,7 @@ export class CatalogService {
             cooldownUntil: subscriptionAccounts.cooldownUntil,
           },
           baseUrl: channels.baseUrl,
+          proxyUrlEncrypted: channels.proxyUrlEncrypted,
           enabled: channels.enabled,
           isPublic: channels.isPublic,
           timeoutMs: channels.timeoutMs,
@@ -148,8 +160,9 @@ export class CatalogService {
       this.auth.db.select().from(aggregateChannelMembers),
     ]);
     return {
-      channels: channelRows.map(({ multiplierMicros, ...c }) => ({
+      channels: channelRows.map(({ multiplierMicros, proxyUrlEncrypted, ...c }) => ({
         ...c,
+        proxyUrl: proxyUrlEncrypted ? this.vault.decrypt(proxyUrlEncrypted) : null,
         subscription: c.subscription
           ? {
               provider: c.subscription.provider,
@@ -213,6 +226,8 @@ export class CatalogService {
       if (existing?.credentialEncrypted) return this.vault.decrypt(existing.credentialEncrypted);
       throw new TRPCError({ code: 'BAD_REQUEST', message: '请先填写上游凭据' });
     });
+    const proxyUrl = await channelProxy(this.auth, this.vault, principal, input.id, input.proxyUrl);
+    const request = this.outbound.forProxy(proxyUrl);
     const base = input.baseUrl.replace(/\/+$/, '');
     const url = new URL(base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`);
     const signal = AbortSignal.timeout(20_000);
@@ -226,7 +241,7 @@ export class CatalogService {
     try {
       for (;;) {
         stage = 'fetch';
-        const response = await fetch(url, {
+        const response = await request(url, {
           headers: {
             authorization: `Bearer ${credential}`,
             'x-api-key': credential,
@@ -323,7 +338,11 @@ export class CatalogService {
   async saveChannel(principal: Principal, input: z.infer<typeof channelInput>) {
     const credentials =
       input.type === 'subscription' && input.subscription
-        ? await this.subscription.prepareCredentials(principal, input.subscription)
+        ? await this.subscription.prepareCredentials(
+            principal,
+            input.subscription,
+            await channelProxy(this.auth, this.vault, principal, input.id, input.proxyUrl),
+          )
         : undefined;
     const result = await this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [existing] = input.id
@@ -360,7 +379,7 @@ export class CatalogService {
         throw new TRPCError({ code: 'BAD_REQUEST', message: '普通渠道需配置端点，且不能配置子渠道' });
       let aggregateModels: { id: string; name: string }[] = [];
       if (input.type === 'aggregate') {
-        if (input.baseUrl || input.credential || input.subscription || input.endpoints.length)
+        if (input.baseUrl || input.credential || input.subscription || input.endpoints.length || input.proxyUrl)
           throw new TRPCError({ code: 'BAD_REQUEST', message: '聚合渠道的连接和端点由子渠道提供' });
         if (!input.members.length || input.members.some((member) => member.channelId === input.id))
           throw new TRPCError({ code: 'BAD_REQUEST', message: '至少选择一个子渠道，且不能引用自身' });
@@ -464,11 +483,21 @@ export class CatalogService {
               credentials,
             )
           : null;
+      let proxyUrlEncrypted = existing?.proxyUrlEncrypted ?? null;
+      if (input.type === 'aggregate' || input.proxyUrl === null) {
+        proxyUrlEncrypted = null;
+      } else if (
+        input.proxyUrl !== undefined &&
+        (!proxyUrlEncrypted || this.vault.decrypt(proxyUrlEncrypted) !== input.proxyUrl)
+      ) {
+        proxyUrlEncrypted = this.vault.encrypt(input.proxyUrl);
+      }
       const values = {
         name: input.name,
         type: input.type,
         pricingMode,
         baseUrl: input.type === 'api' ? input.baseUrl?.replace(/\/+$/, '') : null,
+        proxyUrlEncrypted,
         subscriptionAccountId,
         enabled: input.enabled,
         isPublic: input.isPublic,
@@ -525,6 +554,8 @@ export class CatalogService {
         availableModels: configuredModels,
         members: input.members,
         credentialChanged: Boolean(input.credential || credentials),
+        proxyChanged: values.proxyUrlEncrypted !== (existing?.proxyUrlEncrypted ?? null),
+        proxyEnabled: Boolean(values.proxyUrlEncrypted),
         maxConcurrent: input.subscription?.maxConcurrent,
       });
       const priced = resolved.length

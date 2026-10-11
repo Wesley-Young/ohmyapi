@@ -15,8 +15,8 @@ const usageSchema = z.object({
 });
 
 async function fetchQuota(tokens: OpenAITokens, id: string, signal: AbortSignal) {
-  const credentials = await tokens.get(id);
-  const response = await fetch('https://chatgpt.com/backend-api/wham/usage', {
+  const { credentials, request } = await tokens.authorize(id);
+  const response = await request('https://chatgpt.com/backend-api/wham/usage', {
     headers: accountHeaders(credentials, 'application/json'),
     signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
     redirect: 'error',

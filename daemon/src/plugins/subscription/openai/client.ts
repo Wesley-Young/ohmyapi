@@ -1,4 +1,5 @@
 import { GatewayError } from '../../gateway/errors.js';
+import type { OutboundFetch } from '../../outbound/index.js';
 import type { OpenAICredentials } from './credentials.js';
 
 export const clientId = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -6,9 +7,9 @@ export const redirectUri = 'http://localhost:1455/auth/callback';
 export const codexBaseUrl = 'https://chatgpt.com/backend-api/codex';
 export const fallbackCodexClientVersion = '0.162.0';
 
-export async function latestCodexClientVersion(): Promise<string> {
+export async function latestCodexClientVersion(request: OutboundFetch): Promise<string> {
   try {
-    const response = await fetch('https://registry.npmjs.org/@openai%2Fcodex/latest', {
+    const response = await request('https://registry.npmjs.org/@openai%2Fcodex/latest', {
       headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(3000),
       redirect: 'error',
@@ -63,11 +64,11 @@ export async function readJson(response: Response, limit = 2 * 1024 * 1024): Pro
   }
 }
 
-export async function exchangeToken(body: Record<string, string>, signal?: AbortSignal) {
-  const response = await fetch('https://auth.openai.com/oauth/token', {
+export async function exchangeToken(body: Record<string, string>, signal: AbortSignal, request: OutboundFetch) {
+  const response = await request('https://auth.openai.com/oauth/token', {
     method: 'POST',
     body: new URLSearchParams({ client_id: clientId, ...body }),
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
     redirect: 'error',
   });
   if (!response.ok) {

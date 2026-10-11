@@ -1,0 +1,2 @@
+ALTER TABLE "channels" ADD COLUMN "proxy_url_encrypted" text;--> statement-breakpoint
+ALTER TABLE "channels" ADD CONSTRAINT "channels_proxy_type" CHECK ("channels"."type" <> 'aggregate' or "channels"."proxy_url_encrypted" is null);

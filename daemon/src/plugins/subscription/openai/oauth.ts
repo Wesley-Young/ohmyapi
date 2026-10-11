@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server';
 
+import type { OutboundFetch } from '../../outbound/index.js';
 import { clientId, exchangeToken, redirectUri } from './client.js';
 import { type OpenAICredentials, parseCredentials } from './credentials.js';
 
@@ -38,7 +39,7 @@ export class OpenAIOAuth {
     return { url: url.toString() };
   }
 
-  async complete(actorId: string, callbackUrl: string) {
+  async complete(actorId: string, callbackUrl: string, request: OutboundFetch) {
     const url = new URL(callbackUrl);
     if (`${url.origin}${url.pathname}` !== redirectUri)
       throw new TRPCError({ code: 'BAD_REQUEST', message: '请粘贴完整的 localhost:1455 授权回调地址' });
@@ -60,6 +61,7 @@ export class OpenAIOAuth {
         redirect_uri: redirectUri,
       },
       this.abort.signal,
+      request,
     )
       .then((value) => parseCredentials(value))
       .catch((error) => {

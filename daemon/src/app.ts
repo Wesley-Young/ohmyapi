@@ -11,6 +11,7 @@ import { DatabasePlugin } from './plugins/database/index.js';
 import { GatewayPlugin } from './plugins/gateway/index.js';
 import { HttpPlugin } from './plugins/http/index.js';
 import { KeysPlugin } from './plugins/keys/index.js';
+import { OutboundPlugin } from './plugins/outbound/index.js';
 import { PricingPlugin } from './plugins/pricing/index.js';
 import { SubscriptionPlugin } from './plugins/subscription/index.js';
 import { UsersPlugin } from './plugins/users/index.js';
@@ -27,6 +28,7 @@ export function createApp(options: { host: string; port: number }) {
   ctx.install(PricingPlugin);
   ctx.install(BillingPlugin);
   ctx.install(CredentialVaultPlugin);
+  ctx.install(OutboundPlugin);
   ctx.install(SubscriptionPlugin);
   ctx.install(CatalogPlugin);
   ctx.install(GatewayPlugin);

@@ -169,6 +169,8 @@ function ChannelForm({
     }),
   );
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? '');
+  const [proxyUrl, setProxyUrl] = useState(initial?.proxyUrl ?? '');
+  const proxyInput = proxyUrl.trim() || null;
   const [credential, setCredential] = useState('');
   const [timeout, setTimeout] = useState(String(initial?.timeoutMs ?? 120000));
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
@@ -248,6 +250,7 @@ function ChannelForm({
               type,
               pricingMode: type === 'aggregate' ? pricingMode : 'unified',
               baseUrl: type === 'api' ? baseUrl : undefined,
+              proxyUrl: type === 'aggregate' ? undefined : proxyInput,
               credential: type === 'api' ? credential || undefined : undefined,
               subscription:
                 type === 'subscription'
@@ -432,6 +435,21 @@ function ChannelForm({
                 />
               </>
             )}
+            {type !== 'aggregate' && (
+              <FormInput
+                label="代理地址"
+                type="url"
+                autoComplete="off"
+                value={proxyUrl}
+                onChange={(e) => setProxyUrl(e.target.value)}
+                placeholder="http://user:password@host:port"
+                maxLength={4096}
+                error={
+                  formError(task.error ?? fetchModels.error ?? fetchSubscriptionModels.error)?.fields.proxyUrl?.[0]
+                }
+                helper="支持 HTTP(S) 及用户名密码认证，留空直连。"
+              />
+            )}
             <FormInput
               label="超时（毫秒）"
               value={timeout}
@@ -500,10 +518,16 @@ function ChannelForm({
                 type === 'subscription'
                   ? fetchSubscriptionModels.mutate({
                       channelId: initial?.id,
+                      proxyUrl: proxyInput,
                       credentials: mode === 'import' ? credentials || undefined : undefined,
                       callbackUrl: mode === 'oauth' ? callback || undefined : undefined,
                     })
-                  : fetchModels.mutate({ id: initial?.id, baseUrl, credential: credential || undefined })
+                  : fetchModels.mutate({
+                      id: initial?.id,
+                      baseUrl,
+                      credential: credential || undefined,
+                      proxyUrl: proxyInput,
+                    })
               }
               fetchError={fetchError ?? formError(fetchModels.error ?? fetchSubscriptionModels.error)?.message}
               fetchNotice={fetchNotice}

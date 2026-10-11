@@ -24,6 +24,7 @@ import {
   userChannelGrants,
   users,
 } from '../database/schema/index.js';
+import type { OutboundHttp } from '../outbound/index.js';
 import { type PricingService, publicPricingSnapshot } from '../pricing/service.js';
 import { availableSubscription } from '../subscription/availability.js';
 import type { SubscriptionService } from '../subscription/service.js';
@@ -45,6 +46,7 @@ export class GatewayService implements Disposable {
   private readonly affinity = new ChannelAffinity();
   private readonly db: Database;
   private readonly vault: CredentialVault;
+  private readonly outbound: OutboundHttp;
   private readonly subscription: SubscriptionService;
   readonly config: Config;
   private readonly logger: EventLogger;
@@ -62,6 +64,7 @@ export class GatewayService implements Disposable {
     subscription: SubscriptionService,
     config: Config,
     logger: EventLogger,
+    outbound: OutboundHttp,
   ) {
     this.db = db;
     this.pricing = pricing;
@@ -70,6 +73,7 @@ export class GatewayService implements Disposable {
     this.subscription = subscription;
     this.config = config;
     this.logger = logger;
+    this.outbound = outbound;
   }
 
   dispose() {
@@ -466,6 +470,9 @@ export class GatewayService implements Disposable {
 
       lifecycle.releaseUpstream = prepared.release;
       const { url, body, headers } = prepared;
+      const request = this.outbound.forProxy(
+        executionChannel.proxyUrlEncrypted ? this.vault.decrypt(executionChannel.proxyUrlEncrypted) : null,
+      );
       if (executionChannel.subscriptionAccountId)
         await this.db
           .update(requests)
@@ -501,7 +508,7 @@ export class GatewayService implements Disposable {
         throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
       if (executionChannel.type === 'subscription') lifecycle.retainUpstreamOnDisconnect(60_000);
       session.dispatched = true;
-      const upstream = await fetch(url, {
+      const upstream = await request(url, {
         method: 'POST',
         headers,
         body,

@@ -4,9 +4,11 @@ import { and, eq, isNull, lt } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AuthService, Principal, Transaction } from '../auth/service.js';
+import { channelProxy } from '../catalog/proxy.js';
 import type { CredentialVault } from '../catalog/vault.js';
 import { channels, subscriptionAccounts } from '../database/schema/index.js';
 import { GatewayError } from '../gateway/errors.js';
+import { type OutboundHttp, proxyUrlInput } from '../outbound/index.js';
 import { SubscriptionConcurrency } from './concurrency.js';
 import { accountHeaders, codexBaseUrl, latestCodexClientVersion, readJson } from './openai/client.js';
 import { credentialsSchema, type OpenAICredentials, parseCredentials } from './openai/credentials.js';
@@ -23,7 +25,7 @@ export const subscriptionInput = credentialInput
   .extend({ maxConcurrent: z.number().int().min(1).max(100).default(5) })
   .refine((input) => !(input.credentials && input.callbackUrl), '请选择一种接入方式');
 export const fetchSubscriptionModelsInput = credentialInput
-  .extend({ channelId: z.uuid().optional() })
+  .extend({ channelId: z.uuid().optional(), proxyUrl: proxyUrlInput })
   .refine((input) => !(input.credentials && input.callbackUrl), '请选择一种接入方式');
 
 export class SubscriptionService implements Disposable {
@@ -39,10 +41,12 @@ export class SubscriptionService implements Disposable {
 
   private readonly auth: AuthService;
   private readonly vault: CredentialVault;
-  constructor(auth: AuthService, vault: CredentialVault) {
+  private readonly outbound: OutboundHttp;
+  constructor(auth: AuthService, vault: CredentialVault, outbound: OutboundHttp) {
     this.auth = auth;
     this.vault = vault;
-    this.tokens = new OpenAITokens(auth.db, vault);
+    this.outbound = outbound;
+    this.tokens = new OpenAITokens(auth.db, vault, outbound);
     this.timer = setInterval(() => {
       this.oauth.prune();
       void this.refreshExpiring().catch(() => {});
@@ -63,11 +67,11 @@ export class SubscriptionService implements Disposable {
     this.oauth.consume(principal.user.id, callbackUrl);
   }
 
-  async prepareCredentials(principal: Principal, input: z.infer<typeof credentialInput>) {
+  async prepareCredentials(principal: Principal, input: z.infer<typeof credentialInput>, proxyUrl: string | null) {
     await this.auth.authorized(principal, { admin: true }, async () => {});
     if (input.callbackUrl) {
       try {
-        return await this.oauth.complete(principal.user.id, input.callbackUrl);
+        return await this.oauth.complete(principal.user.id, input.callbackUrl, this.outbound.forProxy(proxyUrl));
       } catch (error) {
         if (error instanceof TRPCError) throw error;
         throw new TRPCError({ code: 'BAD_REQUEST', message: '授权失败，请重新授权并粘贴完整回调地址' });
@@ -307,16 +311,18 @@ export class SubscriptionService implements Disposable {
 
   async models(principal: Principal, input: z.infer<typeof fetchSubscriptionModelsInput>) {
     const id = input.channelId ? await this.accountForChannel(principal, input.channelId) : undefined;
-    const provided = await this.prepareCredentials(principal, input);
+    const proxyUrl = await channelProxy(this.auth, this.vault, principal, input.channelId, input.proxyUrl);
+    const request = this.outbound.forProxy(proxyUrl);
+    const provided = await this.prepareCredentials(principal, input, proxyUrl);
     if (!provided && !id)
       throw new TRPCError({ code: 'BAD_REQUEST', message: '请先导入凭据或完成 OAuth 授权，再拉取模型' });
     if (provided && new Date(provided.expiresAt).getTime() <= Date.now())
       throw new TRPCError({ code: 'BAD_REQUEST', message: '凭据已过期，请重新授权或导入新凭据' });
     try {
-      const credentials = provided ?? (id ? await this.tokens.get(id) : undefined);
+      const credentials = provided ?? (id ? await this.tokens.get(id, false, proxyUrl) : undefined);
       if (!credentials) throw new Error('缺少订阅凭据');
-      const clientVersion = await latestCodexClientVersion();
-      const response = await fetch(`${codexBaseUrl}/models?client_version=${clientVersion}`, {
+      const clientVersion = await latestCodexClientVersion(request);
+      const response = await request(`${codexBaseUrl}/models?client_version=${clientVersion}`, {
         headers: accountHeaders(credentials, 'application/json', clientVersion),
         signal: AbortSignal.timeout(20_000),
         redirect: 'error',
