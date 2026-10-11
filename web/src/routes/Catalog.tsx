@@ -221,7 +221,7 @@ function ChannelForm({
       setFetchNotice(undefined);
       setFetchError(undefined);
     },
-    onSuccess: (result: { names: string[]; ignored: number }) => {
+    onSuccess: (result: { names: string[]; ignored: number; unavailable?: number }) => {
       const additions = result.names.filter((name) => !available.some((model) => model.name === name));
       if (available.length + additions.length > 1000) {
         setFetchError('合并后超过 1000 个模型，请先移除部分模型');
@@ -229,7 +229,7 @@ function ChannelForm({
       }
       setAvailable([...available, ...additions.map((name) => ({ name, multiplier: null }))]);
       setFetchNotice(
-        `已拉取 ${result.names.length} 个模型，新增 ${additions.length} 个${result.ignored ? `，忽略 ${result.ignored} 个无效名称` : ''}`,
+        `已拉取 ${result.names.length} 个模型，新增 ${additions.length} 个${result.ignored ? `，忽略 ${result.ignored} 个无效条目` : ''}${result.unavailable ? `，跳过 ${result.unavailable} 个不可选模型` : ''}`,
       );
     },
   };
@@ -559,7 +559,6 @@ function ChannelForm({
               models={data.models}
               disabled={busy}
               fetching={fetching}
-              canFetch={!(type === 'subscription' && provider === 'claude')}
               onFetch={() =>
                 type === 'subscription'
                   ? fetchSubscriptionModels.mutate({

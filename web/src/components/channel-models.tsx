@@ -51,7 +51,6 @@ export function ChannelModels({
   models,
   disabled,
   fetching,
-  canFetch = true,
   onFetch,
   fetchError,
   fetchNotice,
@@ -63,7 +62,6 @@ export function ChannelModels({
   models: Model[];
   disabled: boolean;
   fetching: boolean;
-  canFetch?: boolean;
   onFetch: () => void;
   fetchError?: string;
   fetchNotice?: string;
@@ -123,7 +121,6 @@ export function ChannelModels({
               disabled={disabled && !fetching}
               loading={fetching}
               onClick={onFetch}
-              hidden={!canFetch}
             >
               <Download size={16} aria-hidden="true" />
               从上游拉取

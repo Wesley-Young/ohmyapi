@@ -9,6 +9,7 @@ import type { CredentialVault } from '../catalog/vault.js';
 import { channels, subscriptionAccounts } from '../database/schema/index.js';
 import { GatewayError } from '../gateway/errors.js';
 import { type OutboundHttp, proxyUrlInput } from '../outbound/index.js';
+import { fetchClaudeModels } from './claude/catalog.js';
 import { importClaudeCredentials } from './claude/client.js';
 import { type ClaudeCredentials, claudeCredentialsSchema } from './claude/credentials.js';
 import { ClaudeOAuth } from './claude/oauth.js';
@@ -446,8 +447,9 @@ export class SubscriptionService implements Disposable {
 
   async models(principal: Principal, input: z.infer<typeof fetchSubscriptionModelsInput>) {
     const id = input.channelId ? await this.accountForChannel(principal, input.channelId) : undefined;
-    if (input.provider === 'claude' || (id && (await this.provider(id)) === 'claude'))
-      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Claude 订阅请手动配置模型' });
+    const provider = id ? await this.provider(id) : input.provider;
+    if (provider !== input.provider)
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '订阅平台与已保存渠道不匹配' });
     const proxyUrl = await channelProxy(this.auth, this.vault, principal, input.channelId, input.proxyUrl);
     const request = this.outbound.forProxy(proxyUrl);
     const provided = await this.prepareCredentials(principal, input, proxyUrl);
@@ -456,8 +458,10 @@ export class SubscriptionService implements Disposable {
     if (provided && new Date(provided.expiresAt).getTime() <= Date.now())
       throw new TRPCError({ code: 'BAD_REQUEST', message: '凭据已过期，请重新授权或导入新凭据' });
     try {
-      const credentials = provided ?? (id ? await this.tokens.get(id, false, proxyUrl) : undefined);
+      const tokens = provider === 'claude' ? this.claudeTokens : this.tokens;
+      const credentials = provided ?? (id ? await tokens.get(id, false, proxyUrl) : undefined);
       if (!credentials) throw new Error('缺少订阅凭据');
+      if (provider === 'claude') return await fetchClaudeModels(claudeCredentialsSchema.parse(credentials), request);
       const clientVersion = await latestCodexClientVersion(request);
       const response = await request(`${codexBaseUrl}/models?client_version=${clientVersion}`, {
         headers: accountHeaders(credentials, 'application/json', clientVersion),
@@ -479,8 +483,9 @@ export class SubscriptionService implements Disposable {
         ].sort(),
         ignored: 0,
       };
-    } catch {
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '获取订阅模型失败，请检查账号或手动添加模型' });
+    } catch (error) {
+      if (error instanceof TRPCError) throw error;
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '获取订阅模型失败，请检查账号和出站代理，或手动添加模型' });
     }
   }
 
