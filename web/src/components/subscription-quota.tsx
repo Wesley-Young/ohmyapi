@@ -13,7 +13,7 @@ function QuotaWindow({
   window,
   unavailable,
 }: {
-  label: string;
+  label: '5h' | '7d';
   window: Quota['fiveHour'];
   unavailable: string;
 }) {
@@ -21,9 +21,12 @@ function QuotaWindow({
   const color = used != null && used >= 90 ? '#ef4444' : used != null && used >= 75 ? '#f59e0b' : '#22c55e';
   const percent = used == null ? '—' : used > 999 ? '>999%' : `${Math.round(used)}%`;
   const resetAt = window?.resetsAt ? new Date(window.resetsAt).getTime() : Number.NaN;
-  const hoursUntilReset = Math.max(0, Math.floor((resetAt - Date.now()) / 3_600_000));
+  const minutesUntilReset = Math.max(0, Math.floor((resetAt - Date.now()) / 60_000));
+  const hoursUntilReset = Math.floor(minutesUntilReset / 60);
   const resetCountdown = Number.isFinite(resetAt)
-    ? `${Math.floor(hoursUntilReset / 24)}d ${hoursUntilReset % 24}h`
+    ? label === '5h'
+      ? `${hoursUntilReset}h ${minutesUntilReset % 60}m`
+      : `${Math.floor(hoursUntilReset / 24)}d ${hoursUntilReset % 24}h`
     : '';
   const description = window
     ? `${label} 已用 ${percent}，${window.resetsAt ? `${new Date(window.resetsAt).toLocaleString()} 重置` : '重置时间未知'}`
