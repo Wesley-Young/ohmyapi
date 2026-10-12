@@ -482,6 +482,7 @@ export class GatewayService implements Disposable {
           ? model.outputTokenLimit
           : requestedOutputLimit;
       session.collector.configureSearch(searchRequest(parsed, endpoint));
+      session.collector.configureCompaction(parsed);
       const timeoutMs = Math.min(channel.timeoutMs, executionChannel.timeoutMs);
       session.upstreamTimeoutMs = timeoutMs;
       lifecycle.setTimeout('upstream_timeout', timeoutMs);

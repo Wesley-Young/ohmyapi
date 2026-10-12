@@ -20,6 +20,8 @@ const responseTerminalEvents = new Set([
   'response.cancelled',
   'response.canceled',
 ]);
+const maxUsageIterations = 1_000;
+type CompactionUsage = { iterations: bigint; input: bigint; output: bigint; read: bigint; write: bigint };
 // Keep numeric usage metadata only. Discard text, arrays and unbounded provider extensions.
 function usageNumbers(raw: ObjectValue, depth = 0): ObjectValue {
   const result: ObjectValue = {};
@@ -62,12 +64,26 @@ export class UsageCollector {
   private malformed = false;
   private readonly search = new SearchUsageCollector();
   private readonly endpoint: Endpoint;
+  // 压缩轮次的用量只在 usage.iterations 中报告，不计入顶层用量。
+  private compaction?: CompactionUsage;
+  private iterationsInvalid = false;
+  private summaryRequested = false;
+  private compactionRequested = false;
   constructor(endpoint: Endpoint) {
     this.endpoint = endpoint;
   }
 
   configureSearch(request: SearchRequest) {
     this.search.configure(request);
+  }
+
+  configureCompaction(body: ObjectValue) {
+    if (this.endpoint !== '/v1/messages') return;
+    const edits = object(body.context_management)?.edits;
+    this.summaryRequested = body.compaction != null;
+    this.compactionRequested =
+      this.summaryRequested ||
+      (Array.isArray(edits) && edits.some((edit) => String(object(edit)?.type).startsWith('compact_')));
   }
 
   markInvalid(error: unknown) {
@@ -89,6 +105,9 @@ export class UsageCollector {
       this.unknownCosts ||
       this.observationIncomplete ||
       this.failed ||
+      // 压缩轮次可能在请求中途发生，顶层用量无法反映摘要消耗。
+      this.compactionRequested ||
+      this.compaction?.iterations ||
       !this.estimate.started ||
       !this.estimate.input
     )
@@ -188,12 +207,13 @@ export class UsageCollector {
         this.complete = true;
       this.search.observe(this.endpoint, data, envelope, usage, this.complete);
       this.syncSearchUsage();
-      if (!usage) {
-        if (this.complete && this.usage && !this.invalid) this.finalUsage = true;
-        return;
+      if (usage) {
+        this.observeIterations(usage.iterations);
+        this.normalize({ ...this.reportedUsage, ...usage });
       }
-      this.normalize({ ...this.reportedUsage, ...usage });
-      if (this.complete && this.usage && !this.invalid) this.finalUsage = true;
+      // 按需压缩的摘要消耗只出现在 iterations 中，缺失时不能按顶层的 0 用量结算。
+      if (this.complete && this.usage && !this.invalid && (!this.summaryRequested || this.compaction))
+        this.finalUsage = true;
     } else {
       this.search.observe(this.endpoint, data, envelope, usage, this.complete);
       this.syncSearchUsage();
@@ -223,12 +243,53 @@ export class UsageCollector {
     }
   }
 
+  /** 流式事件中的 iterations 为累计值，以最近一次报告为准。 */
+  private observeIterations(value: unknown) {
+    if (value == null) return;
+    if (!Array.isArray(value) || value.length > maxUsageIterations) {
+      this.iterationsInvalid = true;
+      return;
+    }
+    const total: CompactionUsage = { iterations: 0n, input: 0n, output: 0n, read: 0n, write: 0n };
+    for (const entry of value) {
+      const item = object(entry);
+      if (typeof item?.type !== 'string') {
+        this.iterationsInvalid = true;
+        return;
+      }
+      // message 轮次已计入顶层用量。
+      if (item.type === 'message') continue;
+      // advisor、fallback 等轮次按其他模型计价，交给人工核对。
+      if (item.type !== 'compaction') {
+        this.unknownCosts = true;
+        continue;
+      }
+      const input = count(item.input_tokens);
+      const output = count(item.output_tokens);
+      const read = item.cache_read_input_tokens == null ? 0n : count(item.cache_read_input_tokens);
+      const write = item.cache_creation_input_tokens == null ? 0n : count(item.cache_creation_input_tokens);
+      if (input === undefined || output === undefined || read === undefined || write === undefined) {
+        this.iterationsInvalid = true;
+        return;
+      }
+      total.iterations++;
+      total.input += input;
+      total.output += output;
+      total.read += read;
+      total.write += write;
+    }
+    this.compaction = total;
+  }
+
   private normalize(raw: ObjectValue) {
     this.reportedUsage = usageNumbers(raw);
     const isChat = this.endpoint === '/v1/chat/completions';
     const anthropic = this.endpoint === '/v1/messages';
-    const input = count(raw[isChat ? 'prompt_tokens' : 'input_tokens']);
-    const output = count(raw[isChat ? 'completion_tokens' : 'output_tokens']);
+    const compaction = anthropic ? this.compaction : undefined;
+    const reportedInput = count(raw[isChat ? 'prompt_tokens' : 'input_tokens']);
+    const reportedOutput = count(raw[isChat ? 'completion_tokens' : 'output_tokens']);
+    const input = reportedInput === undefined ? undefined : reportedInput + (compaction?.input ?? 0n);
+    const output = reportedOutput === undefined ? undefined : reportedOutput + (compaction?.output ?? 0n);
     const details = object(raw[isChat ? 'prompt_tokens_details' : 'input_tokens_details']);
     for (const part of [raw, details, object(raw.completion_tokens_details), object(raw.output_tokens_details)]) {
       if (
@@ -243,10 +304,13 @@ export class UsageCollector {
     }
     const readValue = anthropic ? raw.cache_read_input_tokens : details?.cached_tokens;
     const writeValue = anthropic ? raw.cache_creation_input_tokens : details?.cache_write_tokens;
-    const read = readValue === undefined ? 0n : count(readValue);
-    const write = writeValue === undefined ? 0n : count(writeValue);
+    const reportedRead = readValue === undefined ? 0n : count(readValue);
+    const reportedWrite = writeValue === undefined ? 0n : count(writeValue);
+    const read = reportedRead === undefined ? undefined : reportedRead + (compaction?.read ?? 0n);
+    const write = reportedWrite === undefined ? undefined : reportedWrite + (compaction?.write ?? 0n);
     const image = details?.image_tokens === undefined ? 0n : count(details.image_tokens);
     if (
+      (anthropic && this.iterationsInvalid) ||
       (raw[isChat ? 'prompt_tokens' : 'input_tokens'] !== undefined && input === undefined) ||
       (raw[isChat ? 'completion_tokens' : 'output_tokens'] !== undefined && output === undefined) ||
       read === undefined ||
@@ -273,7 +337,19 @@ export class UsageCollector {
       contextTokens: anthropic ? input + read + write : input,
       webSearchCalls: this.search.webSearchCalls,
       webSearchPreviewCalls: this.search.webSearchPreviewCalls,
-      rawUsage: usageNumbers(raw),
+      rawUsage: compaction?.iterations
+        ? {
+            ...usageNumbers(raw),
+            // 原始 iterations 为数组，usageNumbers 不会保留，单独记录压缩轮次合计以便核对账单。
+            compaction_iterations: {
+              count: Number(compaction.iterations),
+              input_tokens: Number(compaction.input),
+              output_tokens: Number(compaction.output),
+              cache_read_input_tokens: Number(compaction.read),
+              cache_creation_input_tokens: Number(compaction.write),
+            },
+          }
+        : usageNumbers(raw),
     };
   }
 }

@@ -172,7 +172,9 @@ export async function prepareClaudeRequest(
   if (thinking && ['enabled', 'adaptive', 'auto'].includes(String(thinking.type))) delete body.top_k;
   if (thinking && ['enabled', 'adaptive'].includes(String(thinking.type))) {
     if (progressDisplay(String(body.model)) && thinking.display === undefined) thinking.display = 'updates';
-    body.context_management ??= { edits: [{ type: 'clear_thinking_20251015', keep: 'all' }] };
+    // 上游不允许 compaction 与 context_management 同时出现；thinking 照常保留给摘要调用。
+    if (body.compaction === undefined)
+      body.context_management ??= { edits: [{ type: 'clear_thinking_20251015', keep: 'all' }] };
   }
   body.diagnostics = { previous_message_id: session.previousMessageId ?? null };
   prepareCache(body, explicit);
