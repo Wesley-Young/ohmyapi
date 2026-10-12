@@ -37,7 +37,6 @@ export function accountHeaders(
     'chatgpt-account-id': credentials.accountId,
     'content-type': 'application/json',
     accept,
-    'OpenAI-Beta': 'responses=experimental',
     originator: 'codex_cli_rs',
     'user-agent': `codex_cli_rs/${clientVersion}`,
     version: clientVersion,

@@ -1,6 +1,32 @@
 import type { Endpoint } from '../catalog/service.js';
 import { GatewayError } from './errors.js';
 
+export function codexRequestHeaders(request: Request): Headers {
+  const headers = new Headers();
+  const connectionHeaders = new Set(
+    (request.headers.get('connection') ?? '').split(',').map((name) => name.trim().toLowerCase()),
+  );
+  // 按协议命名空间保留新增能力头，鉴权、Cookie 和传输层字段由出站请求单独处理。
+  for (const [name, value] of request.headers) {
+    if (connectionHeaders.has(name)) continue;
+    if (
+      name.startsWith('x-codex-') ||
+      name.startsWith('x-openai-internal-codex-') ||
+      [
+        'session_id',
+        'session-id',
+        'conversation_id',
+        'thread_id',
+        'thread-id',
+        'openai-beta',
+        'accept-language',
+      ].includes(name)
+    )
+      headers.set(name, value);
+  }
+  return headers;
+}
+
 export function upstreamBody(
   endpoint: Endpoint,
   parsed: Record<string, unknown>,
@@ -30,19 +56,7 @@ export function upstreamHeaders(req: Request, endpoint: Endpoint, streaming: boo
     if (beta) headers.set('anthropic-beta', beta);
   } else headers.set('authorization', `Bearer ${credential}`);
   if (endpoint === '/v1/responses' || endpoint === '/v1/responses/compact') {
-    for (const name of [
-      'session_id',
-      'session-id',
-      'conversation_id',
-      'thread_id',
-      'thread-id',
-      'x-codex-turn-state',
-      'x-codex-turn-metadata',
-      'x-codex-beta-features',
-    ]) {
-      const value = req.headers.get(name);
-      if (value && value.length <= 8192) headers.set(name, value);
-    }
+    for (const [name, value] of codexRequestHeaders(req)) headers.set(name, value);
   }
   return headers;
 }

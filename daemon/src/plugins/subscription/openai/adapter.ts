@@ -1,5 +1,6 @@
 import type { ChannelAdapter } from '../../gateway/adapters.js';
 import { GatewayError } from '../../gateway/errors.js';
+import { codexRequestHeaders } from '../../gateway/protocol.js';
 import type { SubscriptionService } from '../service.js';
 import { accountHeaders, codexBaseUrl } from './client.js';
 import { prepareBody } from './request.js';
@@ -12,7 +13,7 @@ export function openAIAdapter(service: SubscriptionService): ChannelAdapter {
       const body = prepareBody(parsed, endpoint);
       if (!channel.subscriptionAccountId)
         throw new GatewayError(503, 'subscription_unavailable', 'Bind a subscription account first');
-      const sessionHeaders = new Headers();
+      const sessionHeaders = codexRequestHeaders(request);
       prepareSession(sessionHeaders, body, parsed, request, channel.id, endpoint);
       const id = channel.subscriptionAccountId;
       const lease = await service.acquire(id, signal);

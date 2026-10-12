@@ -44,15 +44,14 @@ export function prepareSession(
     return next;
   };
   const turnMetadata = (value: unknown) => {
-    if (typeof value !== 'string' || value.length > 8192) return undefined;
+    if (typeof value !== 'string') return undefined;
     try {
       const parsedValue = record(JSON.parse(value));
       if (!parsedValue) return undefined;
-      const encoded = JSON.stringify(scopeMetadata(parsedValue)).replace(
+      return JSON.stringify(scopeMetadata(parsedValue)).replace(
         /[^\x20-\x7e]/g,
         (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
       );
-      return encoded.length <= 8192 ? encoded : undefined;
     } catch {
       return undefined;
     }
@@ -63,18 +62,19 @@ export function prepareSession(
     const turn = turnMetadata(bodyMetadata['x-codex-turn-metadata']);
     if (turn) (body.client_metadata as Record<string, unknown>)['x-codex-turn-metadata'] = turn;
   }
-  for (const name of ['x-codex-turn-state', 'x-codex-beta-features']) {
-    const value = request.headers.get(name);
-    if (value && value.length <= 8192) headers.set(name, value);
-  }
-  for (const name of ['x-codex-installation-id', 'x-codex-window-id']) {
-    const value = text(request.headers.get(name));
+  for (const name of ['session-id', 'thread_id', 'thread-id', 'x-codex-installation-id', 'x-codex-window-id']) {
+    const value = text(headers.get(name));
     if (value) headers.set(name, scope(value));
   }
-  const turn = turnMetadata(request.headers.get('x-codex-turn-metadata'));
+  const turn = turnMetadata(headers.get('x-codex-turn-metadata'));
   if (turn) headers.set('x-codex-turn-metadata', turn);
   const model = text(body.model);
-  if (/^[A-Za-z0-9][A-Za-z0-9_./:-]{0,127}$/.test(model)) {
+  if (
+    (!headers.has('x-codex-routing-hint') ||
+      body.model !== parsed.model ||
+      body.service_tier !== parsed.service_tier) &&
+    /^[A-Za-z0-9][A-Za-z0-9_./:-]{0,127}$/.test(model)
+  ) {
     const tier = text(body.service_tier);
     headers.set(
       'x-codex-routing-hint',
