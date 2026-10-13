@@ -309,7 +309,7 @@ export default function Requests() {
                         ) : r.usage ? (
                           <Stack gap="2">
                             <HStack gap="2">
-                              <UsageBadge kind="input" value={r.usage.input} />
+                              <UsageBadge kind="input" value={String(Number(r.usage.input) + Number(r.usage.cacheWrite))} />
                               <UsageBadge kind="output" value={r.usage.output} />
                               {r.usageEstimate && <Badge colorPalette="orange">估算</Badge>}
                             </HStack>
