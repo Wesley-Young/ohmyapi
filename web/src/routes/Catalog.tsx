@@ -23,6 +23,7 @@ import { ChannelUsersDialog } from '../components/channel-grants';
 import { type ChannelModel, ChannelModels } from '../components/channel-models';
 import { IconButton } from '../components/icon-button';
 import { OpenAIResetCredits } from '../components/openai-reset-credits';
+import { PlanBadge } from '../components/plan-badge';
 import { SubscriptionQuota } from '../components/subscription-quota';
 import { ConfirmAction, ErrorText, FormDialog, FormInput, Loading, PrimaryButton, Title } from '../components/ui';
 import { formError } from '../lib/format';
@@ -766,9 +767,20 @@ export default function Catalog() {
                         <Text>{c.name}</Text>
                       </Table.Cell>
                       <Table.Cell>
-                        <Text>
-                          {channelTypeLabels[c.type]} {c.subscription && `(${providerLabels[c.subscription.provider]})`}
-                        </Text>
+                        <HStack gap="2" flexWrap="wrap">
+                          <Text>
+                            {channelTypeLabels[c.type]}{' '}
+                            {c.subscription && `(${providerLabels[c.subscription.provider]})`}
+                          </Text>
+                          {c.type === 'subscription' &&
+                            (c.subscription?.provider === 'openai' || c.subscription?.provider === 'claude') && (
+                              <PlanBadge
+                                provider={c.subscription.provider}
+                                channelId={c.id}
+                                enabled={c.enabled && !c.subscription.errorCode}
+                              />
+                            )}
+                        </HStack>
                         {c.type === 'aggregate' && (
                           <Text fontSize="xs" color="gray.500">
                             {c.members.length} 个子渠道

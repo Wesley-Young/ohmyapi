@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { GatewayError } from '../../gateway/errors.js';
 import type { OutboundFetch } from '../../outbound/index.js';
 import { readJson } from '../openai/client.js';
+import { planValue } from '../plan.js';
 import { type ClaudeCredentials, claudeCredentialsSchema, parseClaudeCredentials } from './credentials.js';
 
 export const claudeBaseUrl = 'https://api.anthropic.com';
@@ -44,6 +45,22 @@ async function fetchOAuthProfile(access: string, request: OutboundFetch, signal?
     email: z.email().safeParse(profile.account.email).data,
     organization_uuid: z.uuid().safeParse(profile.organization?.uuid).data,
   };
+}
+
+/**
+ * profile 中 organization_type 区分 Pro / Max / Team 等，rate_limit_tier 才包含 Max 的倍数
+ *（如 default_claude_max_5x），因此 Max 优先返回 rate_limit_tier。
+ */
+export async function fetchClaudePlan(access: string, request: OutboundFetch, signal?: AbortSignal) {
+  const profile = z
+    .object({
+      organization: z
+        .object({ organization_type: z.string().nullish(), rate_limit_tier: z.string().nullish() })
+        .nullish(),
+    })
+    .parse(await fetchOAuthJson('/api/oauth/profile', access, request, signal));
+  const tier = planValue(profile.organization?.rate_limit_tier);
+  return tier?.includes('max') ? tier : planValue(profile.organization?.organization_type);
 }
 
 export async function exchangeClaudeCode(

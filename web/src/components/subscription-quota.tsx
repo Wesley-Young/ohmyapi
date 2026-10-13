@@ -8,6 +8,12 @@ import { IconButton, Tooltip } from './icon-button';
 
 type Quota = RouterOutputs['admin']['catalog']['openAIQuota'];
 
+/** 额度与套餐共用同一个查询，组件各自订阅时不会重复请求。 */
+export function subscriptionQuotaQuery(provider: 'openai' | 'claude', channelId: string, enabled: boolean) {
+  const endpoint = provider === 'claude' ? trpc.admin.catalog.claudeQuota : trpc.admin.catalog.openAIQuota;
+  return endpoint.queryOptions({ channelId }, { enabled, staleTime: 60_000, refetchInterval: 60_000, retry: false });
+}
+
 function QuotaWindow({
   label,
   window,
@@ -86,17 +92,7 @@ export function SubscriptionQuota({
       onSuccess: (quota) => queryClient.setQueryData(quotaKey, quota),
     }),
   );
-  const query = useQuery(
-    quotaEndpoint.queryOptions(
-      { channelId },
-      {
-        enabled: canFetch && !refresh.isPending,
-        staleTime: 60_000,
-        refetchInterval: 60_000,
-        retry: false,
-      },
-    ),
-  );
+  const query = useQuery(subscriptionQuotaQuery(provider, channelId, canFetch && !refresh.isPending));
   const refreshFailed = refresh.isError && refresh.submittedAt > query.dataUpdatedAt;
   const data = canFetch && !query.isError ? query.data : undefined;
   const unavailable = !enabled

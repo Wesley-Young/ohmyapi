@@ -2,7 +2,8 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { readJson } from '../openai/client.js';
-import { claudeBaseUrl } from './client.js';
+import type { PlanCache } from '../plan.js';
+import { claudeBaseUrl, fetchClaudePlan } from './client.js';
 import { claudeCodeVersion } from './request.js';
 import type { ClaudeTokens } from './tokens.js';
 
@@ -14,8 +15,20 @@ const usageSchema = z
   .object({ five_hour: windowSchema.nullish(), seven_day: windowSchema.nullish() })
   .refine((value) => value.five_hour !== undefined || value.seven_day !== undefined);
 
-async function fetchQuota(tokens: ClaudeTokens, id: string, signal: AbortSignal) {
+async function fetchQuota(tokens: ClaudeTokens, id: string, signal: AbortSignal, plans: PlanCache, force: boolean) {
   const { credentials, request } = await tokens.authorize(id);
+  // 套餐需要单独查询 profile，只在未缓存或主动刷新时查询；失败时记为未知，不影响额度。
+  const plan =
+    force || !plans.has(id)
+      ? fetchClaudePlan(credentials.accessToken, request, signal).then(
+          (value) => {
+            plans.set(id, value);
+          },
+          () => {
+            plans.set(id, null);
+          },
+        )
+      : undefined;
   const response = await request(`${claudeBaseUrl}/api/oauth/usage`, {
     headers: {
       accept: 'application/json, text/plain, */*',
@@ -41,15 +54,18 @@ async function fetchQuota(tokens: ClaudeTokens, id: string, signal: AbortSignal)
       resetsAt: Number.isFinite(resetMs) ? new Date(resetMs).toISOString() : null,
     };
   };
+  await plan;
   return {
     fiveHour: normalize(usage.five_hour),
     sevenDay: normalize(usage.seven_day),
     fetchedAt: new Date().toISOString(),
+    plan: plans.get(id) ?? null,
   };
 }
 
 export class ClaudeQuota {
   private readonly cache = new Map<string, { expiresAt: number; task: ReturnType<typeof fetchQuota> }>();
+  private readonly plans: PlanCache = new Map();
   private readonly abort = new AbortController();
 
   get(tokens: ClaudeTokens, id: string, force = false) {
@@ -62,7 +78,7 @@ export class ClaudeQuota {
     if (cached && (!force || cached.expiresAt === Number.POSITIVE_INFINITY)) return cached.task;
     const entry = {
       expiresAt: Number.POSITIVE_INFINITY,
-      task: fetchQuota(tokens, id, this.abort.signal)
+      task: fetchQuota(tokens, id, this.abort.signal, this.plans, force)
         .then((quota) => {
           entry.expiresAt = Date.now() + 60_000;
           return quota;
@@ -78,10 +94,12 @@ export class ClaudeQuota {
 
   invalidate(id: string) {
     this.cache.delete(id);
+    this.plans.delete(id);
   }
 
   dispose() {
     this.abort.abort();
     this.cache.clear();
+    this.plans.clear();
   }
 }

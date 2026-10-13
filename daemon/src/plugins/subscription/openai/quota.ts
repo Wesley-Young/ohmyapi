@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { type PlanCache, planValue } from '../plan.js';
 import { accountHeaders, readJson } from './client.js';
 import type { OpenAITokens } from './tokens.js';
 
@@ -11,10 +12,11 @@ const windowSchema = z.object({
   reset_after_seconds: z.number().nonnegative().nullish(),
 });
 const usageSchema = z.object({
+  plan_type: z.string().nullish(),
   rate_limit: z.object({ primary_window: windowSchema.nullish(), secondary_window: windowSchema.nullish() }).nullable(),
 });
 
-async function fetchQuota(tokens: OpenAITokens, id: string, signal: AbortSignal) {
+async function fetchQuota(tokens: OpenAITokens, id: string, signal: AbortSignal, plans: PlanCache) {
   const { credentials, request } = await tokens.authorize(id);
   const response = await request('https://chatgpt.com/backend-api/wham/usage', {
     headers: accountHeaders(credentials, 'application/json'),
@@ -43,11 +45,19 @@ async function fetchQuota(tokens: OpenAITokens, id: string, signal: AbortSignal)
         resetMs !== null && Number.isFinite(new Date(resetMs).getTime()) ? new Date(resetMs).toISOString() : null,
     };
   };
-  return { fiveHour: windowFor(18_000), sevenDay: windowFor(604_800), fetchedAt: new Date(now).toISOString() };
+  // 套餐随额度一起返回，每次查询都会更新。
+  plans.set(id, planValue(usage.plan_type));
+  return {
+    fiveHour: windowFor(18_000),
+    sevenDay: windowFor(604_800),
+    fetchedAt: new Date(now).toISOString(),
+    plan: plans.get(id) ?? null,
+  };
 }
 
 export class OpenAIQuota {
   private readonly cache = new Map<string, { expiresAt: number; task: ReturnType<typeof fetchQuota> }>();
+  private readonly plans: PlanCache = new Map();
   private readonly abort = new AbortController();
 
   get(tokens: OpenAITokens, id: string, force = false) {
@@ -60,7 +70,7 @@ export class OpenAIQuota {
     if (cached && (!force || cached.expiresAt === Number.POSITIVE_INFINITY)) return cached.task;
     const entry = {
       expiresAt: Number.POSITIVE_INFINITY,
-      task: fetchQuota(tokens, id, this.abort.signal)
+      task: fetchQuota(tokens, id, this.abort.signal, this.plans)
         .then((quota) => {
           entry.expiresAt = Date.now() + 60_000;
           return quota;
@@ -76,10 +86,12 @@ export class OpenAIQuota {
 
   invalidate(id: string) {
     this.cache.delete(id);
+    this.plans.delete(id);
   }
 
   dispose() {
     this.abort.abort();
     this.cache.clear();
+    this.plans.clear();
   }
 }
