@@ -35,6 +35,7 @@ import { ForwardBillingSession } from './billing-session.js';
 import { cacheReadForDisplay } from './cache-usage.js';
 import { GatewayError } from './errors.js';
 import { RequestLifecycle } from './lifecycle.js';
+import { reasoningEffort } from './protocol.js';
 import { selectExecutionChannel } from './routing.js';
 
 import { randomUUID } from 'node:crypto';
@@ -436,6 +437,7 @@ export class GatewayService implements Disposable {
       );
       const streaming = parsed.stream === true;
       session.streaming = streaming;
+      const requestedEffort = reasoningEffort(endpoint, parsed);
 
       // 完整请求体通过校验后入库，后续模型或渠道拒绝仍保留记录。
       await this.db.insert(requests).values({
@@ -447,6 +449,7 @@ export class GatewayService implements Disposable {
         requestedModel: parsed.model as string,
         endpoint,
         streaming,
+        reasoningEffort: requestedEffort,
       });
       session.recorded = true;
       const { model, channel } = await this.resolveRoute(identity, parsed.model as string, endpoint, session);
@@ -503,10 +506,15 @@ export class GatewayService implements Disposable {
       const request = this.outbound.forProxy(
         executionChannel.proxyUrlEncrypted ? this.vault.decrypt(executionChannel.proxyUrlEncrypted) : null,
       );
-      if (executionChannel.subscriptionAccountId)
+      // 适配器可能改写推理强度（如强制工具调用时移除），记录实际发往上游的值。
+      const effectiveEffort = prepared.billingBody ? reasoningEffort(endpoint, prepared.billingBody) : requestedEffort;
+      if (executionChannel.subscriptionAccountId || effectiveEffort !== requestedEffort)
         await this.db
           .update(requests)
-          .set({ subscriptionAccountId: executionChannel.subscriptionAccountId })
+          .set({
+            subscriptionAccountId: executionChannel.subscriptionAccountId ?? undefined,
+            reasoningEffort: effectiveEffort,
+          })
           .where(eq(requests.id, id));
       const reservation = await this.billing.reserve({
         requestId: id,
@@ -588,10 +596,12 @@ export class GatewayService implements Disposable {
         usage: requestUsage,
         channelName: channels.name,
         channelType: channels.type,
+        apiKeyName: apiKeys.name,
       })
       .from(requests)
       .innerJoin(users, eq(requests.userId, users.id))
       .leftJoin(channels, eq(requests.channelId, channels.id))
+      .leftJoin(apiKeys, eq(requests.apiKeyId, apiKeys.id))
       .leftJoin(requestUsage, eq(requests.id, requestUsage.requestId))
       .where(
         and(
@@ -624,9 +634,14 @@ export class GatewayService implements Disposable {
     return {
       currency: this.pricing.currency,
       hasMore: rows.length > pageSize,
-      items: pageRows.map(({ request: r, username, usage: u, channelName, channelType }) => ({
+      items: pageRows.map(({ request: r, username, usage: u, channelName, channelType, apiKeyName }) => ({
         id: r.id,
         username,
+        apiKeyId: r.apiKeyId,
+        apiKeyName,
+        reasoningEffort: r.reasoningEffort,
+        ttftMs: r.ttftMs,
+        outputTps: r.outputTps,
         model: r.requestedModel,
         endpoint: r.endpoint,
         channelId: r.channelId,

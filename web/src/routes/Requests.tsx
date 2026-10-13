@@ -1,6 +1,7 @@
 import { Badge, Box, Button, Checkbox, HStack, ProgressCircle, Stack, Table, Text } from '@chakra-ui/react';
+import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, ClipboardCheck, Eye, Gauge, Package, Pencil } from 'lucide-react';
+import { ArrowDown, ArrowUp, Brain, ClipboardCheck, Eye, Gauge, Package, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 
@@ -16,6 +17,7 @@ const usageKinds = {
   output: { label: '输出', icon: ArrowUp },
   cacheRead: { label: '缓存读', icon: Package },
   tps: { label: 'TPS', icon: Gauge },
+  effort: { label: '推理强度', icon: Brain },
 } as const;
 
 function UsageBadge({ kind, value }: { kind: keyof typeof usageKinds; value: string }) {
@@ -35,38 +37,70 @@ const durationColors = {
   danger: 'oklch(0.577 0.245 27.325)',
 };
 
-function RequestDuration({ durationMs, output }: { durationMs: number | null; output?: string }) {
-  if (durationMs === null) return <Text color="gray.500">—</Text>;
-  const seconds = Math.max(0, durationMs) / 1000;
-  const tokens = Number(output ?? 0);
-  const throughput = seconds > 0 ? tokens / seconds : 0;
-  const tone =
-    tokens >= 100 && seconds > 0
-      ? throughput >= 30
-        ? 'success'
-        : throughput >= 15
-          ? 'warning'
-          : 'danger'
-      : seconds < 10
-        ? 'success'
-        : seconds < 30
-          ? 'warning'
-          : 'danger';
-  const color = durationColors[tone];
+type RequestItem = RouterOutputs['requests']['items'][number];
+
+// 表格横向滚动时操作列固定在右侧；只设左边框颜色，保留行分隔线。
+const pinnedColumn = {
+  position: 'sticky',
+  right: '0',
+  zIndex: '1',
+  bg: 'white',
+  borderLeftWidth: '1px',
+  borderLeftColor: 'gray.100',
+} as const;
+
+/** 网关测量的输出速度；流式请求只统计首个内容之后的生成阶段。 */
+function outputRate(r: RequestItem) {
+  if (r.outputTps !== null) return r.outputTps;
+  // 有 TTFT 但没有速度时，网关判断生成窗口过短，不再回退到总耗时估算。
+  if (r.ttftMs !== null || !r.usage || r.durationMs === null || r.durationMs <= 0) return undefined;
+  // 旧记录没有测量值，沿用输出 ÷ 总耗时。
+  return (Number(r.usage.output) / r.durationMs) * 1000;
+}
+
+function RateBadge({ request }: { request: RequestItem }) {
+  const rate = outputRate(request);
+  return rate === undefined ? null : <UsageBadge kind="tps" value={`${Math.round(rate)} tps`} />;
+}
+
+type Tone = keyof typeof durationColors;
+
+const firstTokenTone = (seconds: number): Tone => (seconds < 5 ? 'success' : seconds < 10 ? 'warning' : 'danger');
+
+// 输出足够多时按输出 ÷ 总耗时判断，否则按总耗时判断。
+function totalTone(seconds: number, tokens: number): Tone {
+  if (tokens < 100 || seconds <= 0) return seconds < 10 ? 'success' : seconds < 30 ? 'warning' : 'danger';
+  const throughput = tokens / seconds;
+  return throughput >= 30 ? 'success' : throughput >= 15 ? 'warning' : 'danger';
+}
+
+function formatSeconds(seconds: number) {
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  return `${Math.floor(seconds / 60)}m ${(seconds % 60).toFixed(0)}s`;
+}
+
+function RequestDuration({ request: r }: { request: RequestItem }) {
+  if (r.durationMs === null) return <Text color="gray.500">—</Text>;
+  const seconds = Math.max(0, r.durationMs) / 1000;
+  const rows = [
+    ...(r.ttftMs !== null ? [{ label: '首字', seconds: r.ttftMs / 1000, tone: firstTokenTone(r.ttftMs / 1000) }] : []),
+    { label: '耗时', seconds, tone: totalTone(seconds, Number(r.usage?.output ?? 0)) },
+  ];
   return (
-    <HStack gap="2" whiteSpace="nowrap">
-      <Box
-        w="1"
-        h="5"
-        flexShrink="0"
-        borderRadius="full"
-        bg={color}
-        opacity={tone === 'success' ? 0.9 : 0.8}
-        aria-hidden="true"
-      />
-      <Text color={color} fontVariantNumeric="tabular-nums">
-        {seconds.toFixed(1)}s
-      </Text>
+    <HStack gap="2" align="stretch" whiteSpace="nowrap">
+      <Stack gap="0" w="1" minH="5" flexShrink="0" borderRadius="full" overflow="hidden" aria-hidden="true">
+        {rows.map(({ label, tone }) => (
+          <Box key={label} flex="1" bg={durationColors[tone]} opacity={tone === 'success' ? 0.9 : 0.8} />
+        ))}
+      </Stack>
+      <Stack gap="0.5" fontVariantNumeric="tabular-nums">
+        {rows.map(({ label, seconds, tone }) => (
+          <HStack key={label} gap="1.5">
+            <Text color="gray.500">{label}</Text>
+            <Text color={durationColors[tone]}>{formatSeconds(seconds)}</Text>
+          </HStack>
+        ))}
+      </Stack>
     </HStack>
   );
 }
@@ -173,8 +207,9 @@ export default function Requests() {
       ) : (
         data.data && (
           <>
+            {/* 内容不换行，列宽由内容决定，超出容器时横向滚动。 */}
             <Box overflowX="auto">
-              <Table.Root size="sm">
+              <Table.Root size="sm" whiteSpace="nowrap">
                 <Table.Header>
                   <Table.Row>
                     {admin && reviewOnly && (
@@ -210,14 +245,15 @@ export default function Requests() {
                       '时间',
                       '渠道',
                       ...(admin ? ['用户'] : []),
+                      'API Key',
                       '模型',
                       'Token 用量',
                       '耗时',
                       `扣费/冻结（${data.data.currency}）`,
-                      '操作',
                     ].map((h) => (
                       <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                     ))}
+                    <Table.ColumnHeader {...pinnedColumn}>操作</Table.ColumnHeader>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -246,12 +282,16 @@ export default function Requests() {
                         </Table.Cell>
                       )}
                       <Table.Cell>{localDate(r.receivedAt)}</Table.Cell>
-                      <Table.Cell minW="140px" maxW="240px">
-                        <Text overflowWrap="anywhere">{r.channelName ?? r.channelId ?? '—'}</Text>
-                      </Table.Cell>
+                      <Table.Cell>{r.channelName ?? r.channelId ?? '—'}</Table.Cell>
                       {admin && <Table.Cell>{r.username}</Table.Cell>}
-                      <Table.Cell>{r.model}</Table.Cell>
-                      <Table.Cell minW="220px" maxW="320px">
+                      <Table.Cell>{r.apiKeyName === null ? <Text color="gray.500">—</Text> : r.apiKeyName}</Table.Cell>
+                      <Table.Cell>
+                        <Stack gap="2" align="start">
+                          <Text>{r.model}</Text>
+                          {r.reasoningEffort && <UsageBadge kind="effort" value={r.reasoningEffort} />}
+                        </Stack>
+                      </Table.Cell>
+                      <Table.Cell>
                         {r.status === 'forwarding' ? (
                           <ProgressCircle.Root value={null} size="xs" colorPalette="gray" minH="12" alignItems="center">
                             <ProgressCircle.Label srOnly>请求正在转发</ProgressCircle.Label>
@@ -268,19 +308,14 @@ export default function Requests() {
                           </ProgressCircle.Root>
                         ) : r.usage ? (
                           <Stack gap="2">
-                            <HStack gap="2" flexWrap="wrap">
+                            <HStack gap="2">
                               <UsageBadge kind="input" value={r.usage.input} />
                               <UsageBadge kind="output" value={r.usage.output} />
                               {r.usageEstimate && <Badge colorPalette="orange">估算</Badge>}
                             </HStack>
-                            <HStack gap="2" flexWrap="wrap">
+                            <HStack gap="2">
                               <UsageBadge kind="cacheRead" value={r.usage.cacheRead ?? '未知'} />
-                              {r.durationMs !== null && r.durationMs > 0 && (
-                                <UsageBadge
-                                  kind="tps"
-                                  value={`${Math.round((parseInt(r.usage.output, 10) / r.durationMs) * 1000)} tps`}
-                                />
-                              )}
+                              <RateBadge request={r} />
                             </HStack>
                           </Stack>
                         ) : (
@@ -288,10 +323,10 @@ export default function Requests() {
                         )}
                       </Table.Cell>
                       <Table.Cell>
-                        <RequestDuration durationMs={r.durationMs} output={r.usage?.output} />
+                        <RequestDuration request={r} />
                       </Table.Cell>
                       <Table.Cell>{r.chargedAmount || r.heldAmount}</Table.Cell>
-                      <Table.Cell>
+                      <Table.Cell {...pinnedColumn}>
                         <HStack gap="1">
                           <IconButton aria-label="查看详情" size="sm" variant="ghost" onClick={() => setDetailId(r.id)}>
                             <Eye size={16} aria-hidden="true" />

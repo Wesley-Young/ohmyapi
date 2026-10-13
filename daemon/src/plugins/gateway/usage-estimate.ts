@@ -10,10 +10,18 @@ export class StreamUsageEstimate {
   started = false;
   readonly output = new OutputTokenEstimate();
   input?: Pick<ReservationEstimate, 'inputContentTokens' | 'inputImageCount' | 'settlementImageTokens'>;
+  /** Epoch milliseconds of the first non-empty generated content, including reasoning and tool calls. */
+  firstOutputAt?: number;
+  /** Full reasoning text was streamed; summaries do not count because they omit most reasoning tokens. */
+  reasoningStreamed = false;
   private hasOutput = false;
 
-  private append(value: unknown) {
-    if (typeof value === 'string' && value.length) this.hasOutput = true;
+  private append(value: unknown, reasoning = false) {
+    if (typeof value === 'string' && value.length) {
+      this.hasOutput = true;
+      this.firstOutputAt ??= Date.now();
+      if (reasoning) this.reasoningStreamed = true;
+    }
     this.output.append(value);
   }
 
@@ -33,7 +41,7 @@ export class StreamUsageEstimate {
         typeof data.delta === 'string'
       ) {
         this.started = true;
-        this.append(data.delta);
+        this.append(data.delta, type === 'response.reasoning_text.delta');
       }
       const item = object(data.item);
       if (type === 'response.output_item.added' && item) {
@@ -81,7 +89,7 @@ export class StreamUsageEstimate {
       if (data.type === 'content_block_start' && block) {
         this.started = true;
         if (block.type === 'text') this.append(block.text);
-        if (block.type === 'thinking') this.append(block.thinking);
+        if (block.type === 'thinking') this.append(block.thinking, true);
         if (block.type === 'tool_use' || block.type === 'server_tool_use') {
           this.append(block.name);
           const input = object(block.input);
@@ -92,7 +100,7 @@ export class StreamUsageEstimate {
       if (data.type === 'content_block_delta' && delta) {
         this.started = true;
         if (delta.type === 'text_delta') this.append(delta.text);
-        if (delta.type === 'thinking_delta') this.append(delta.thinking);
+        if (delta.type === 'thinking_delta') this.append(delta.thinking, true);
         if (delta.type === 'input_json_delta') this.append(delta.partial_json);
       }
     } else if (Array.isArray(data.choices)) {
@@ -102,7 +110,7 @@ export class StreamUsageEstimate {
         this.started = true;
         this.append(delta.content);
         this.append(delta.refusal);
-        this.append(delta.reasoning_content ?? delta.reasoning);
+        this.append(delta.reasoning_content ?? delta.reasoning, true);
         const legacy = object(delta.function_call);
         this.append(legacy?.name);
         this.append(legacy?.arguments);

@@ -66,6 +66,7 @@ export class ForwardBillingSession {
       .filter((value) => typeof value === 'string' && value)
       .join('\n');
     return {
+      ...this.timing(),
       usage: collector.usage,
       usageFinal:
         collector.finalUsage &&
@@ -87,6 +88,33 @@ export class ForwardBillingSession {
         [requestErrorMessage(code), failureMessage, collector.errorMessage].filter(Boolean).join('\n').slice(0, 4096) ||
         undefined,
     };
+  }
+
+  /**
+   * 流式请求的 TTFT 为网关收到请求到首个非空生成内容的时间；TPS 只统计首个内容之后的生成阶段。
+   * 上游报告了推理 Token 但流中没有完整推理文本时，推理发生在首个内容之前，不计入 TPS 分子。
+   */
+  private timing(): { ttftMs?: number; outputTps?: number } {
+    const { collector, streaming } = this;
+    const now = Date.now();
+    const start = this.options.receivedAt.getTime();
+    const first = streaming ? collector.estimate.firstOutputAt : undefined;
+    const ttftMs = first === undefined ? undefined : Math.max(0, first - start);
+    const usage = collector.usage;
+    if (!usage || !this.dispatched) return { ttftMs };
+    let tokens = Number(usage.outputTokens);
+    if (streaming && !collector.estimate.reasoningStreamed) {
+      const details = usage.rawUsage[
+        this.options.endpoint === '/v1/chat/completions' ? 'completion_tokens_details' : 'output_tokens_details'
+      ] as Record<string, unknown> | undefined;
+      // OpenAI 使用 reasoning_tokens，Anthropic 使用 thinking_tokens。
+      const reasoning = details?.reasoning_tokens ?? details?.thinking_tokens;
+      if (typeof reasoning === 'number' && reasoning > 0) tokens = Math.max(0, tokens - reasoning);
+    }
+    const windowMs = streaming ? (first === undefined ? 0 : now - first) : now - start;
+    // 内容被缓冲后一次性到达时窗口过短，速度没有意义。
+    if (windowMs < 100 || !Number.isFinite(tokens)) return { ttftMs };
+    return { ttftMs, outputTps: (tokens / windowMs) * 1000 };
   }
 
   // 最终用量与阻止结算分别保存，后续异常仍能覆盖已有的最终用量状态。

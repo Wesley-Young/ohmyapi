@@ -8,6 +8,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  real,
   text,
   timestamp,
   unique,
@@ -67,6 +68,12 @@ export const requests = pgTable(
     errorMessage: text('error_message'),
     httpStatus: integer('http_status'),
     streaming: boolean('streaming').default(false).notNull(),
+    // Streaming only: from gateway receipt to the first non-empty generated content.
+    ttftMs: integer('ttft_ms'),
+    // Output tokens per second, measured by the gateway when the request finished.
+    outputTps: real('output_tps'),
+    // Normalized reasoning effort sent upstream after gateway rewrites.
+    reasoningEffort: text('reasoning_effort'),
     createdAt: createdAt(),
   },
   (table) => [
@@ -82,6 +89,10 @@ export const requests = pgTable(
     check(
       'requests_amounts_nonnegative',
       sql`${table.reservedMicros} >= 0 and (${table.chargedMicros} is null or ${table.chargedMicros} >= 0)`,
+    ),
+    check(
+      'requests_timing_metadata',
+      sql`(${table.ttftMs} is null or ${table.ttftMs} >= 0) and (${table.outputTps} is null or ${table.outputTps} >= 0) and (${table.reasoningEffort} is null or length(${table.reasoningEffort}) <= 16)`,
     ),
   ],
 );

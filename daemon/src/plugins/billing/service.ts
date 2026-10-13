@@ -87,6 +87,8 @@ export type BillingSummary = {
   errorCode?: string;
   errorMessage?: string;
   noExecution: boolean;
+  ttftMs?: number;
+  outputTps?: number;
 };
 const terminal = new Set(['settled', 'released', 'rejected', 'completed']);
 const usageDto = (u: typeof requestUsage.$inferSelect) => ({
@@ -467,6 +469,8 @@ export class BillingService implements Disposable {
           finishedAt: r.finishedAt ?? new Date(),
           usageFinal: final,
           usageEstimate,
+          ttftMs: summary.ttftMs ?? r.ttftMs,
+          outputTps: summary.outputTps ?? r.outputTps,
         };
         await tx.update(requests).set(metadata).where(eq(requests.id, id));
         if (!r.billingEnabled) {
@@ -566,6 +570,8 @@ export class BillingService implements Disposable {
           httpStatus: summary?.httpStatus ?? r.httpStatus,
           upstreamRequestId: summary?.upstreamRequestId ?? r.upstreamRequestId,
           finishedAt: r.finishedAt ?? new Date(),
+          ttftMs: summary?.ttftMs ?? r.ttftMs,
+          outputTps: summary?.outputTps ?? r.outputTps,
         })
         .where(eq(requests.id, id));
       return {

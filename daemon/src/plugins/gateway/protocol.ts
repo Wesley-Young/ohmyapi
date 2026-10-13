@@ -61,6 +61,21 @@ export function upstreamHeaders(req: Request, endpoint: Endpoint, streaming: boo
   return headers;
 }
 
+/** 只记录短小的小写强度标识，避免把客户端任意字符串写入请求记录。 */
+export function reasoningEffort(endpoint: Endpoint, body: Record<string, unknown>): string | null {
+  const object = (value: unknown) =>
+    value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+  const value =
+    endpoint === '/v1/messages'
+      ? object(body.output_config)?.effort
+      : endpoint === '/v1/chat/completions'
+        ? (body.reasoning_effort ?? object(body.reasoning)?.effort)
+        : object(body.reasoning)?.effort;
+  if (typeof value !== 'string') return null;
+  const effort = value.trim().toLowerCase();
+  return /^[a-z][a-z0-9_-]{0,15}$/.test(effort) ? effort : null;
+}
+
 export function upstreamUrl(baseUrl: string, endpoint: Endpoint): string {
   const base = baseUrl.replace(/\/+$/, '');
   return `${base}${base.endsWith('/v1') ? endpoint.slice(3) : endpoint}`;
