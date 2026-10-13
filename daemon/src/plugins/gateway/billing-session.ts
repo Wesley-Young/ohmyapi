@@ -187,7 +187,7 @@ export class ForwardBillingSession {
       !dispatched &&
       httpStatus !== undefined &&
       httpStatus < 500 &&
-      !['request_too_large', 'body_timeout'].includes(code ?? '');
+      !['request_too_large', 'body_timeout', 'body_idle_timeout'].includes(code ?? '');
     if (!routineRejection || sampleLog(code ?? 'rejected')) {
       const level =
         code === 'client_disconnected' || code === 'request_cancelled'
@@ -224,11 +224,13 @@ export class ForwardBillingSession {
           timeoutMs:
             code === 'body_timeout'
               ? config.bodyTimeoutMs
-              : code === 'upstream_timeout'
-                ? upstreamTimeoutMs
-                : code === 'upstream_idle_timeout'
-                  ? config.streamIdleTimeoutMs
-                  : undefined,
+              : code === 'body_idle_timeout'
+                ? config.bodyIdleTimeoutMs
+                : code === 'upstream_timeout'
+                  ? upstreamTimeoutMs
+                  : code === 'upstream_idle_timeout'
+                    ? config.streamIdleTimeoutMs
+                    : undefined,
           ...failureDetails,
         })}`,
       );

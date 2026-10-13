@@ -56,12 +56,19 @@ export class RequestLifecycle {
     if (this.clientDisconnected) handler();
   }
 
-  async withBodyTimeout<T>(timeoutMs: number, read: () => Promise<T>): Promise<T> {
+  // 总超时限制整体读取时长；停滞超时在每次收到数据时重置，尽早释放卡住的连接。
+  async withBodyTimeout<T>(
+    timeoutMs: number,
+    idleTimeoutMs: number,
+    read: (progress: () => void) => Promise<T>,
+  ): Promise<T> {
     const timer = setTimeout(() => this.abort.abort('body_timeout'), timeoutMs);
+    const idleTimer = setTimeout(() => this.abort.abort('body_idle_timeout'), idleTimeoutMs);
     try {
-      return await read();
+      return await read(() => idleTimer.refresh());
     } finally {
       clearTimeout(timer);
+      clearTimeout(idleTimer);
     }
   }
 

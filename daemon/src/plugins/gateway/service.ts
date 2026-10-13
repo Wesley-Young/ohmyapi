@@ -268,7 +268,7 @@ export class GatewayService implements Disposable {
     }
   }
 
-  private async body(req: Request, signal: AbortSignal, stats: { bytes: number }) {
+  private async body(req: Request, signal: AbortSignal, stats: { bytes: number }, progress: () => void) {
     if (!req.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
       throw new GatewayError(415, 'unsupported_media_type', 'Content-Type must be application/json');
     const reader = req.body?.getReader();
@@ -284,6 +284,7 @@ export class GatewayService implements Disposable {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (value.byteLength) progress();
         size += value.byteLength;
         stats.bytes = size;
         if (size > this.config.maxBodyBytes) {
@@ -296,12 +297,13 @@ export class GatewayService implements Disposable {
       signal.removeEventListener('abort', cancel);
       reader.releaseLock();
     }
-    if (signal.aborted)
-      throw new GatewayError(
-        signal.reason === 'body_timeout' ? 408 : 400,
-        signal.reason === 'body_timeout' ? 'body_timeout' : 'request_cancelled',
-        'Request body was not completed before admission',
-      );
+    if (signal.aborted) {
+      const message = 'Request body was not completed before admission';
+      if (signal.reason === 'body_idle_timeout')
+        throw new GatewayError(408, 'body_idle_timeout', 'Request body upload stalled');
+      if (signal.reason === 'body_timeout') throw new GatewayError(408, 'body_timeout', message);
+      throw new GatewayError(400, 'request_cancelled', message);
+    }
     const bytes = Buffer.concat(chunks);
     let parsed: Record<string, unknown>;
     try {
@@ -432,8 +434,10 @@ export class GatewayService implements Disposable {
       session.channelId = identity.channelId ?? undefined;
       lifecycle.releaseCapacity = this.acquire(identity.user.id);
 
-      const { parsed, bytes } = await lifecycle.withBodyTimeout(this.config.bodyTimeoutMs, () =>
-        this.body(req, abort.signal, session.bodyStats),
+      const { parsed, bytes } = await lifecycle.withBodyTimeout(
+        this.config.bodyTimeoutMs,
+        this.config.bodyIdleTimeoutMs,
+        (progress) => this.body(req, abort.signal, session.bodyStats, progress),
       );
       const streaming = parsed.stream === true;
       session.streaming = streaming;
