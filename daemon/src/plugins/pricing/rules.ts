@@ -154,18 +154,30 @@ export type Quantities = {
   webSearchCalls: bigint;
   webSearchPreviewCalls: bigint;
 };
-export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicros: bigint) {
+export function matchRule<T extends Rule>(rules: T[], at: Date, contextTokens: bigint): T | undefined {
   const matchesTime = ruleTimeMatcher(at);
-  const rule = [...rules]
+  return [...rules]
     .sort(
       (a, b) => billingConventions.rulePrecedence.indexOf(a.kind) - billingConventions.rulePrecedence.indexOf(b.kind),
     )
     .find(
       (r) =>
         (r.contextMin === null ||
-          (usage.contextTokens >= r.contextMin && (r.contextMax === null || usage.contextTokens < r.contextMax))) &&
+          (contextTokens >= r.contextMin && (r.contextMax === null || contextTokens < r.contextMax))) &&
         matchesTime(r),
     );
+}
+/** 规则保存时会整体重建 ID，跨版本按生效条件识别同一条规则。 */
+export function ruleSignature(
+  r: Pick<Rule, 'kind' | 'weekdaysMask' | 'startMinute' | 'endMinute'> & {
+    contextMin: bigint | string | null;
+    contextMax: bigint | string | null;
+  },
+) {
+  return [r.kind, r.contextMin, r.contextMax, r.weekdaysMask, r.startMinute, r.endMinute].map(String).join('|');
+}
+export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicros: bigint) {
+  const rule = matchRule(rules, at, usage.contextTokens);
   if (!rule) throw new Error('没有匹配的价格规则');
   if (
     usage.inputTokens < 0n ||

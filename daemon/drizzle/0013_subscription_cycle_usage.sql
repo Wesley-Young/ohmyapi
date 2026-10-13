@@ -1,0 +1,2 @@
+ALTER TABLE "subscription_accounts" ADD COLUMN "cycle_reset_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "requests_subscription_time_idx" ON "requests" USING btree ("subscription_account_id","received_at");

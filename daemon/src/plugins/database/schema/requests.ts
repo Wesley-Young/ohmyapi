@@ -85,6 +85,7 @@ export const requests = pgTable(
     ),
     check('requests_hold_range', sql`${table.heldMicros} >= 0 and ${table.heldMicros} <= ${table.reservedMicros}`),
     index('requests_user_time_idx').on(table.userId, table.receivedAt),
+    index('requests_subscription_time_idx').on(table.subscriptionAccountId, table.receivedAt),
     index('requests_recovery_idx').on(table.status, table.heartbeatAt),
     check(
       'requests_amounts_nonnegative',

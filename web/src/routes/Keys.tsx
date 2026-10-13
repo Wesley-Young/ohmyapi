@@ -8,17 +8,11 @@ import { CCSwitchDialog } from '../components/cc-switch-dialog';
 import { IconButton } from '../components/icon-button';
 import { KeyUsageDialog } from '../components/key-usage-dialog';
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton, Title } from '../components/ui';
-import { displayMoney, formError, localDate } from '../lib/format';
+import { dateTimeInput, displayMoney, formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './Catalog';
 
 type ApiKey = RouterOutputs['keys']['list']['items'][number];
-
-function dateTimeInput(value: string | null) {
-  if (!value) return '';
-  const date = new Date(value);
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, -1);
-}
 
 export default function Keys() {
   const [page, setPage] = useState(0);

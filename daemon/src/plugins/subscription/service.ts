@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { AuthService, Principal, Transaction } from '../auth/service.js';
 import { channelProxy } from '../catalog/proxy.js';
 import type { CredentialVault } from '../catalog/vault.js';
-import { channels, subscriptionAccounts } from '../database/schema/index.js';
+import { adminAuditLogs, channels, subscriptionAccounts } from '../database/schema/index.js';
 import { GatewayError } from '../gateway/errors.js';
 import { type OutboundHttp, proxyUrlInput } from '../outbound/index.js';
 import { fetchClaudeModels } from './claude/catalog.js';
@@ -18,6 +18,7 @@ import { claudeRateLimit } from './claude/ratelimit.js';
 import { ClaudeSessions } from './claude/session.js';
 import { ClaudeTokens } from './claude/tokens.js';
 import { SubscriptionConcurrency } from './concurrency.js';
+import { estimateCycleUsage } from './cycle.js';
 import { accountHeaders, codexBaseUrl, latestCodexClientVersion, readJson } from './openai/client.js';
 import { credentialsSchema, type OpenAICredentials, parseCredentials } from './openai/credentials.js';
 import { OpenAIOAuth } from './openai/oauth.js';
@@ -265,6 +266,82 @@ export class SubscriptionService implements Disposable {
     } finally {
       this.openaiQuota.invalidate(id);
     }
+  }
+  /**
+   * 当前 7d 周期的等效 API 费用估算。周期起点取上游 resetsAt − 7d；Claude 续费等提前重置
+   * 由管理员填写，落在当前上游周期内时取较晚者。上游额度不可用时退回最近 7 天。
+   */
+  async cycleUsage(principal: Principal, channelId: string) {
+    const id = await this.accountForChannel(principal, channelId);
+    const [account] = await this.auth.db
+      .select({
+        provider: subscriptionAccounts.provider,
+        enabled: subscriptionAccounts.enabled,
+        cycleResetAt: subscriptionAccounts.cycleResetAt,
+      })
+      .from(subscriptionAccounts)
+      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
+    if (!account?.enabled || (account.provider !== 'openai' && account.provider !== 'claude'))
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道未启用或已删除' });
+    const quota = await (account.provider === 'claude'
+      ? this.claudeQuota.get(this.claudeTokens, id)
+      : this.openaiQuota.get(this.tokens, id)
+    ).catch(() => null);
+    const now = new Date();
+    const week = 7 * 24 * 60 * 60 * 1000;
+    const resetsAt = quota?.sevenDay?.resetsAt ? new Date(quota.sevenDay.resetsAt) : null;
+    const upstream = resetsAt !== null && resetsAt.getTime() > now.getTime();
+    let startsAt = new Date((upstream ? resetsAt.getTime() : now.getTime()) - week);
+    let source: 'upstream' | 'manual' | 'rolling' = upstream ? 'upstream' : 'rolling';
+    const manual = account.provider === 'claude' ? account.cycleResetAt : null;
+    const manualActive = !!manual && manual.getTime() > startsAt.getTime() && manual.getTime() <= now.getTime();
+    if (manual && manualActive) {
+      startsAt = manual;
+      source = 'manual';
+    }
+    const usage = await estimateCycleUsage(this.auth.db, id, startsAt, now);
+    const usedPercent = upstream ? (quota?.sevenDay?.usedPercent ?? null) : null;
+    // 已用比例过低时取整误差会被放大，不推算整个周期的额度。
+    const projectedAmount =
+      usedPercent !== null && usedPercent >= 5 ? ((Number(usage.amount) * 100) / usedPercent).toFixed(6) : null;
+    return {
+      provider: account.provider,
+      startsAt: startsAt.toISOString(),
+      resetsAt: upstream ? resetsAt.toISOString() : null,
+      source,
+      manualResetAt: manual?.toISOString() ?? null,
+      manualResetActive: manualActive,
+      usedPercent,
+      projectedAmount,
+      ...usage,
+    };
+  }
+  async setCycleReset(principal: Principal, input: { channelId: string; resetAt: string | null }) {
+    const id = await this.accountForChannel(principal, input.channelId);
+    const resetAt = input.resetAt ? new Date(input.resetAt) : null;
+    if (resetAt && resetAt.getTime() > Date.now() + 60_000)
+      throw new TRPCError({ code: 'BAD_REQUEST', message: '重置时刻不能晚于当前时间' });
+    return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
+      const [account] = await tx
+        .select({ provider: subscriptionAccounts.provider, cycleResetAt: subscriptionAccounts.cycleResetAt })
+        .from(subscriptionAccounts)
+        .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)))
+        .for('update');
+      if (account?.provider !== 'claude')
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '仅 Claude 订阅需要手动填写重置时刻' });
+      await tx.update(subscriptionAccounts).set({ cycleResetAt: resetAt }).where(eq(subscriptionAccounts.id, id));
+      await tx.insert(adminAuditLogs).values({
+        actorId: actor.id,
+        action: 'subscription.cycle_reset',
+        targetType: 'subscription_account',
+        targetId: id,
+        metadata: {
+          previous: account.cycleResetAt?.toISOString() ?? null,
+          resetAt: resetAt?.toISOString() ?? null,
+        },
+      });
+      return { success: true };
+    });
   }
   private async providerAccountForChannel(principal: Principal, channelId: string, provider: 'openai' | 'claude') {
     const id = await this.accountForChannel(principal, channelId);

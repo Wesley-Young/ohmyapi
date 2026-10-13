@@ -15,6 +15,12 @@ export function formError(error: unknown) {
 
 export const localDate = (value: string) =>
   new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+/** 转为 datetime-local 输入框使用的本地时间字符串。 */
+export function dateTimeInput(value: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, -1);
+}
 export const displayMoney = (value: string) => value.replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
 
 export function displayRange(minimum: string, maximum: string) {

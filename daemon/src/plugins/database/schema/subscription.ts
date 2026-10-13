@@ -18,6 +18,8 @@ export const subscriptionAccounts = pgTable(
     errorCode: text('error_code'),
     modelCooldowns: jsonb('model_cooldowns').$type<Record<string, string>>().default({}).notNull(),
     cooldownUntil: timestamp('cooldown_until', { withTimezone: true }),
+    // 管理员填写的 7d 周期提前重置时刻（如 Claude 续费），仅在当前上游周期内生效。
+    cycleResetAt: timestamp('cycle_reset_at', { withTimezone: true }),
     createdAt: createdAt(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
