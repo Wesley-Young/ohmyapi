@@ -1,11 +1,12 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lte, type SQL, sql } from 'drizzle-orm';
 
 import type { AuthService, Principal } from '../auth/service.js';
 import { formatMoney, parseMoney } from '../billing/conventions.js';
 import {
   adminAuditLogs,
+  models,
   requests,
   requestUsage,
   systemSettings,
@@ -60,7 +61,53 @@ export class WalletService {
   }
 
   async stats(userId: string) {
-    return this.aggregateStats(userId);
+    // Calendar month in Asia/Shanghai; the 30-day window is rolling.
+    const monthStart = sql`(date_trunc('month', now() at time zone 'Asia/Shanghai') at time zone 'Asia/Shanghai')`;
+    const settled = (since: SQL) =>
+      sql<string>`coalesce(sum(${requests.chargedMicros}) filter (where ${requests.status} = 'settled' and ${requests.receivedAt} >= ${since}), 0)::text`;
+    const [stats, [spending]] = await Promise.all([
+      this.aggregateStats(userId),
+      this.auth.db
+        .select({
+          month: settled(monthStart),
+          last30Days: settled(sql`now() - interval '30 days'`),
+        })
+        .from(requests)
+        .where(
+          and(
+            eq(requests.userId, userId),
+            sql`${requests.receivedAt} >= least(${monthStart}, now() - interval '30 days') and ${requests.receivedAt} <= now()`,
+          ),
+        ),
+    ]);
+    return {
+      ...stats,
+      monthChargedAmount: formatMoney(BigInt(spending.month)),
+      last30DaysChargedAmount: formatMoney(BigInt(spending.last30Days)),
+    };
+  }
+
+  async models(userId: string, range: '24h' | '30d') {
+    const rows = await this.auth.db
+      .select({ modelId: requests.modelId, name: models.name, ...usageStats() })
+      .from(requests)
+      .leftJoin(requestUsage, eq(requestUsage.requestId, requests.id))
+      .leftJoin(models, eq(models.id, requests.modelId))
+      .where(
+        and(
+          eq(requests.userId, userId),
+          sql`${requests.receivedAt} >= now() - ${range === '24h' ? sql`interval '24 hours'` : sql`interval '30 days'`} and ${requests.receivedAt} <= now()`,
+        ),
+      )
+      .groupBy(requests.modelId, models.name);
+    const descending = (a: string, b: string) => {
+      const difference = BigInt(b) - BigInt(a);
+      return difference > 0n ? 1 : difference < 0n ? -1 : 0;
+    };
+    // Requests rejected before model resolution carry no model and are reported together.
+    return rows
+      .sort((a, b) => descending(a.chargedMicros, b.chargedMicros) || descending(a.requestCount, b.requestCount))
+      .map(({ modelId, name, ...stats }) => ({ modelId, name: modelId ? name : null, ...statsDto(stats) }));
   }
 
   private async aggregateStats(userId?: string) {

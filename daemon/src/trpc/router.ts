@@ -161,6 +161,9 @@ export const appRouter = t.router({
     get: protectedProcedure.query(({ ctx }) => ctx.wallet.get(ctx.principal.user.id)),
     stats: protectedProcedure.query(({ ctx }) => ctx.wallet.stats(ctx.principal.user.id)),
     trend: protectedProcedure.query(({ ctx }) => ctx.wallet.trend(ctx.principal.user.id)),
+    models: protectedProcedure
+      .input(z.object({ range: z.enum(['24h', '30d']) }))
+      .query(({ ctx, input }) => ctx.wallet.models(ctx.principal.user.id, input.range)),
     ledger: protectedProcedure
       .input(pagination)
       .query(({ ctx, input }) => ctx.wallet.ledger(ctx.principal.user.id, input.page)),

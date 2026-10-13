@@ -1,14 +1,14 @@
-import { Badge, Box, Button, Checkbox, Field, HStack, NativeSelect, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Checkbox, Field, Grid, HStack, NativeSelect, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { BookOpen, Check, Copy, Download, Pencil, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 
 import { CCSwitchDialog } from '../components/cc-switch-dialog';
 import { IconButton } from '../components/icon-button';
 import { KeyUsageDialog } from '../components/key-usage-dialog';
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton, Title } from '../components/ui';
-import { formError, localDate } from '../lib/format';
+import { displayMoney, formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './Catalog';
 
@@ -27,6 +27,7 @@ export default function Keys() {
   const [exportingKeyId, setExportingKeyId] = useState<string>();
   const data = useQuery(trpc.keys.list.queryOptions({ page }));
   const channels = useQuery(trpc.keys.channels.queryOptions());
+  const currency = useQuery(trpc.wallet.get.queryOptions()).data?.currency;
   const [name, setName] = useState('');
   const [channelId, setChannelId] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
@@ -267,9 +268,11 @@ export default function Keys() {
               <Table.Root size="sm">
                 <Table.Header>
                   <Table.Row>
-                    {['名称', 'Key', '渠道', '有效期', '状态', '操作'].map((h) => (
-                      <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
-                    ))}
+                    {['名称', 'Key', '渠道', '有效期', '状态', currency ? `消费（${currency}）` : '消费', '操作'].map(
+                      (h) => (
+                        <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
+                      ),
+                    )}
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -326,6 +329,30 @@ export default function Keys() {
                                 : !key.channelId
                                   ? '待绑定'
                                   : '有效'}
+                        </Table.Cell>
+                        <Table.Cell whiteSpace="nowrap">
+                          <Grid
+                            as="dl"
+                            templateColumns="auto auto"
+                            columnGap="3"
+                            rowGap="0.5"
+                            justifyContent="start"
+                            fontVariantNumeric="tabular-nums"
+                          >
+                            {[
+                              { label: '近 24 小时', value: key.chargedAmount24h },
+                              { label: '近 30 天', value: key.chargedAmount30d },
+                            ].map(({ label, value }) => (
+                              <Fragment key={label}>
+                                <Text as="dt" color="gray.500">
+                                  {label}
+                                </Text>
+                                <Text as="dd" textAlign="end">
+                                  {displayMoney(value)}
+                                </Text>
+                              </Fragment>
+                            ))}
+                          </Grid>
                         </Table.Cell>
                         <Table.Cell>
                           <HStack gap="2" flexWrap="wrap">

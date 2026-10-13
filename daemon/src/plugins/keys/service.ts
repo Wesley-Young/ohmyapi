@@ -1,8 +1,9 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AuthService, Principal, Transaction } from '../auth/service.js';
+import { formatMoney } from '../billing/conventions.js';
 import { supportedChannelTypes } from '../catalog/channel-types.js';
 import type { Database } from '../database/client.js';
 import {
@@ -16,6 +17,7 @@ import {
   channels,
   models,
   priceRules,
+  requests,
   userChannelGrants,
 } from '../database/schema/index.js';
 import { availableSubscription } from '../subscription/availability.js';
@@ -237,18 +239,34 @@ export class KeyService {
         .offset(page * pageSize),
     ]);
     const items = rows.slice(0, pageSize);
-    const grants = items.length
-      ? await this.auth.db
-          .select({ keyId: apiKeyModelGrants.apiKeyId, id: models.id, name: models.name })
-          .from(apiKeyModelGrants)
-          .innerJoin(models, eq(models.id, apiKeyModelGrants.modelId))
-          .where(
-            inArray(
-              apiKeyModelGrants.apiKeyId,
-              items.map((key) => key.id),
-            ),
-          )
-      : [];
+    const keyIds = items.map((key) => key.id);
+    const settled = (window: SQL) =>
+      sql<string>`coalesce(sum(${requests.chargedMicros}) filter (where ${requests.status} = 'settled' and ${requests.receivedAt} >= now() - ${window}), 0)::text`;
+    const [grants, usage] = items.length
+      ? await Promise.all([
+          this.auth.db
+            .select({ keyId: apiKeyModelGrants.apiKeyId, id: models.id, name: models.name })
+            .from(apiKeyModelGrants)
+            .innerJoin(models, eq(models.id, apiKeyModelGrants.modelId))
+            .where(inArray(apiKeyModelGrants.apiKeyId, keyIds)),
+          this.auth.db
+            .select({
+              keyId: requests.apiKeyId,
+              last24Hours: settled(sql`interval '24 hours'`),
+              last30Days: settled(sql`interval '30 days'`),
+            })
+            .from(requests)
+            .where(
+              and(
+                eq(requests.userId, userId),
+                inArray(requests.apiKeyId, keyIds),
+                sql`${requests.receivedAt} >= now() - interval '30 days' and ${requests.receivedAt} <= now()`,
+              ),
+            )
+            .groupBy(requests.apiKeyId),
+        ])
+      : [[], []];
+    const usageByKey = new Map(usage.map((row) => [row.keyId, row]));
     // CC Switch export needs an available channel that serves more than the Anthropic Messages endpoint.
     const exportableChannels = new Set(
       offerings.filter((row) => row.endpoint !== '/v1/messages').map((row) => row.channelId),
@@ -262,6 +280,8 @@ export class KeyService {
         createdAt: key.createdAt.toISOString(),
         modelNames: grants.filter((grant) => grant.keyId === key.id).map((grant) => grant.name),
         modelIds: grants.filter((grant) => grant.keyId === key.id).map((grant) => grant.id),
+        chargedAmount24h: formatMoney(BigInt(usageByKey.get(key.id)?.last24Hours ?? 0)),
+        chargedAmount30d: formatMoney(BigInt(usageByKey.get(key.id)?.last30Days ?? 0)),
       })),
       hasMore: rows.length > pageSize,
     };

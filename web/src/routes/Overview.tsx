@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
+import ModelUsage from '../components/model-usage';
 import { ErrorText, FormDialog, Loading, PageControls, Panel, Title } from '../components/ui';
 import UsageTrend from '../components/usage-trend';
 import { Ledger } from '../components/wallet';
@@ -103,11 +104,17 @@ export default function Overview() {
       ) : (
         wallet.data &&
         stats.data && (
-          <Grid templateColumns={{ base: '1fr', sm: 'repeat(2, 1fr)', xl: 'repeat(4, 1fr)' }} gap="4">
+          <Grid templateColumns={{ base: '1fr', sm: 'repeat(2, 1fr)', xl: 'repeat(3, 1fr)' }} gap="4">
             {[
               { label: '近 24 小时请求数', value: count(stats.data.requestCount), unit: '次' },
               { label: '近 24 小时 Token 量', value: count(stats.data.tokens) },
               { label: '近 24 小时消费', value: displayMoney(stats.data.chargedAmount), unit: wallet.data.currency },
+              { label: '本月消费', value: displayMoney(stats.data.monthChargedAmount), unit: wallet.data.currency },
+              {
+                label: '近 30 天消费',
+                value: displayMoney(stats.data.last30DaysChargedAmount),
+                unit: wallet.data.currency,
+              },
               { label: '钱包总余额', value: balanceAmount(wallet.data.balance), unit: wallet.data.currency },
             ].map(({ label, value, unit }) => (
               <Panel key={label}>
@@ -138,6 +145,7 @@ export default function Overview() {
       )}
       <ErrorText>{formError(trend.error)?.message}</ErrorText>
       {trend.isPending ? <Loading /> : trend.data && <UsageTrend days={trend.data} currency={wallet.data?.currency} />}
+      <ModelUsage currency={wallet.data?.currency} />
       {admin && (
         <Stack gap="4">
           <Heading as="h2" fontSize="lg" fontWeight="600">
