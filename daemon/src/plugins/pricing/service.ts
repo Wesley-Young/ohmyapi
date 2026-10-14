@@ -2,11 +2,11 @@ import { serviceToken } from '@fraqjs/kernel';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { AppError, GatewayError } from '../../core/errors.js';
-import { formatMoney, parseMoney } from '../../core/money.js';
-import { recordAudit } from '../auth/audit.js';
-import type { AuthService, Principal } from '../auth/service.js';
-import type { Database } from '../database/client.js';
+import { AppError, GatewayError } from '../../core/errors.ts';
+import { formatMoney, parseMoney } from '../../core/money.ts';
+import { recordAudit } from '../auth/audit.ts';
+import type { AuthService, Principal } from '../auth/service.ts';
+import type { Database } from '../database/client.ts';
 import {
   channelModelPrices,
   channels,
@@ -14,11 +14,11 @@ import {
   type PricingMode,
   priceRules,
   pricingModes,
-} from '../database/schema/index.js';
-import type { KeyService } from '../keys/service.js';
-import { expandRules, type Quantities, quote, type Rule, validateRules } from './rules.js';
-import { multiplierInput, type PreviewInput, type PriceScope, ruleInput, type SavePriceInput } from './schemas.js';
-import { applySearchDefaults, defaultSearchPrices } from './search-defaults.js';
+} from '../database/schema/index.ts';
+import type { KeyService } from '../keys/service.ts';
+import { expandRules, type Quantities, quote, type Rule, validateRules } from './rules.ts';
+import { multiplierInput, type PreviewInput, type PriceScope, ruleInput, type SavePriceInput } from './schemas.ts';
+import { applySearchDefaults, defaultSearchPrices } from './search-defaults.ts';
 
 const serializeRule = (r: Rule) => ({
   id: r.id,

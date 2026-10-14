@@ -1,5 +1,5 @@
-import { billingConventions, formatMoney, parseMoney } from '../../core/money.js';
-import type { RuleInput } from './schemas.js';
+import { billingConventions, formatMoney, parseMoney } from '../../core/money.ts';
+import type { RuleInput } from './schemas.ts';
 
 const maxInteger = 9_223_372_036_854_775_807n;
 /** 单个请求可计费的搜索调用数上限。 */

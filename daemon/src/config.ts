@@ -1,4 +1,4 @@
-import { parseMoney } from './core/money.js';
+import { parseMoney } from './core/money.ts';
 
 type Environment = Record<string, string | undefined>;
 

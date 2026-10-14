@@ -1,11 +1,11 @@
 import { eq } from 'drizzle-orm';
 
-import { formatMoney } from '../../core/money.js';
-import type { Transaction } from '../database/client.js';
-import { requests, type Usage } from '../database/schema/index.js';
-import type { PricingService } from '../pricing/service.js';
-import { lockWallet, postLedgerEntry } from '../wallet/ledger.js';
-import type { RequestRow } from './requests.js';
+import { formatMoney } from '../../core/money.ts';
+import type { Transaction } from '../database/client.ts';
+import { requests, type Usage } from '../database/schema/index.ts';
+import type { PricingService } from '../pricing/service.ts';
+import { lockWallet, postLedgerEntry } from '../wallet/ledger.ts';
+import type { RequestRow } from './requests.ts';
 
 /** 按请求受理时锁定的价格快照计算费用。 */
 export function priceRequestUsage(pricing: PricingService, r: RequestRow, usage: Usage) {

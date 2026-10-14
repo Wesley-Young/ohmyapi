@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import type { Pool } from 'pg';
 
-import type { Database } from './client.js';
+import type { Database } from './client.ts';
 
 import { fileURLToPath } from 'node:url';
 

@@ -1,10 +1,10 @@
-import { definePlugin } from '../../kernel.js';
-import { AuthService } from '../auth/service.js';
-import { DatabaseService } from '../database/index.js';
-import { PricingService } from '../pricing/service.js';
-import { BillingRecords } from './records.js';
-import { BillingReview } from './review.js';
-import { BillingService } from './service.js';
+import { definePlugin } from '../../kernel.ts';
+import { AuthService } from '../auth/service.ts';
+import { DatabaseService } from '../database/index.ts';
+import { PricingService } from '../pricing/service.ts';
+import { BillingRecords } from './records.ts';
+import { BillingReview } from './review.ts';
+import { BillingService } from './service.ts';
 
 export const BillingPlugin = definePlugin({
   name: 'ohmyapi-billing',

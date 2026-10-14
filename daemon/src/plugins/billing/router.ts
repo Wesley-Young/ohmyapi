@@ -1,8 +1,8 @@
-import { adminProcedure, protectedProcedure } from '../../trpc/procedures.js';
-import { userIdInput } from '../users/schemas.js';
-import type { BillingRecords } from './records.js';
-import type { BillingReview } from './review.js';
-import { correctBillInput, requestIdInput, resolveBillInput, resolveZeroBillsInput } from './schemas.js';
+import { adminProcedure, protectedProcedure } from '../../trpc/procedures.ts';
+import { userIdInput } from '../users/schemas.ts';
+import type { BillingRecords } from './records.ts';
+import type { BillingReview } from './review.ts';
+import { correctBillInput, requestIdInput, resolveBillInput, resolveZeroBillsInput } from './schemas.ts';
 
 export function billingRoutes(records: BillingRecords, review: BillingReview) {
   return {

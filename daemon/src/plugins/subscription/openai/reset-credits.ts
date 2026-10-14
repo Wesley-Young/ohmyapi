@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
-import { AppError } from '../../../core/errors.js';
-import type { OutboundFetch } from '../../outbound/index.js';
-import { accountHeaders, readJson } from './client.js';
-import type { OpenAICredentials } from './credentials.js';
-import type { OpenAITokens } from './tokens.js';
+import { AppError } from '../../../core/errors.ts';
+import type { OutboundFetch } from '../../outbound/index.ts';
+import { accountHeaders, readJson } from './client.ts';
+import type { OpenAICredentials } from './credentials.ts';
+import type { OpenAITokens } from './tokens.ts';
 
 const creditsUrl = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits';
 const creditsSchema = z.object({

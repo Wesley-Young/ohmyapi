@@ -1,13 +1,13 @@
 import { and, eq, isNull } from 'drizzle-orm';
 
-import { GatewayError } from '../../../core/errors.js';
-import type { CredentialVault } from '../../../core/vault.js';
-import type { Database } from '../../database/client.js';
-import { channels } from '../../database/schema/catalog.js';
-import { subscriptionAccounts } from '../../database/schema/subscription.js';
-import type { OutboundHttp } from '../../outbound/index.js';
-import { exchangeToken } from './client.js';
-import { credentialsSchema, type OpenAICredentials, parseCredentials } from './credentials.js';
+import { GatewayError } from '../../../core/errors.ts';
+import type { CredentialVault } from '../../../core/vault.ts';
+import type { Database } from '../../database/client.ts';
+import { channels } from '../../database/schema/catalog.ts';
+import { subscriptionAccounts } from '../../database/schema/subscription.ts';
+import type { OutboundHttp } from '../../outbound/index.ts';
+import { exchangeToken } from './client.ts';
+import { credentialsSchema, type OpenAICredentials, parseCredentials } from './credentials.ts';
 
 export class OpenAITokens {
   private readonly refreshing = new Map<string, Promise<OpenAICredentials>>();

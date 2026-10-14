@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-import { AppError } from '../../core/errors.js';
-import type { OutboundFetch } from '../outbound/index.js';
-import { modelName } from './schemas.js';
+import { AppError } from '../../core/errors.ts';
+import type { OutboundFetch } from '../outbound/index.ts';
+import { modelName } from './schemas.ts';
 
 /** 拉取过程的诊断信息：失败时据此记录停在哪一步。 */
 export type UpstreamModelsTrace = { stage: string; httpStatus?: number; bytes: number };

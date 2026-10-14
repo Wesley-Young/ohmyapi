@@ -1,9 +1,9 @@
 import { Tiktoken } from 'js-tiktoken/lite';
 import o200kBase from 'js-tiktoken/ranks/o200k_base';
 
-import type { Endpoint } from '../database/schema/index.js';
-import { imageInputTypes, requestContentBlocks } from './content.js';
-import { estimateImageTokens } from './image-estimation.js';
+import type { Endpoint } from '../database/schema/index.ts';
+import { imageInputTypes, requestContentBlocks } from './content.ts';
+import { estimateImageTokens } from './image-estimation.ts';
 
 // A local approximation for arbitrary upstream models, not a billing tokenizer.
 const tokenizer = new Tiktoken(o200kBase);

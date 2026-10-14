@@ -1,13 +1,13 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { and, desc, eq, gt, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
-import { AppError } from '../../core/errors.js';
-import { formatMoney } from '../../core/money.js';
-import { toPage } from '../../core/pagination.js';
-import { recordAudit } from '../auth/audit.js';
-import type { AuthService, Principal } from '../auth/service.js';
-import type { Database, Transaction } from '../database/client.js';
-import { activeApiKey, activeChannel, activeModel, availableSubscription, paginate } from '../database/query.js';
+import { AppError } from '../../core/errors.ts';
+import { formatMoney } from '../../core/money.ts';
+import { toPage } from '../../core/pagination.ts';
+import { recordAudit } from '../auth/audit.ts';
+import type { AuthService, Principal } from '../auth/service.ts';
+import type { Database, Transaction } from '../database/client.ts';
+import { activeApiKey, activeChannel, activeModel, availableSubscription, paginate } from '../database/query.ts';
 import {
   apiKeyChannels,
   apiKeyModelGrants,
@@ -20,8 +20,8 @@ import {
   priceRules,
   requests,
   userChannelGrants,
-} from '../database/schema/index.js';
-import type { CreateKeyInput, UpdateKeyInput } from './schemas.js';
+} from '../database/schema/index.ts';
+import type { CreateKeyInput, UpdateKeyInput } from './schemas.ts';
 
 import { randomBytes } from 'node:crypto';
 

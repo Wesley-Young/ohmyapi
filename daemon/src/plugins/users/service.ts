@@ -1,17 +1,17 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 
-import { AppError } from '../../core/errors.js';
-import { formatMoney, parseMoney } from '../../core/money.js';
-import { toPage } from '../../core/pagination.js';
-import { recordAudit } from '../auth/audit.js';
-import { generatePassword, hashPassword } from '../auth/password.js';
-import { type AuthService, type Principal, publicUser } from '../auth/service.js';
-import type { Database } from '../database/client.js';
-import { containsText, paginate } from '../database/query.js';
-import { apiKeys, sessions, systemSettings, userGroupMembers, users, wallets } from '../database/schema/index.js';
-import type { GroupService } from '../groups/service.js';
-import { postLedgerEntry } from '../wallet/ledger.js';
+import { AppError } from '../../core/errors.ts';
+import { formatMoney, parseMoney } from '../../core/money.ts';
+import { toPage } from '../../core/pagination.ts';
+import { recordAudit } from '../auth/audit.ts';
+import { generatePassword, hashPassword } from '../auth/password.ts';
+import { type AuthService, type Principal, publicUser } from '../auth/service.ts';
+import type { Database } from '../database/client.ts';
+import { containsText, paginate } from '../database/query.ts';
+import { apiKeys, sessions, systemSettings, userGroupMembers, users, wallets } from '../database/schema/index.ts';
+import type { GroupService } from '../groups/service.ts';
+import { postLedgerEntry } from '../wallet/ledger.ts';
 
 export class UserService {
   static readonly token = serviceToken<UserService>('ohmyapi/users');

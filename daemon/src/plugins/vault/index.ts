@@ -1,5 +1,5 @@
-import { CredentialVault } from '../../core/vault.js';
-import { definePlugin } from '../../kernel.js';
+import { CredentialVault } from '../../core/vault.ts';
+import { definePlugin } from '../../kernel.ts';
 
 export const CredentialVaultPlugin = definePlugin({
   name: 'ohmyapi-credential-vault',

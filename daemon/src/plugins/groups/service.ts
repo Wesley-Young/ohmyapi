@@ -1,13 +1,13 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { and, asc, count, eq, inArray, isNull, sql } from 'drizzle-orm';
 
-import { AppError } from '../../core/errors.js';
-import { toPage } from '../../core/pagination.js';
-import { recordAudit } from '../auth/audit.js';
-import type { AuthService, Principal } from '../auth/service.js';
-import type { Database, Transaction } from '../database/client.js';
-import { containsText, paginate } from '../database/query.js';
-import { channels, userChannelGrants, userGroupMembers, userGroups, users } from '../database/schema/index.js';
+import { AppError } from '../../core/errors.ts';
+import { toPage } from '../../core/pagination.ts';
+import { recordAudit } from '../auth/audit.ts';
+import type { AuthService, Principal } from '../auth/service.ts';
+import type { Database, Transaction } from '../database/client.ts';
+import { containsText, paginate } from '../database/query.ts';
+import { channels, userChannelGrants, userGroupMembers, userGroups, users } from '../database/schema/index.ts';
 
 const eligibleUser = () => and(eq(users.role, 'user'), isNull(users.deletedAt));
 const privateChannel = () => and(eq(channels.isPublic, false), isNull(channels.deletedAt));

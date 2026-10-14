@@ -1,18 +1,18 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { eq, inArray } from 'drizzle-orm';
 
-import { AppError } from '../../core/errors.js';
-import { formatMoney, parseMoney } from '../../core/money.js';
-import { recordAudit } from '../auth/audit.js';
-import type { AuthService, Principal } from '../auth/service.js';
-import type { Transaction } from '../database/client.js';
-import { requests, requestUsage, type Usage, walletLedger, wallets } from '../database/schema/index.js';
-import type { PricingService } from '../pricing/service.js';
-import { lockWallet, postLedgerEntry } from '../wallet/ledger.js';
-import { lockRequest, usageDto, writeUsage } from './requests.js';
-import type { CorrectBillInput, ResolveBillInput, ResolveZeroBillsInput } from './schemas.js';
-import type { BillingService } from './service.js';
-import { priceRequestUsage, releaseRequest, settleRequest } from './settlement.js';
+import { AppError } from '../../core/errors.ts';
+import { formatMoney, parseMoney } from '../../core/money.ts';
+import { recordAudit } from '../auth/audit.ts';
+import type { AuthService, Principal } from '../auth/service.ts';
+import type { Transaction } from '../database/client.ts';
+import { requests, requestUsage, type Usage, walletLedger, wallets } from '../database/schema/index.ts';
+import type { PricingService } from '../pricing/service.ts';
+import { lockWallet, postLedgerEntry } from '../wallet/ledger.ts';
+import { lockRequest, usageDto, writeUsage } from './requests.ts';
+import type { CorrectBillInput, ResolveBillInput, ResolveZeroBillsInput } from './schemas.ts';
+import type { BillingService } from './service.ts';
+import { priceRequestUsage, releaseRequest, settleRequest } from './settlement.ts';
 
 /** 稳定序列化，用于比较幂等提交的内容是否一致。 */
 function canonical(value: unknown): string {

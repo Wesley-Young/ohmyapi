@@ -1,7 +1,7 @@
-import { AppError } from '../../../core/errors.js';
-import type { OutboundFetch } from '../../outbound/index.js';
-import { clientId, completeClaudeOAuthCredentials, exchangeClaudeCode, redirectUri, scope } from './client.js';
-import type { ClaudeCredentials } from './credentials.js';
+import { AppError } from '../../../core/errors.ts';
+import type { OutboundFetch } from '../../outbound/index.ts';
+import { clientId, completeClaudeOAuthCredentials, exchangeClaudeCode, redirectUri, scope } from './client.ts';
+import type { ClaudeCredentials } from './credentials.ts';
 
 import { createHash, randomBytes } from 'node:crypto';
 

@@ -1,7 +1,7 @@
-import { paginationInput } from '../../core/pagination.js';
-import { adminProcedure, protectedProcedure } from '../../trpc/procedures.js';
-import type { RequestHistory } from './history.js';
-import { listRequestsInput } from './schemas.js';
+import { paginationInput } from '../../core/pagination.ts';
+import { adminProcedure, protectedProcedure } from '../../trpc/procedures.ts';
+import type { RequestHistory } from './history.ts';
+import { listRequestsInput } from './schemas.ts';
 
 export function requestRoutes(history: RequestHistory) {
   return {

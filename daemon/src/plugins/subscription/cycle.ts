@@ -1,10 +1,10 @@
 import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 
-import { billingConventions, formatMoney } from '../../core/money.js';
-import type { Database } from '../database/client.js';
-import { models, priceRules, requests, requestUsage } from '../database/schema/index.js';
-import { matchRule, type Rule, ruleSignature } from '../pricing/rules.js';
-import { applySearchDefaults } from '../pricing/search-defaults.js';
+import { billingConventions, formatMoney } from '../../core/money.ts';
+import type { Database } from '../database/client.ts';
+import { models, priceRules, requests, requestUsage } from '../database/schema/index.ts';
+import { matchRule, type Rule, ruleSignature } from '../pricing/rules.ts';
+import { applySearchDefaults } from '../pricing/search-defaults.ts';
 
 type SnapshotRule = {
   kind: Rule['kind'];

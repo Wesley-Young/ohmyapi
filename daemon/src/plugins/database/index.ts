@@ -1,11 +1,11 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { eq, sql } from 'drizzle-orm';
 
-import type { DatabaseConfig } from '../../config.js';
-import { definePlugin } from '../../kernel.js';
-import { createDatabase } from './client.js';
-import { assertMigrationsCurrent } from './migrate.js';
-import { systemSettings } from './schema/index.js';
+import type { DatabaseConfig } from '../../config.ts';
+import { definePlugin } from '../../kernel.ts';
+import { createDatabase } from './client.ts';
+import { assertMigrationsCurrent } from './migrate.ts';
+import { systemSettings } from './schema/index.ts';
 
 export class DatabaseService implements Disposable {
   static readonly token = serviceToken<DatabaseService>('ohmyapi/database');

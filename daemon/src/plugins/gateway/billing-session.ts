@@ -1,14 +1,14 @@
 import { eq } from 'drizzle-orm';
 
-import type { GatewayConfig } from '../../config.js';
-import { requestErrorMessage } from '../../core/errors.js';
-import { type EventLogger, errorDetails, formatEvent, type LogFields } from '../../core/logging.js';
-import type { BillingSummary } from '../billing/requests.js';
-import type { BillingService } from '../billing/service.js';
-import type { Database } from '../database/client.js';
-import type { Endpoint } from '../database/schema/index.js';
-import { requestAttempts } from '../database/schema/index.js';
-import { UsageCollector } from './usage.js';
+import type { GatewayConfig } from '../../config.ts';
+import { requestErrorMessage } from '../../core/errors.ts';
+import { type EventLogger, errorDetails, formatEvent, type LogFields } from '../../core/logging.ts';
+import type { BillingSummary } from '../billing/requests.ts';
+import type { BillingService } from '../billing/service.ts';
+import type { Database } from '../database/client.ts';
+import type { Endpoint } from '../database/schema/index.ts';
+import { requestAttempts } from '../database/schema/index.ts';
+import { UsageCollector } from './usage.ts';
 
 type Options = {
   id: string;

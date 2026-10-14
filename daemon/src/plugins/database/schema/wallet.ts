@@ -1,9 +1,9 @@
 import { sql } from 'drizzle-orm';
 import { check, foreignKey, index, jsonb, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
-import { createdAt, id, micros } from './common.js';
-import { users } from './identity.js';
-import { requests } from './requests.js';
+import { createdAt, id, micros } from './common.ts';
+import { users } from './identity.ts';
+import { requests } from './requests.ts';
 
 export const ledgerKind = pgEnum('ledger_kind', ['adjustment', 'reserve', 'settlement', 'release', 'correction']);
 

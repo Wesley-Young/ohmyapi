@@ -1,7 +1,7 @@
-import { errorDetails, formatEvent } from '../../core/logging.js';
-import { definePlugin } from '../../kernel.js';
-import { DatabaseService } from '../database/index.js';
-import { AuthService } from './service.js';
+import { errorDetails, formatEvent } from '../../core/logging.ts';
+import { definePlugin } from '../../kernel.ts';
+import { DatabaseService } from '../database/index.ts';
+import { AuthService } from './service.ts';
 
 export const AuthPlugin = definePlugin({
   name: 'ohmyapi-auth',

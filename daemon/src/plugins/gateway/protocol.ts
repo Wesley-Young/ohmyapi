@@ -1,5 +1,5 @@
-import { GatewayError } from '../../core/errors.js';
-import type { Endpoint } from '../database/schema/index.js';
+import { GatewayError } from '../../core/errors.ts';
+import type { Endpoint } from '../database/schema/index.ts';
 
 export function codexRequestHeaders(request: Request): Headers {
   const headers = new Headers();

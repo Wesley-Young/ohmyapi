@@ -1,12 +1,12 @@
-import { adminProcedure } from '../../trpc/procedures.js';
+import { adminProcedure } from '../../trpc/procedures.ts';
 import {
   consumeResetCreditInput,
   fetchSubscriptionModelsInput,
   setCycleResetInput,
   startOAuthInput,
   subscriptionChannelInput,
-} from './schemas.js';
-import type { SubscriptionService } from './service.js';
+} from './schemas.ts';
+import type { SubscriptionService } from './service.ts';
 
 /** 订阅渠道的管理操作，挂载在渠道目录（admin.catalog）下。 */
 export function subscriptionAdminRoutes(subscription: SubscriptionService) {

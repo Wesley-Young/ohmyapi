@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
-import { AppError } from '../../../core/errors.js';
-import { readJson } from '../openai/client.js';
-import type { PlanCache } from '../plan.js';
-import { claudeBaseUrl, fetchClaudePlan } from './client.js';
-import { claudeCodeVersion } from './request.js';
-import type { ClaudeTokens } from './tokens.js';
+import { AppError } from '../../../core/errors.ts';
+import { readJson } from '../openai/client.ts';
+import type { PlanCache } from '../plan.ts';
+import { claudeBaseUrl, fetchClaudePlan } from './client.ts';
+import { claudeCodeVersion } from './request.ts';
+import type { ClaudeTokens } from './tokens.ts';
 
 const windowSchema = z.object({
   utilization: z.number().nonnegative(),

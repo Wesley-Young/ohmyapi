@@ -1,6 +1,6 @@
-import { GatewayError } from '../../../core/errors.js';
-import type { OutboundFetch } from '../../outbound/index.js';
-import type { OpenAICredentials } from './credentials.js';
+import { GatewayError } from '../../../core/errors.ts';
+import type { OutboundFetch } from '../../outbound/index.ts';
+import type { OpenAICredentials } from './credentials.ts';
 
 export const clientId = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const redirectUri = 'http://localhost:1455/auth/callback';

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { parseMoney } from '../../core/money.js';
-import { maxSearchCalls } from './rules.js';
+import { parseMoney } from '../../core/money.ts';
+import { maxSearchCalls } from './rules.ts';
 
 const maxInteger = 9_223_372_036_854_775_807n;
 export const tokenInput = z

@@ -1,4 +1,4 @@
-import { GatewayError } from '../../core/errors.js';
+import { GatewayError } from '../../core/errors.ts';
 
 /**
  * 读取并校验 JSON 请求体：限制大小，响应取消和超时信号，要求包含模型名称。

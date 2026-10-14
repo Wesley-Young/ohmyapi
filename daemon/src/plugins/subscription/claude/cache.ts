@@ -1,4 +1,4 @@
-import { type Data, object, objects } from './tools.js';
+import { type Data, object, objects } from './tools.ts';
 
 export const cacheControl = () => ({ type: 'ephemeral' });
 export function prepareCache(body: Data, explicit: boolean) {

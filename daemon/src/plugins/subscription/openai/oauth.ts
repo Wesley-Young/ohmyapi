@@ -1,7 +1,7 @@
-import { AppError } from '../../../core/errors.js';
-import type { OutboundFetch } from '../../outbound/index.js';
-import { clientId, exchangeToken, redirectUri } from './client.js';
-import { type OpenAICredentials, parseCredentials } from './credentials.js';
+import { AppError } from '../../../core/errors.ts';
+import type { OutboundFetch } from '../../outbound/index.ts';
+import { clientId, exchangeToken, redirectUri } from './client.ts';
+import { type OpenAICredentials, parseCredentials } from './credentials.ts';
 
 import { createHash, randomBytes } from 'node:crypto';
 

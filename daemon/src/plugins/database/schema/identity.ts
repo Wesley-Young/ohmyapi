@@ -15,7 +15,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { createdAt, id } from './common.js';
+import { createdAt, id } from './common.ts';
 
 export const userRole = pgEnum('user_role', ['admin', 'user']);
 export const userStatus = pgEnum('user_status', ['active', 'disabled']);

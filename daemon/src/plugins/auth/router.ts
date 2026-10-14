@@ -1,6 +1,6 @@
-import { publicProcedure, signedInProcedure } from '../../trpc/procedures.js';
-import { changePasswordInput, loginInput } from './schemas.js';
-import type { AuthService } from './service.js';
+import { publicProcedure, signedInProcedure } from '../../trpc/procedures.ts';
+import { changePasswordInput, loginInput } from './schemas.ts';
+import type { AuthService } from './service.ts';
 
 export function authRoutes(auth: AuthService) {
   return {

@@ -1,10 +1,10 @@
-import { CredentialVault } from '../../core/vault.js';
-import { definePlugin } from '../../kernel.js';
-import { AuthService } from '../auth/service.js';
-import { DatabaseService } from '../database/index.js';
-import { OutboundHttp } from '../outbound/index.js';
-import { SubscriptionRuntime } from './runtime.js';
-import { SubscriptionService } from './service.js';
+import { CredentialVault } from '../../core/vault.ts';
+import { definePlugin } from '../../kernel.ts';
+import { AuthService } from '../auth/service.ts';
+import { DatabaseService } from '../database/index.ts';
+import { OutboundHttp } from '../outbound/index.ts';
+import { SubscriptionRuntime } from './runtime.ts';
+import { SubscriptionService } from './service.ts';
 
 export const SubscriptionPlugin = definePlugin({
   name: 'ohmyapi-subscription',

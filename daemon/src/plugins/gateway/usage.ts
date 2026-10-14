@@ -1,9 +1,9 @@
-import { safeErrorMessage } from '../../core/logging.js';
-import { reportedCacheReadTokens } from '../billing/cache-usage.js';
-import type { SearchRequest } from '../billing/search.js';
-import type { Endpoint, Usage, UsageEstimate } from '../database/schema/index.js';
-import { SearchUsageCollector } from './search-usage.js';
-import { StreamUsageEstimate } from './usage-estimate.js';
+import { safeErrorMessage } from '../../core/logging.ts';
+import { reportedCacheReadTokens } from '../billing/cache-usage.ts';
+import type { SearchRequest } from '../billing/search.ts';
+import type { Endpoint, Usage, UsageEstimate } from '../database/schema/index.ts';
+import { SearchUsageCollector } from './search-usage.ts';
+import { StreamUsageEstimate } from './usage-estimate.ts';
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue | undefined =>

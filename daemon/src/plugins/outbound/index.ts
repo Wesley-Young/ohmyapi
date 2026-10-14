@@ -1,7 +1,7 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { Agent, type Dispatcher, fetch as outboundFetch, ProxyAgent } from 'undici';
 
-import { definePlugin } from '../../kernel.js';
+import { definePlugin } from '../../kernel.ts';
 
 export type OutboundFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 

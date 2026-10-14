@@ -1,7 +1,7 @@
-import { readBillingCurrency, readDatabaseConfig } from '../config.js';
-import { errorDetails, formatEvent, globalLogger } from '../core/logging.js';
-import { createDatabase } from '../plugins/database/client.js';
-import { initializeDatabase } from './bootstrap.js';
+import { readBillingCurrency, readDatabaseConfig } from '../config.ts';
+import { errorDetails, formatEvent, globalLogger } from '../core/logging.ts';
+import { createDatabase } from '../plugins/database/client.ts';
+import { initializeDatabase } from './bootstrap.ts';
 
 async function main() {
   const options = {

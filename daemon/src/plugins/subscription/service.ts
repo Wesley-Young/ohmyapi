@@ -2,33 +2,33 @@ import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { AppError } from '../../core/errors.js';
-import type { CredentialVault } from '../../core/vault.js';
-import { recordAudit } from '../auth/audit.js';
-import type { AuthService, Principal } from '../auth/service.js';
-import type { Database, Transaction } from '../database/client.js';
-import type { SubscriptionProvider } from '../database/schema/index.js';
-import { channels, subscriptionAccounts } from '../database/schema/index.js';
-import { channelProxy } from '../outbound/channel-proxy.js';
-import type { OutboundHttp } from '../outbound/index.js';
-import { fetchClaudeModels } from './claude/catalog.js';
-import { importClaudeCredentials } from './claude/client.js';
-import { type ClaudeCredentials, claudeCredentialsSchema } from './claude/credentials.js';
-import { ClaudeOAuth } from './claude/oauth.js';
-import { ClaudeQuota } from './claude/quota.js';
-import { estimateCycleUsage } from './cycle.js';
-import { accountHeaders, codexBaseUrl, latestCodexClientVersion, readJson } from './openai/client.js';
-import { credentialsSchema, type OpenAICredentials, parseCredentials } from './openai/credentials.js';
-import { OpenAIOAuth } from './openai/oauth.js';
-import { OpenAIQuota } from './openai/quota.js';
-import { OpenAIResetCredits } from './openai/reset-credits.js';
-import type { SubscriptionRuntime } from './runtime.js';
+import { AppError } from '../../core/errors.ts';
+import type { CredentialVault } from '../../core/vault.ts';
+import { recordAudit } from '../auth/audit.ts';
+import type { AuthService, Principal } from '../auth/service.ts';
+import type { Database, Transaction } from '../database/client.ts';
+import type { SubscriptionProvider } from '../database/schema/index.ts';
+import { channels, subscriptionAccounts } from '../database/schema/index.ts';
+import { channelProxy } from '../outbound/channel-proxy.ts';
+import type { OutboundHttp } from '../outbound/index.ts';
+import { fetchClaudeModels } from './claude/catalog.ts';
+import { importClaudeCredentials } from './claude/client.ts';
+import { type ClaudeCredentials, claudeCredentialsSchema } from './claude/credentials.ts';
+import { ClaudeOAuth } from './claude/oauth.ts';
+import { ClaudeQuota } from './claude/quota.ts';
+import { estimateCycleUsage } from './cycle.ts';
+import { accountHeaders, codexBaseUrl, latestCodexClientVersion, readJson } from './openai/client.ts';
+import { credentialsSchema, type OpenAICredentials, parseCredentials } from './openai/credentials.ts';
+import { OpenAIOAuth } from './openai/oauth.ts';
+import { OpenAIQuota } from './openai/quota.ts';
+import { OpenAIResetCredits } from './openai/reset-credits.ts';
+import type { SubscriptionRuntime } from './runtime.ts';
 import type {
   ConsumeResetCreditInput,
   CredentialInput,
   FetchSubscriptionModelsInput,
   SetCycleResetInput,
-} from './schemas.js';
+} from './schemas.ts';
 
 /** 订阅账号管理：接入与授权、额度和重置卡查询、周期用量，以及拉取可用模型。 */
 export class SubscriptionService implements Disposable {

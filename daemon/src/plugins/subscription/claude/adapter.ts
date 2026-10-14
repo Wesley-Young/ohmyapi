@@ -1,10 +1,10 @@
-import { GatewayError } from '../../../core/errors.js';
-import type { ChannelAdapter } from '../../gateway/adapters.js';
-import { forwardResponse } from '../../gateway/response.js';
-import type { SubscriptionRuntime } from '../runtime.js';
-import { claudeBaseUrl } from './client.js';
-import { prepareClaudeRequest, validateClaudeRequest } from './request.js';
-import { forwardClaudeResponse } from './response.js';
+import { GatewayError } from '../../../core/errors.ts';
+import type { ChannelAdapter } from '../../gateway/adapters.ts';
+import { forwardResponse } from '../../gateway/response.ts';
+import type { SubscriptionRuntime } from '../runtime.ts';
+import { claudeBaseUrl } from './client.ts';
+import { prepareClaudeRequest, validateClaudeRequest } from './request.ts';
+import { forwardClaudeResponse } from './response.ts';
 
 export function claudeAdapter(service: SubscriptionRuntime): ChannelAdapter {
   return {

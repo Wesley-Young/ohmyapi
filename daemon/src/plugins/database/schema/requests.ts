@@ -15,10 +15,10 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { channels, channelType, models } from './catalog.js';
-import { createdAt, endpoint, id, micros, tokenCount } from './common.js';
-import { apiKeys, users } from './identity.js';
-import { subscriptionAccounts } from './subscription.js';
+import { channels, channelType, models } from './catalog.ts';
+import { createdAt, endpoint, id, micros, tokenCount } from './common.ts';
+import { apiKeys, users } from './identity.ts';
+import { subscriptionAccounts } from './subscription.ts';
 
 /** 客户端断连时按本地估算结算所保存的依据。 */
 export type UsageEstimate = {

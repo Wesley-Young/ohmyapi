@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { priceInput, searchCountInput, tokenInput } from '../pricing/schemas.js';
+import { priceInput, searchCountInput, tokenInput } from '../pricing/schemas.ts';
 
 const requestId = z.uuid();
 export const resolveBillInput = z.object({

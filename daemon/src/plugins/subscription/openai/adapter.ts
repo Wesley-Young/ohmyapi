@@ -1,11 +1,11 @@
-import { GatewayError } from '../../../core/errors.js';
-import type { ChannelAdapter } from '../../gateway/adapters.js';
-import { codexRequestHeaders } from '../../gateway/protocol.js';
-import type { SubscriptionRuntime } from '../runtime.js';
-import { accountHeaders, codexBaseUrl } from './client.js';
-import { prepareBody } from './request.js';
-import { forwardOpenAIResponse } from './response.js';
-import { prepareSession } from './session.js';
+import { GatewayError } from '../../../core/errors.ts';
+import type { ChannelAdapter } from '../../gateway/adapters.ts';
+import { codexRequestHeaders } from '../../gateway/protocol.ts';
+import type { SubscriptionRuntime } from '../runtime.ts';
+import { accountHeaders, codexBaseUrl } from './client.ts';
+import { prepareBody } from './request.ts';
+import { forwardOpenAIResponse } from './response.ts';
+import { prepareSession } from './session.ts';
 
 export function openAIAdapter(service: SubscriptionRuntime): ChannelAdapter {
   return {

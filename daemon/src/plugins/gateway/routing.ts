@@ -1,9 +1,9 @@
 import { and, desc, eq } from 'drizzle-orm';
 
-import { GatewayError } from '../../core/errors.js';
-import type { Database } from '../database/client.js';
-import { activeChannel, activeModel, availableSubscription } from '../database/query.js';
-import type { Endpoint } from '../database/schema/index.js';
+import { GatewayError } from '../../core/errors.ts';
+import type { Database } from '../database/client.ts';
+import { activeChannel, activeModel, availableSubscription } from '../database/query.ts';
+import type { Endpoint } from '../database/schema/index.ts';
 import {
   aggregateChannelMembers,
   channels,
@@ -11,12 +11,12 @@ import {
   effectiveChannelModels,
   models,
   subscriptionAccounts,
-} from '../database/schema/index.js';
-import { canUseChannel, keyAllowsModel } from '../keys/access.js';
-import type { SubscriptionChannels } from './adapters.js';
-import type { AffinitySelection, ChannelAffinity } from './affinity.js';
-import type { KeyIdentity } from './identity.js';
-import { requestSession } from './session.js';
+} from '../database/schema/index.ts';
+import { canUseChannel, keyAllowsModel } from '../keys/access.ts';
+import type { SubscriptionChannels } from './adapters.ts';
+import type { AffinitySelection, ChannelAffinity } from './affinity.ts';
+import type { KeyIdentity } from './identity.ts';
+import { requestSession } from './session.ts';
 
 type Channel = typeof channels.$inferSelect;
 

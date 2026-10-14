@@ -1,4 +1,4 @@
-import type { Endpoint, SubscriptionProvider } from '../database/schema/index.js';
+import type { Endpoint, SubscriptionProvider } from '../database/schema/index.ts';
 
 /** 各订阅平台可转发的端点。 */
 export const providerEndpoints = {

@@ -1,8 +1,8 @@
 import { and, type Column, eq, gt, isNull, like, or, sql } from 'drizzle-orm';
 import type { PgSelect } from 'drizzle-orm/pg-core';
 
-import { pageSize } from '../../core/pagination.js';
-import { apiKeys, channels, models, subscriptionAccounts, users } from './schema/index.js';
+import { pageSize } from '../../core/pagination.ts';
+import { apiKeys, channels, models, subscriptionAccounts, users } from './schema/index.ts';
 
 // ---- 可用性条件：软删除、启用状态与有效期 ----
 

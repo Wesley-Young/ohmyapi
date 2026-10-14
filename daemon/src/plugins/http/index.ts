@@ -4,27 +4,27 @@ import { bodyLimit } from 'hono/body-limit';
 import { getCookie } from 'hono/cookie';
 import { serialize } from 'hono/utils/cookie';
 
-import { errorDetails, formatEvent } from '../../core/logging.js';
-import { definePlugin } from '../../kernel.js';
-import { createAppRouter } from '../../trpc/router.js';
-import { AuthService } from '../auth/service.js';
-import { BillingRecords } from '../billing/records.js';
-import { BillingReview } from '../billing/review.js';
-import { BillingService } from '../billing/service.js';
-import { ChannelGrants } from '../catalog/grants.js';
-import { ModelCatalog } from '../catalog/models.js';
-import { CatalogService } from '../catalog/service.js';
-import { DatabaseService } from '../database/index.js';
-import { endpoints } from '../database/schema/index.js';
-import { RequestHistory } from '../gateway/history.js';
-import { GatewayService } from '../gateway/service.js';
-import { GroupService } from '../groups/service.js';
-import { KeyService } from '../keys/service.js';
-import { PricingService } from '../pricing/service.js';
-import { SubscriptionService } from '../subscription/service.js';
-import { UserService } from '../users/service.js';
-import { WalletService } from '../wallet/service.js';
-import { serveWeb } from './web.js';
+import { errorDetails, formatEvent } from '../../core/logging.ts';
+import { definePlugin } from '../../kernel.ts';
+import { createAppRouter } from '../../trpc/router.ts';
+import { AuthService } from '../auth/service.ts';
+import { BillingRecords } from '../billing/records.ts';
+import { BillingReview } from '../billing/review.ts';
+import { BillingService } from '../billing/service.ts';
+import { ChannelGrants } from '../catalog/grants.ts';
+import { ModelCatalog } from '../catalog/models.ts';
+import { CatalogService } from '../catalog/service.ts';
+import { DatabaseService } from '../database/index.ts';
+import { endpoints } from '../database/schema/index.ts';
+import { RequestHistory } from '../gateway/history.ts';
+import { GatewayService } from '../gateway/service.ts';
+import { GroupService } from '../groups/service.ts';
+import { KeyService } from '../keys/service.ts';
+import { PricingService } from '../pricing/service.ts';
+import { SubscriptionService } from '../subscription/service.ts';
+import { UserService } from '../users/service.ts';
+import { WalletService } from '../wallet/service.ts';
+import { serveWeb } from './web.ts';
 
 export const HttpPlugin = definePlugin({
   name: 'ohmyapi-http',

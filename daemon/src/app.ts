@@ -1,22 +1,22 @@
 import HonoPlugin from '@fraqjs/plugin-hono';
 
-import type { AppConfig } from './config.js';
-import { logHandler } from './core/logging.js';
-import { AppContext } from './kernel.js';
-import { AuthPlugin } from './plugins/auth/index.js';
-import { BillingPlugin } from './plugins/billing/index.js';
-import { CatalogPlugin } from './plugins/catalog/index.js';
-import { DatabasePlugin } from './plugins/database/index.js';
-import { GatewayPlugin } from './plugins/gateway/index.js';
-import { GroupsPlugin } from './plugins/groups/index.js';
-import { HttpPlugin } from './plugins/http/index.js';
-import { KeysPlugin } from './plugins/keys/index.js';
-import { OutboundPlugin } from './plugins/outbound/index.js';
-import { PricingPlugin } from './plugins/pricing/index.js';
-import { SubscriptionPlugin } from './plugins/subscription/index.js';
-import { UsersPlugin } from './plugins/users/index.js';
-import { CredentialVaultPlugin } from './plugins/vault/index.js';
-import { WalletPlugin } from './plugins/wallet/index.js';
+import type { AppConfig } from './config.ts';
+import { logHandler } from './core/logging.ts';
+import { AppContext } from './kernel.ts';
+import { AuthPlugin } from './plugins/auth/index.ts';
+import { BillingPlugin } from './plugins/billing/index.ts';
+import { CatalogPlugin } from './plugins/catalog/index.ts';
+import { DatabasePlugin } from './plugins/database/index.ts';
+import { GatewayPlugin } from './plugins/gateway/index.ts';
+import { GroupsPlugin } from './plugins/groups/index.ts';
+import { HttpPlugin } from './plugins/http/index.ts';
+import { KeysPlugin } from './plugins/keys/index.ts';
+import { OutboundPlugin } from './plugins/outbound/index.ts';
+import { PricingPlugin } from './plugins/pricing/index.ts';
+import { SubscriptionPlugin } from './plugins/subscription/index.ts';
+import { UsersPlugin } from './plugins/users/index.ts';
+import { CredentialVaultPlugin } from './plugins/vault/index.ts';
+import { WalletPlugin } from './plugins/wallet/index.ts';
 
 export function createApp(config: AppConfig) {
   const ctx = AppContext.create(config);

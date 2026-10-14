@@ -1,5 +1,5 @@
-import { type AuditAction, recordAudit } from '../auth/audit.js';
-import type { Transaction } from '../database/client.js';
+import { type AuditAction, recordAudit } from '../auth/audit.ts';
+import type { Transaction } from '../database/client.ts';
 
 export function auditCatalog(
   tx: Transaction,

@@ -1,12 +1,12 @@
-import { CredentialVault } from '../../core/vault.js';
-import { definePlugin } from '../../kernel.js';
-import { BillingService } from '../billing/service.js';
-import { DatabaseService } from '../database/index.js';
-import { OutboundHttp } from '../outbound/index.js';
-import { PricingService } from '../pricing/service.js';
-import { SubscriptionRuntime } from '../subscription/runtime.js';
-import { RequestHistory } from './history.js';
-import { GatewayService } from './service.js';
+import { CredentialVault } from '../../core/vault.ts';
+import { definePlugin } from '../../kernel.ts';
+import { BillingService } from '../billing/service.ts';
+import { DatabaseService } from '../database/index.ts';
+import { OutboundHttp } from '../outbound/index.ts';
+import { PricingService } from '../pricing/service.ts';
+import { SubscriptionRuntime } from '../subscription/runtime.ts';
+import { RequestHistory } from './history.ts';
+import { GatewayService } from './service.ts';
 
 export const GatewayPlugin = definePlugin({
   name: 'ohmyapi-gateway',

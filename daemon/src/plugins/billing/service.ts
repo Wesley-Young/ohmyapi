@@ -1,18 +1,18 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 
-import type { DatabaseConfig } from '../../config.js';
-import { GatewayError, requestErrorMessage } from '../../core/errors.js';
-import { type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '../../core/logging.js';
-import { formatMoney } from '../../core/money.js';
-import type { Database } from '../database/client.js';
-import { requestAttempts, requests, requestUsage } from '../database/schema/index.js';
-import type { PricingService } from '../pricing/service.js';
-import { lockWallet, postLedgerEntry } from '../wallet/ledger.js';
-import { reservationAmount } from './admission.js';
-import { reportedCacheReadTokens } from './cache-usage.js';
-import { estimateReservation } from './estimation.js';
-import { BillingOwnership } from './ownership.js';
+import type { DatabaseConfig } from '../../config.ts';
+import { GatewayError, requestErrorMessage } from '../../core/errors.ts';
+import { type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '../../core/logging.ts';
+import { formatMoney } from '../../core/money.ts';
+import type { Database } from '../database/client.ts';
+import { requestAttempts, requests, requestUsage } from '../database/schema/index.ts';
+import type { PricingService } from '../pricing/service.ts';
+import { lockWallet, postLedgerEntry } from '../wallet/ledger.ts';
+import { reservationAmount } from './admission.ts';
+import { reportedCacheReadTokens } from './cache-usage.ts';
+import { estimateReservation } from './estimation.ts';
+import { BillingOwnership } from './ownership.ts';
 import {
   type BillingOutcome,
   type BillingSummary,
@@ -22,10 +22,10 @@ import {
   markNeedsReview,
   transition,
   writeUsage,
-} from './requests.js';
-import { type ExecutionRoute, lockAdmission, lockExecutionRoute, type ReservationInput } from './reservation.js';
-import { searchRequest } from './search.js';
-import { type PricedUsage, priceRequestUsage, releaseRequest, settleRequest } from './settlement.js';
+} from './requests.ts';
+import { type ExecutionRoute, lockAdmission, lockExecutionRoute, type ReservationInput } from './reservation.ts';
+import { searchRequest } from './search.ts';
+import { type PricedUsage, priceRequestUsage, releaseRequest, settleRequest } from './settlement.ts';
 
 /**
  * 请求计费的运行时流程：预占 → 转发 → 检查点 → 收尾结算。

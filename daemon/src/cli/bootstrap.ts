@@ -1,11 +1,11 @@
 import { eq, sql } from 'drizzle-orm';
 
-import { billingConventions } from '../core/money.js';
-import { recordAudit } from '../plugins/auth/audit.js';
-import { hashPassword, validatePassword } from '../plugins/auth/password.js';
-import type { Database } from '../plugins/database/client.js';
-import { assertMigrationsCurrent } from '../plugins/database/migrate.js';
-import { systemSettings, users, wallets } from '../plugins/database/schema/index.js';
+import { billingConventions } from '../core/money.ts';
+import { recordAudit } from '../plugins/auth/audit.ts';
+import { hashPassword, validatePassword } from '../plugins/auth/password.ts';
+import type { Database } from '../plugins/database/client.ts';
+import { assertMigrationsCurrent } from '../plugins/database/migrate.ts';
+import { systemSettings, users, wallets } from '../plugins/database/schema/index.ts';
 
 export interface BootstrapOptions {
   currency: string;

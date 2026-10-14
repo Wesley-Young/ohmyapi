@@ -1,5 +1,5 @@
-import type { Endpoint } from '../../database/schema/index.js';
-import { requestSession } from '../../gateway/session.js';
+import type { Endpoint } from '../../database/schema/index.ts';
+import { requestSession } from '../../gateway/session.ts';
 
 import { createHash } from 'node:crypto';
 

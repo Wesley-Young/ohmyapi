@@ -1,4 +1,4 @@
-import { adminProcedure } from '../../trpc/procedures.js';
+import { adminProcedure } from '../../trpc/procedures.ts';
 import {
   createUserInput,
   listUsersInput,
@@ -6,8 +6,8 @@ import {
   setRoleInput,
   setStatusInput,
   userIdInput,
-} from './schemas.js';
-import type { UserService } from './service.js';
+} from './schemas.ts';
+import type { UserService } from './service.ts';
 
 export function userAdminRoutes(users: UserService) {
   return {

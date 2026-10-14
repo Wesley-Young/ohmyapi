@@ -1,12 +1,12 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
-import { AppError } from '../../core/errors.js';
-import type { AuthService, Principal } from '../auth/service.js';
-import { models, priceRules } from '../database/schema/index.js';
-import { expandRules, validateRules } from '../pricing/rules.js';
-import { auditCatalog } from './audit.js';
-import type { ImportModelsInput, ModelInput } from './schemas.js';
+import { AppError } from '../../core/errors.ts';
+import type { AuthService, Principal } from '../auth/service.ts';
+import { models, priceRules } from '../database/schema/index.ts';
+import { expandRules, validateRules } from '../pricing/rules.ts';
+import { auditCatalog } from './audit.ts';
+import type { ImportModelsInput, ModelInput } from './schemas.ts';
 
 /** 模型目录：维护模型及其上下文上限，导入时同时写入价格规则。 */
 export class ModelCatalog {

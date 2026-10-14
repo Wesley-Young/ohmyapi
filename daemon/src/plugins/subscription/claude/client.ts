@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
-import { GatewayError } from '../../../core/errors.js';
-import type { OutboundFetch } from '../../outbound/index.js';
-import { readJson } from '../openai/client.js';
-import { planValue } from '../plan.js';
-import { type ClaudeCredentials, claudeCredentialsSchema, parseClaudeCredentials } from './credentials.js';
+import { GatewayError } from '../../../core/errors.ts';
+import type { OutboundFetch } from '../../outbound/index.ts';
+import { readJson } from '../openai/client.ts';
+import { planValue } from '../plan.ts';
+import { type ClaudeCredentials, claudeCredentialsSchema, parseClaudeCredentials } from './credentials.ts';
 
 export const claudeBaseUrl = 'https://api.anthropic.com';
 export const clientId = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';

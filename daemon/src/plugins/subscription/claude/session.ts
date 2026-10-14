@@ -1,4 +1,4 @@
-import { type Data, object } from './tools.js';
+import { type Data, object } from './tools.ts';
 
 import { createHash, randomUUID } from 'node:crypto';
 

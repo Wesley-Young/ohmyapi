@@ -1,13 +1,13 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
-import { formatMoney } from '../../core/money.js';
-import { toPage } from '../../core/pagination.js';
-import { displayUsage } from '../billing/requests.js';
-import type { Database } from '../database/client.js';
-import { paginate } from '../database/query.js';
-import { apiKeys, channels, requestAttempts, requests, requestUsage, users } from '../database/schema/index.js';
-import { type PricingService, publicPricingSnapshot } from '../pricing/service.js';
+import { formatMoney } from '../../core/money.ts';
+import { toPage } from '../../core/pagination.ts';
+import { displayUsage } from '../billing/requests.ts';
+import type { Database } from '../database/client.ts';
+import { paginate } from '../database/query.ts';
+import { apiKeys, channels, requestAttempts, requests, requestUsage, users } from '../database/schema/index.ts';
+import { type PricingService, publicPricingSnapshot } from '../pricing/service.ts';
 
 /** 请求记录列表：用户查看自己的请求，管理员查看全部或待核对的请求。 */
 export class RequestHistory {

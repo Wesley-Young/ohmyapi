@@ -1,12 +1,12 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { and, asc, eq, inArray, isNull, notInArray } from 'drizzle-orm';
 
-import { AppError } from '../../core/errors.js';
-import { type EventLogger, errorDetails, formatEvent } from '../../core/logging.js';
-import { formatMoney, parseMoney } from '../../core/money.js';
-import type { CredentialVault } from '../../core/vault.js';
-import type { AuthService, Principal } from '../auth/service.js';
-import type { Database, Transaction } from '../database/client.js';
+import { AppError } from '../../core/errors.ts';
+import { type EventLogger, errorDetails, formatEvent } from '../../core/logging.ts';
+import { formatMoney, parseMoney } from '../../core/money.ts';
+import type { CredentialVault } from '../../core/vault.ts';
+import type { AuthService, Principal } from '../auth/service.ts';
+import type { Database, Transaction } from '../database/client.ts';
 import {
   aggregateChannelMembers,
   channelAvailableModels,
@@ -18,14 +18,14 @@ import {
   models,
   priceRules,
   subscriptionAccounts,
-} from '../database/schema/index.js';
-import { channelProxy } from '../outbound/channel-proxy.js';
-import type { OutboundHttp } from '../outbound/index.js';
-import { providerSupports } from '../subscription/providers.js';
-import type { SubscriptionService } from '../subscription/service.js';
-import { auditCatalog } from './audit.js';
-import type { ChannelInput, FetchChannelModelsInput } from './schemas.js';
-import { fetchUpstreamModels, type UpstreamModelsTrace } from './upstream-models.js';
+} from '../database/schema/index.ts';
+import { channelProxy } from '../outbound/channel-proxy.ts';
+import type { OutboundHttp } from '../outbound/index.ts';
+import { providerSupports } from '../subscription/providers.ts';
+import type { SubscriptionService } from '../subscription/service.ts';
+import { auditCatalog } from './audit.ts';
+import type { ChannelInput, FetchChannelModelsInput } from './schemas.ts';
+import { fetchUpstreamModels, type UpstreamModelsTrace } from './upstream-models.ts';
 
 type Channel = typeof channels.$inferSelect;
 

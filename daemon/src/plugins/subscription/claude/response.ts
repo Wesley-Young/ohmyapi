@@ -1,9 +1,9 @@
-import { GatewayError } from '../../../core/errors.js';
-import { formatEvent } from '../../../core/logging.js';
-import { type ForwardResponseOptions, forwardResponse } from '../../gateway/response.js';
-import { readJson } from '../openai/client.js';
-import type { ClaudeSession } from './session.js';
-import { object, restoreTools } from './tools.js';
+import { GatewayError } from '../../../core/errors.ts';
+import { formatEvent } from '../../../core/logging.ts';
+import { type ForwardResponseOptions, forwardResponse } from '../../gateway/response.ts';
+import { readJson } from '../openai/client.ts';
+import type { ClaudeSession } from './session.ts';
+import { object, restoreTools } from './tools.ts';
 
 export async function forwardClaudeResponse(
   options: ForwardResponseOptions,

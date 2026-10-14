@@ -1,9 +1,9 @@
-import { GatewayError } from '../../core/errors.js';
-import type { Endpoint } from '../database/schema/index.js';
-import { ruleTimeMatcher } from '../pricing/rules.js';
-import type { LockedPrice } from '../pricing/service.js';
-import { imageInputTypes, requestContentBlocks } from './content.js';
-import { type SearchRequest, searchRequest, searchToolKind } from './search.js';
+import { GatewayError } from '../../core/errors.ts';
+import type { Endpoint } from '../database/schema/index.ts';
+import { ruleTimeMatcher } from '../pricing/rules.ts';
+import type { LockedPrice } from '../pricing/service.ts';
+import { imageInputTypes, requestContentBlocks } from './content.ts';
+import { type SearchRequest, searchRequest, searchToolKind } from './search.ts';
 
 function isBillableTool(value: unknown, endpoint: Endpoint): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;

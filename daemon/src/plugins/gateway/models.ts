@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 
-import type { Database } from '../database/client.js';
-import { activeModel } from '../database/query.js';
+import type { Database } from '../database/client.ts';
+import { activeModel } from '../database/query.ts';
 import {
   apiKeyModelGrants,
   type channels,
@@ -10,8 +10,8 @@ import {
   models,
   priceRules,
   userChannelGrants,
-} from '../database/schema/index.js';
-import type { KeyIdentity } from './identity.js';
+} from '../database/schema/index.ts';
+import type { KeyIdentity } from './identity.ts';
 
 type ModelEntry = { name: string; createdAt: Date };
 

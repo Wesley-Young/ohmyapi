@@ -1,9 +1,9 @@
-import { GatewayError } from '../../core/errors.js';
-import type { CredentialVault } from '../../core/vault.js';
-import type { ChannelType, channels } from '../database/schema/catalog.js';
-import type { Endpoint } from '../database/schema/index.js';
-import { upstreamBody, upstreamHeaders, upstreamUrl } from './protocol.js';
-import { type ForwardResponseOptions, forwardResponse } from './response.js';
+import { GatewayError } from '../../core/errors.ts';
+import type { CredentialVault } from '../../core/vault.ts';
+import type { ChannelType, channels } from '../database/schema/catalog.ts';
+import type { Endpoint } from '../database/schema/index.ts';
+import { upstreamBody, upstreamHeaders, upstreamUrl } from './protocol.ts';
+import { type ForwardResponseOptions, forwardResponse } from './response.ts';
 
 type PrepareRequestOptions = {
   userId: string;

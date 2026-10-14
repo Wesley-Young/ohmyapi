@@ -1,5 +1,5 @@
-import type { Transaction } from '../database/client.js';
-import { adminAuditLogs } from '../database/schema/index.js';
+import type { Transaction } from '../database/client.ts';
+import { adminAuditLogs } from '../database/schema/index.ts';
 
 /** 需要留痕的管理操作。审计记录只追加、不可修改。 */
 export type AuditAction =

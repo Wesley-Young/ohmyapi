@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
-import { createdAt, id } from './common.js';
+import { createdAt, id } from './common.ts';
 
 export const subscriptionProviders = ['openai', 'claude'] as const;
 export type SubscriptionProvider = (typeof subscriptionProviders)[number];

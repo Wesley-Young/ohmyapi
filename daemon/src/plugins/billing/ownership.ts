@@ -1,8 +1,8 @@
 import { Client } from 'pg';
 
-import type { DatabaseConfig } from '../../config.js';
-import { GatewayError } from '../../core/errors.js';
-import { type EventLogger, errorDetails, formatEvent } from '../../core/logging.js';
+import type { DatabaseConfig } from '../../config.ts';
+import { GatewayError } from '../../core/errors.ts';
+import { type EventLogger, errorDetails, formatEvent } from '../../core/logging.ts';
 
 import { randomUUID } from 'node:crypto';
 

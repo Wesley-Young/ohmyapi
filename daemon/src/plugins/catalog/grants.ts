@@ -1,13 +1,13 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
-import { AppError } from '../../core/errors.js';
-import { toPage } from '../../core/pagination.js';
-import type { AuthService, Principal } from '../auth/service.js';
-import type { Database } from '../database/client.js';
-import { containsText, paginate } from '../database/query.js';
-import { channels, userChannelGrants, users } from '../database/schema/index.js';
-import { auditCatalog } from './audit.js';
+import { AppError } from '../../core/errors.ts';
+import { toPage } from '../../core/pagination.ts';
+import type { AuthService, Principal } from '../auth/service.ts';
+import type { Database } from '../database/client.ts';
+import { containsText, paginate } from '../database/query.ts';
+import { channels, userChannelGrants, users } from '../database/schema/index.ts';
+import { auditCatalog } from './audit.ts';
 
 /** 非公开渠道的用户授权：可按用户或按渠道维护。 */
 export class ChannelGrants {

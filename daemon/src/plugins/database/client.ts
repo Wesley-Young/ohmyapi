@@ -1,9 +1,9 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 
-import type { DatabaseConfig } from '../../config.js';
-import { errorDetails, formatEvent, globalLogger } from '../../core/logging.js';
-import * as schema from './schema/index.js';
+import type { DatabaseConfig } from '../../config.ts';
+import { errorDetails, formatEvent, globalLogger } from '../../core/logging.ts';
+import * as schema from './schema/index.ts';
 
 export function createDatabase(config: DatabaseConfig) {
   const pool = new Pool(config);

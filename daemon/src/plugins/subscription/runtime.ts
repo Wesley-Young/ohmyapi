@@ -1,22 +1,22 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 
-import { GatewayError } from '../../core/errors.js';
-import type { CredentialVault } from '../../core/vault.js';
-import type { Database } from '../database/client.js';
-import { type channels, type Endpoint, subscriptionAccounts } from '../database/schema/index.js';
-import type { ChannelAdapter, SubscriptionChannels } from '../gateway/adapters.js';
-import type { OutboundHttp } from '../outbound/index.js';
-import { claudeAdapter } from './claude/adapter.js';
-import { claudeCredentialsSchema } from './claude/credentials.js';
-import { claudeRateLimit } from './claude/ratelimit.js';
-import { ClaudeSessions } from './claude/session.js';
-import { ClaudeTokens } from './claude/tokens.js';
-import { SubscriptionConcurrency } from './concurrency.js';
-import { openAIAdapter } from './openai/adapter.js';
-import { credentialsSchema } from './openai/credentials.js';
-import { OpenAITokens } from './openai/tokens.js';
-import { providerSupports } from './providers.js';
+import { GatewayError } from '../../core/errors.ts';
+import type { CredentialVault } from '../../core/vault.ts';
+import type { Database } from '../database/client.ts';
+import { type channels, type Endpoint, subscriptionAccounts } from '../database/schema/index.ts';
+import type { ChannelAdapter, SubscriptionChannels } from '../gateway/adapters.ts';
+import type { OutboundHttp } from '../outbound/index.ts';
+import { claudeAdapter } from './claude/adapter.ts';
+import { claudeCredentialsSchema } from './claude/credentials.ts';
+import { claudeRateLimit } from './claude/ratelimit.ts';
+import { ClaudeSessions } from './claude/session.ts';
+import { ClaudeTokens } from './claude/tokens.ts';
+import { SubscriptionConcurrency } from './concurrency.ts';
+import { openAIAdapter } from './openai/adapter.ts';
+import { credentialsSchema } from './openai/credentials.ts';
+import { OpenAITokens } from './openai/tokens.ts';
+import { providerSupports } from './providers.ts';
 
 /**
  * 订阅渠道的运行时：为网关提供适配器，管理账号并发、令牌和会话，并根据上游响应记录限流与失效。

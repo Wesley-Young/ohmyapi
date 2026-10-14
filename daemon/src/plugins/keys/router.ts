@@ -1,7 +1,7 @@
-import { paginationInput } from '../../core/pagination.js';
-import { protectedProcedure } from '../../trpc/procedures.js';
-import { bindChannelInput, createKeyInput, keyIdInput, updateKeyInput } from './schemas.js';
-import type { KeyService } from './service.js';
+import { paginationInput } from '../../core/pagination.ts';
+import { protectedProcedure } from '../../trpc/procedures.ts';
+import { bindChannelInput, createKeyInput, keyIdInput, updateKeyInput } from './schemas.ts';
+import type { KeyService } from './service.ts';
 
 export function keyRoutes(keys: KeyService) {
   return {

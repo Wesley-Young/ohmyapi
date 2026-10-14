@@ -1,7 +1,7 @@
-import { GatewayError } from '../../../core/errors.js';
-import { responseHeaders } from '../../gateway/protocol.js';
-import { type ForwardResponseOptions, forwardResponse } from '../../gateway/response.js';
-import { SseObserver } from '../../gateway/usage.js';
+import { GatewayError } from '../../../core/errors.ts';
+import { responseHeaders } from '../../gateway/protocol.ts';
+import { type ForwardResponseOptions, forwardResponse } from '../../gateway/response.ts';
+import { SseObserver } from '../../gateway/usage.ts';
 
 async function normalizeEventStream(options: ForwardResponseOptions): Promise<Response> {
   const { upstream, lifecycle, config } = options;

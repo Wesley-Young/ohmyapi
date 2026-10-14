@@ -1,5 +1,5 @@
-import { GatewayError } from '../../../core/errors.js';
-import { words } from './words.js';
+import { GatewayError } from '../../../core/errors.ts';
+import { words } from './words.ts';
 
 import { createHmac } from 'node:crypto';
 

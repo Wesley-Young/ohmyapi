@@ -1,7 +1,7 @@
-import { adminProcedure, protectedProcedure } from '../../trpc/procedures.js';
-import type { KeyService } from '../keys/service.js';
-import { previewInput, priceScope, savePriceInput } from './schemas.js';
-import type { PricingService } from './service.js';
+import { adminProcedure, protectedProcedure } from '../../trpc/procedures.ts';
+import type { KeyService } from '../keys/service.ts';
+import { previewInput, priceScope, savePriceInput } from './schemas.ts';
+import type { PricingService } from './service.ts';
 
 export function pricingRoutes(pricing: PricingService, keys: KeyService) {
   return {

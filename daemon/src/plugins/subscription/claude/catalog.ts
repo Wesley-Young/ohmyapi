@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
-import { AppError } from '../../../core/errors.js';
-import type { OutboundFetch } from '../../outbound/index.js';
-import { readJson } from '../openai/client.js';
-import { claudeBaseUrl } from './client.js';
-import type { ClaudeCredentials } from './credentials.js';
-import { claudeCodeVersion } from './request.js';
+import { AppError } from '../../../core/errors.ts';
+import type { OutboundFetch } from '../../outbound/index.ts';
+import { readJson } from '../openai/client.ts';
+import { claudeBaseUrl } from './client.ts';
+import type { ClaudeCredentials } from './credentials.ts';
+import { claudeCodeVersion } from './request.ts';
 
 const catalogSchema = z.object({
   model_selector_config: z

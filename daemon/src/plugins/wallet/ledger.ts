@@ -1,8 +1,8 @@
 import { eq } from 'drizzle-orm';
 
-import { formatMoney } from '../../core/money.js';
-import type { Transaction } from '../database/client.js';
-import { walletLedger, wallets } from '../database/schema/index.js';
+import { formatMoney } from '../../core/money.ts';
+import type { Transaction } from '../database/client.ts';
+import { walletLedger, wallets } from '../database/schema/index.ts';
 
 export type Wallet = typeof wallets.$inferSelect;
 export type LedgerEntry = typeof walletLedger.$inferSelect;

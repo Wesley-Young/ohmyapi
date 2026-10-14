@@ -1,12 +1,12 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { and, eq, gt, isNull, lt, or } from 'drizzle-orm';
 
-import { AppError } from '../../core/errors.js';
-import { createLogSampler, type EventLogger, formatEvent } from '../../core/logging.js';
-import type { Database, Transaction } from '../database/client.js';
-import { activeUser } from '../database/query.js';
-import { sessions, users } from '../database/schema/index.js';
-import { hashPassword, verifyPassword } from './password.js';
+import { AppError } from '../../core/errors.ts';
+import { createLogSampler, type EventLogger, formatEvent } from '../../core/logging.ts';
+import type { Database, Transaction } from '../database/client.ts';
+import { activeUser } from '../database/query.ts';
+import { sessions, users } from '../database/schema/index.ts';
+import { hashPassword, verifyPassword } from './password.ts';
 
 import { createHash, randomBytes } from 'node:crypto';
 

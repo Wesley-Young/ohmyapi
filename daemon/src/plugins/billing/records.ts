@@ -1,16 +1,16 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { and, eq, sql } from 'drizzle-orm';
 
-import { AppError, requestErrorMessage } from '../../core/errors.js';
-import { formatMoney } from '../../core/money.js';
-import type { Principal } from '../auth/service.js';
-import type { Database } from '../database/client.js';
-import { requestAttempts, requests, requestUsage, users, walletLedger, wallets } from '../database/schema/index.js';
-import { type PricingService, publicPricingSnapshot } from '../pricing/service.js';
-import { ledgerAmounts } from '../wallet/ledger.js';
-import { cacheReadForDisplay } from './cache-usage.js';
-import { displayUsage } from './requests.js';
-import { type PricedUsage, priceRequestUsage } from './settlement.js';
+import { AppError, requestErrorMessage } from '../../core/errors.ts';
+import { formatMoney } from '../../core/money.ts';
+import type { Principal } from '../auth/service.ts';
+import type { Database } from '../database/client.ts';
+import { requestAttempts, requests, requestUsage, users, walletLedger, wallets } from '../database/schema/index.ts';
+import { type PricingService, publicPricingSnapshot } from '../pricing/service.ts';
+import { ledgerAmounts } from '../wallet/ledger.ts';
+import { cacheReadForDisplay } from './cache-usage.ts';
+import { displayUsage } from './requests.ts';
+import { type PricedUsage, priceRequestUsage } from './settlement.ts';
 
 /** 账单查询：请求的计费明细与钱包对账。 */
 export class BillingRecords {

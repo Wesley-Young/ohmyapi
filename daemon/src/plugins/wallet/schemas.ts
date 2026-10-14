@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-import { parseMoney } from '../../core/money.js';
-import { pageInput } from '../../core/pagination.js';
-import { userIdInput } from '../users/schemas.js';
+import { parseMoney } from '../../core/money.ts';
+import { pageInput } from '../../core/pagination.ts';
+import { userIdInput } from '../users/schemas.ts';
 
 export const statsRangeInput = z.object({ range: z.enum(['24h', '30d']) });
 export const userLedgerInput = userIdInput.extend({ page: pageInput });

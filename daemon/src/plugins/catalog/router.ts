@@ -1,7 +1,7 @@
-import { adminProcedure } from '../../trpc/procedures.js';
-import { userIdInput } from '../users/schemas.js';
-import type { ChannelGrants } from './grants.js';
-import type { ModelCatalog } from './models.js';
+import { adminProcedure } from '../../trpc/procedures.ts';
+import { userIdInput } from '../users/schemas.ts';
+import type { ChannelGrants } from './grants.ts';
+import type { ModelCatalog } from './models.ts';
 import {
   channelGrantsInput,
   channelIdInput,
@@ -12,8 +12,8 @@ import {
   modelInput,
   setChannelGrantsInput,
   setGrantsInput,
-} from './schemas.js';
-import type { CatalogService } from './service.js';
+} from './schemas.ts';
+import type { CatalogService } from './service.ts';
 
 export function catalogAdminRoutes(catalog: CatalogService, modelCatalog: ModelCatalog, grants: ChannelGrants) {
   return {

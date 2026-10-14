@@ -14,9 +14,9 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { createdAt, endpoint, id } from './common.js';
-import { apiKeys, users } from './identity.js';
-import { subscriptionAccounts } from './subscription.js';
+import { createdAt, endpoint, id } from './common.ts';
+import { apiKeys, users } from './identity.ts';
+import { subscriptionAccounts } from './subscription.ts';
 
 export const models = pgTable(
   'models',

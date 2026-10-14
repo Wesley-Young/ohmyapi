@@ -1,13 +1,13 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { and, desc, eq, gte, lte, type SQL, sql } from 'drizzle-orm';
 
-import { AppError } from '../../core/errors.js';
-import { formatMoney, parseMoney } from '../../core/money.js';
-import { toPage } from '../../core/pagination.js';
-import { recordAudit } from '../auth/audit.js';
-import type { AuthService, Principal } from '../auth/service.js';
-import type { Database } from '../database/client.js';
-import { paginate } from '../database/query.js';
+import { AppError } from '../../core/errors.ts';
+import { formatMoney, parseMoney } from '../../core/money.ts';
+import { toPage } from '../../core/pagination.ts';
+import { recordAudit } from '../auth/audit.ts';
+import type { AuthService, Principal } from '../auth/service.ts';
+import type { Database } from '../database/client.ts';
+import { paginate } from '../database/query.ts';
 import {
   models,
   requests,
@@ -16,9 +16,9 @@ import {
   users,
   walletLedger,
   wallets,
-} from '../database/schema/index.js';
-import { type LedgerEntry, ledgerAmounts, lockWallet, postLedgerEntry } from './ledger.js';
-import type { AdjustWalletInput, StatsRange } from './schemas.js';
+} from '../database/schema/index.ts';
+import { type LedgerEntry, ledgerAmounts, lockWallet, postLedgerEntry } from './ledger.ts';
+import type { AdjustWalletInput, StatsRange } from './schemas.ts';
 
 const ledgerDto = (entry: LedgerEntry) => ({
   id: entry.id,

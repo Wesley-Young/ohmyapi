@@ -1,4 +1,4 @@
-import { GatewayError } from '../../core/errors.js';
+import { GatewayError } from '../../core/errors.ts';
 
 /** 按用户限制并发请求数和每分钟请求数；超限返回 429。 */
 export class UserRateLimiter {

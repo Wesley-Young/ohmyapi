@@ -1,12 +1,12 @@
 import { and, eq, isNull } from 'drizzle-orm';
 
-import { GatewayError } from '../../../core/errors.js';
-import type { CredentialVault } from '../../../core/vault.js';
-import type { Database } from '../../database/client.js';
-import { channels, subscriptionAccounts } from '../../database/schema/index.js';
-import type { OutboundHttp } from '../../outbound/index.js';
-import { ClaudeRefreshError, refreshClaudeToken } from './client.js';
-import { type ClaudeCredentials, claudeCredentialsSchema } from './credentials.js';
+import { GatewayError } from '../../../core/errors.ts';
+import type { CredentialVault } from '../../../core/vault.ts';
+import type { Database } from '../../database/client.ts';
+import { channels, subscriptionAccounts } from '../../database/schema/index.ts';
+import type { OutboundHttp } from '../../outbound/index.ts';
+import { ClaudeRefreshError, refreshClaudeToken } from './client.ts';
+import { type ClaudeCredentials, claudeCredentialsSchema } from './credentials.ts';
 
 export class ClaudeTokens {
   private readonly pending = new Map<string, Promise<ClaudeCredentials>>();

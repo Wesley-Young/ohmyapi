@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
-import { pageInput, searchInput } from '../../core/pagination.js';
-import { channelTypes, endpoints, pricingModes } from '../database/schema/index.js';
-import { proxyUrlInput } from '../outbound/schemas.js';
-import { multiplierInput, ruleInput } from '../pricing/schemas.js';
-import { subscriptionInput } from '../subscription/schemas.js';
-import { userIdInput } from '../users/schemas.js';
+import { pageInput, searchInput } from '../../core/pagination.ts';
+import { channelTypes, endpoints, pricingModes } from '../database/schema/index.ts';
+import { proxyUrlInput } from '../outbound/schemas.ts';
+import { multiplierInput, ruleInput } from '../pricing/schemas.ts';
+import { subscriptionInput } from '../subscription/schemas.ts';
+import { userIdInput } from '../users/schemas.ts';
 
 const name = z.string().trim().min(1).max(128);
 export const modelName = name.regex(/^[A-Za-z0-9][A-Za-z0-9_./:-]*$/, '模型名称格式无效');

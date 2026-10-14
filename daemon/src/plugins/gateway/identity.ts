@@ -1,9 +1,9 @@
 import { and, eq } from 'drizzle-orm';
 
-import { GatewayError } from '../../core/errors.js';
-import type { Database } from '../database/client.js';
-import { activeApiKey, activeUser } from '../database/query.js';
-import { apiKeyChannels, apiKeys, type Endpoint, users } from '../database/schema/index.js';
+import { GatewayError } from '../../core/errors.ts';
+import type { Database } from '../database/client.ts';
+import { activeApiKey, activeUser } from '../database/query.ts';
+import { apiKeyChannels, apiKeys, type Endpoint, users } from '../database/schema/index.ts';
 
 /** 从 Authorization 或 x-api-key 解析 API Key，返回有效的 Key、所属用户及绑定渠道。 */
 export async function identifyApiKey(db: Database, req: Request, endpoint: Endpoint | '/v1/models') {

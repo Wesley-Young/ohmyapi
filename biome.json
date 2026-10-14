@@ -92,9 +92,9 @@
                     "group": [
                       "**/plugins/**",
                       "**/trpc/**",
-                      "**/kernel.js",
-                      "**/app.js",
-                      "**/config.js"
+                      "**/kernel.ts",
+                      "**/app.ts",
+                      "**/config.ts"
                     ],
                     "message": "core \u53ea\u5305\u542b\u4e0e\u5e94\u7528\u65e0\u5173\u7684\u57fa\u7840\u4ee3\u7801\uff0c\u4e0d\u80fd\u4f9d\u8d56\u5e94\u7528\u6a21\u5757\u3002"
                   }

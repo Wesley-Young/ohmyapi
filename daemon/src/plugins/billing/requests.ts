@@ -1,8 +1,8 @@
 import { eq } from 'drizzle-orm';
 
-import type { Transaction } from '../database/client.js';
-import { type Endpoint, requests, requestUsage, type Usage, type UsageEstimate } from '../database/schema/index.js';
-import { cacheReadForDisplay } from './cache-usage.js';
+import type { Transaction } from '../database/client.ts';
+import { type Endpoint, requests, requestUsage, type Usage, type UsageEstimate } from '../database/schema/index.ts';
+import { cacheReadForDisplay } from './cache-usage.ts';
 
 export type RequestRow = typeof requests.$inferSelect;
 type RequestStatus = RequestRow['status'];

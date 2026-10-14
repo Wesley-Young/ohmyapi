@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { pageInput, searchInput } from '../../core/pagination.js';
-import { userIdInput } from '../users/schemas.js';
+import { pageInput, searchInput } from '../../core/pagination.ts';
+import { userIdInput } from '../users/schemas.ts';
 
 export const groupIdInput = z.object({ groupId: z.uuid('用户组标识无效') });
 export const groupNameInput = z.string().trim().min(1, '请填写名称').max(64, '名称最多 64 个字符');

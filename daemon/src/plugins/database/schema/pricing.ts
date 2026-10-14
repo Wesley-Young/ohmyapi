@@ -1,8 +1,8 @@
 import { sql } from 'drizzle-orm';
 import { check, integer, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
-import { models } from './catalog.js';
-import { createdAt, id, micros, tokenCount } from './common.js';
+import { models } from './catalog.ts';
+import { createdAt, id, micros, tokenCount } from './common.ts';
 
 export const priceRuleKind = pgEnum('price_rule_kind', ['default', 'context', 'time', 'combined']);
 

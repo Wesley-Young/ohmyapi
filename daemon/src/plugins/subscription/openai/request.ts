@@ -1,6 +1,6 @@
-import { GatewayError } from '../../../core/errors.js';
-import type { Endpoint } from '../../database/schema/index.js';
-import { providerSupports } from '../providers.js';
+import { GatewayError } from '../../../core/errors.ts';
+import type { Endpoint } from '../../database/schema/index.ts';
+import { providerSupports } from '../providers.ts';
 
 import { createHash } from 'node:crypto';
 

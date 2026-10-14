@@ -1,4 +1,4 @@
-import type { Endpoint } from '../database/schema/index.js';
+import type { Endpoint } from '../database/schema/index.ts';
 
 export function reportedCacheReadTokens(endpoint: Endpoint, raw: Record<string, unknown>): string | null {
   const details = raw[endpoint === '/v1/chat/completions' ? 'prompt_tokens_details' : 'input_tokens_details'];

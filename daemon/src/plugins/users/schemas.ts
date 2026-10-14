@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-import { parseMoney } from '../../core/money.js';
-import { pageInput, searchInput } from '../../core/pagination.js';
-import { passwordInput, usernameInput } from '../auth/schemas.js';
+import { parseMoney } from '../../core/money.ts';
+import { pageInput, searchInput } from '../../core/pagination.ts';
+import { passwordInput, usernameInput } from '../auth/schemas.ts';
 
 export const userIdInput = z.object({ userId: z.uuid('用户标识无效') });
 export const listUsersInput = z.object({ page: pageInput, search: searchInput }).default({ page: 0, search: '' });

@@ -1,6 +1,6 @@
 import { type ContextOf, createPluginFactory, defineContext } from '@fraqjs/kernel';
 
-import type { AppConfig } from './config.js';
+import type { AppConfig } from './config.ts';
 
 export const AppContext = defineContext<AppConfig>()
   .subsystems(() => ({}))

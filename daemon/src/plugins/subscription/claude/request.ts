@@ -1,11 +1,11 @@
-import { GatewayError } from '../../../core/errors.js';
-import { claudeBetas } from './betas.js';
-import { cacheControl, prepareCache } from './cache.js';
-import type { ClaudeCredentials } from './credentials.js';
-import { isFable, isLegacy, progressDisplay } from './models.js';
-import type { ClaudeSession } from './session.js';
-import { signBody } from './signing.js';
-import { type Data, object, objects, remapTools } from './tools.js';
+import { GatewayError } from '../../../core/errors.ts';
+import { claudeBetas } from './betas.ts';
+import { cacheControl, prepareCache } from './cache.ts';
+import type { ClaudeCredentials } from './credentials.ts';
+import { isFable, isLegacy, progressDisplay } from './models.ts';
+import type { ClaudeSession } from './session.ts';
+import { signBody } from './signing.ts';
+import { type Data, object, objects, remapTools } from './tools.ts';
 
 import { createHash, randomUUID } from 'node:crypto';
 

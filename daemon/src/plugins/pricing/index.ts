@@ -1,7 +1,7 @@
-import { definePlugin } from '../../kernel.js';
-import { AuthService } from '../auth/service.js';
-import { DatabaseService } from '../database/index.js';
-import { PricingService } from './service.js';
+import { definePlugin } from '../../kernel.ts';
+import { AuthService } from '../auth/service.ts';
+import { DatabaseService } from '../database/index.ts';
+import { PricingService } from './service.ts';
 
 export const PricingPlugin = definePlugin({
   name: 'ohmyapi-pricing',

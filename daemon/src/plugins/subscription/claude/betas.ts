@@ -1,5 +1,5 @@
-import { isFable, isLegacy, isOpus55, isSonnet5, progressDisplay } from './models.js';
-import { type Data, object, objects } from './tools.js';
+import { isFable, isLegacy, isOpus55, isSonnet5, progressDisplay } from './models.ts';
+import { type Data, object, objects } from './tools.ts';
 
 // 对齐 CPA 54946fa3 / claudeCodeCLIBetas，CC 2.1.280。
 const claudeTokenCountingBeta = 'token-counting-2024-11-01';

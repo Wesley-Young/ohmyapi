@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { bigint, pgView, text, uuid } from 'drizzle-orm/pg-core';
 
-import { endpoint } from './common.js';
+import { endpoint } from './common.ts';
 
 // 交集包含全部成员的配置，成员暂时停用或冷却不会扩大聚合渠道的能力。
 export const effectiveChannelModels = pgView('effective_channel_models', {

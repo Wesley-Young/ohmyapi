@@ -1,12 +1,12 @@
-import { CredentialVault } from '../../core/vault.js';
-import { definePlugin } from '../../kernel.js';
-import { AuthService } from '../auth/service.js';
-import { DatabaseService } from '../database/index.js';
-import { OutboundHttp } from '../outbound/index.js';
-import { SubscriptionService } from '../subscription/service.js';
-import { ChannelGrants } from './grants.js';
-import { ModelCatalog } from './models.js';
-import { CatalogService } from './service.js';
+import { CredentialVault } from '../../core/vault.ts';
+import { definePlugin } from '../../kernel.ts';
+import { AuthService } from '../auth/service.ts';
+import { DatabaseService } from '../database/index.ts';
+import { OutboundHttp } from '../outbound/index.ts';
+import { SubscriptionService } from '../subscription/service.ts';
+import { ChannelGrants } from './grants.ts';
+import { ModelCatalog } from './models.ts';
+import { CatalogService } from './service.ts';
 
 export const CatalogPlugin = definePlugin({
   name: 'ohmyapi-catalog',

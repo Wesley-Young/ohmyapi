@@ -1,8 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 
-import { GatewayError } from '../../core/errors.js';
-import type { Transaction } from '../database/client.js';
-import { activeApiKey, activeChannel, activeModel, availableSubscription } from '../database/query.js';
+import { GatewayError } from '../../core/errors.ts';
+import type { Transaction } from '../database/client.ts';
+import { activeApiKey, activeChannel, activeModel, availableSubscription } from '../database/query.ts';
 import {
   aggregateChannelMembers,
   apiKeyChannels,
@@ -13,9 +13,9 @@ import {
   effectiveChannelModels,
   models,
   users,
-} from '../database/schema/index.js';
-import { canUseChannel, keyAllowsModel } from '../keys/access.js';
-import type { LockedPrice } from '../pricing/service.js';
+} from '../database/schema/index.ts';
+import { canUseChannel, keyAllowsModel } from '../keys/access.ts';
+import type { LockedPrice } from '../pricing/service.ts';
 
 type Channel = typeof channels.$inferSelect;
 

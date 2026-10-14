@@ -1,8 +1,8 @@
-import { paginationInput } from '../../core/pagination.js';
-import { adminProcedure, protectedProcedure } from '../../trpc/procedures.js';
-import { userIdInput } from '../users/schemas.js';
-import { adjustWalletInput, statsRangeInput, userLedgerInput } from './schemas.js';
-import type { WalletService } from './service.js';
+import { paginationInput } from '../../core/pagination.ts';
+import { adminProcedure, protectedProcedure } from '../../trpc/procedures.ts';
+import { userIdInput } from '../users/schemas.ts';
+import { adjustWalletInput, statsRangeInput, userLedgerInput } from './schemas.ts';
+import type { WalletService } from './service.ts';
 
 export function walletRoutes(wallet: WalletService) {
   return {

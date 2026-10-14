@@ -1,4 +1,4 @@
-import { GatewayError } from '../../core/errors.js';
+import { GatewayError } from '../../core/errors.ts';
 
 // 网关由现有计费主租约保证单实例运行；同一账号跨渠道共享计数。
 export class SubscriptionConcurrency {

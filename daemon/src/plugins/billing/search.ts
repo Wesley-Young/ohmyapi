@@ -1,6 +1,6 @@
-import { GatewayError } from '../../core/errors.js';
-import type { Endpoint } from '../database/schema/index.js';
-import { maxSearchCalls } from '../pricing/rules.js';
+import { GatewayError } from '../../core/errors.ts';
+import type { Endpoint } from '../database/schema/index.ts';
+import { maxSearchCalls } from '../pricing/rules.ts';
 
 export type SearchKind = 'webSearch' | 'webSearchPreview';
 export type SearchRequest = {

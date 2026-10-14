@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
-import { AppError } from '../../../core/errors.js';
-import { type PlanCache, planValue } from '../plan.js';
-import { accountHeaders, readJson } from './client.js';
-import type { OpenAITokens } from './tokens.js';
+import { AppError } from '../../../core/errors.ts';
+import { type PlanCache, planValue } from '../plan.ts';
+import { accountHeaders, readJson } from './client.ts';
+import type { OpenAITokens } from './tokens.ts';
 
 const windowSchema = z.object({
   used_percent: z.number().nonnegative(),

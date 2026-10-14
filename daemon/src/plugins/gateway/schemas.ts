@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { pageInput } from '../../core/pagination.js';
+import { pageInput } from '../../core/pagination.ts';
 
 export const listRequestsInput = z
   .object({ page: pageInput, reviewOnly: z.boolean().default(false) })

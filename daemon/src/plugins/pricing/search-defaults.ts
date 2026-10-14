@@ -1,5 +1,5 @@
-import { parseMoney } from '../../core/money.js';
-import type { Rule } from './rules.js';
+import { parseMoney } from '../../core/money.ts';
+import type { Rule } from './rules.ts';
 
 /** GPT-5/6 搜索调用单价按每千次；USD/CNY 仅作为显示符号。
  * 定价来源：https://developers.openai.com/api/docs/pricing

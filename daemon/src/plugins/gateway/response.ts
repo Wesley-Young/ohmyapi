@@ -1,10 +1,10 @@
-import type { GatewayConfig } from '../../config.js';
-import { GatewayError } from '../../core/errors.js';
-import { safeErrorMessage } from '../../core/logging.js';
-import type { Endpoint } from '../database/schema/index.js';
-import type { RequestLifecycle } from './lifecycle.js';
-import { responseHeaders } from './protocol.js';
-import { SseObserver, type UsageCollector } from './usage.js';
+import type { GatewayConfig } from '../../config.ts';
+import { GatewayError } from '../../core/errors.ts';
+import { safeErrorMessage } from '../../core/logging.ts';
+import type { Endpoint } from '../database/schema/index.ts';
+import type { RequestLifecycle } from './lifecycle.ts';
+import { responseHeaders } from './protocol.ts';
+import { SseObserver, type UsageCollector } from './usage.ts';
 
 export type ForwardResponseOptions = {
   upstream: Response;

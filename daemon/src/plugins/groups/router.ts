@@ -1,5 +1,5 @@
-import { adminProcedure } from '../../trpc/procedures.js';
-import { userIdInput } from '../users/schemas.js';
+import { adminProcedure } from '../../trpc/procedures.ts';
+import { userIdInput } from '../users/schemas.ts';
 import {
   channelGroupsInput,
   createGroupInput,
@@ -9,8 +9,8 @@ import {
   setGroupChannelAccessInput,
   setGroupMembersInput,
   setUserGroupsInput,
-} from './schemas.js';
-import type { GroupService } from './service.js';
+} from './schemas.ts';
+import type { GroupService } from './service.ts';
 
 export function groupAdminRoutes(groups: GroupService) {
   return {

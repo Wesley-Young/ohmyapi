@@ -1,7 +1,7 @@
-import { definePlugin } from '../../kernel.js';
-import { AuthService } from '../auth/service.js';
-import { DatabaseService } from '../database/index.js';
-import { WalletService } from './service.js';
+import { definePlugin } from '../../kernel.ts';
+import { AuthService } from '../auth/service.ts';
+import { DatabaseService } from '../database/index.ts';
+import { WalletService } from './service.ts';
 
 export const WalletPlugin = definePlugin({
   name: 'ohmyapi-wallet',

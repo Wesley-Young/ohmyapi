@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 
-import type { Database, Transaction } from '../database/client.js';
-import { apiKeyModelGrants, userChannelGrants } from '../database/schema/index.js';
+import type { Database, Transaction } from '../database/client.ts';
+import { apiKeyModelGrants, userChannelGrants } from '../database/schema/index.ts';
 
 /** 管理员和公开渠道无需授权，其余渠道需要为用户单独授权。 */
 export async function canUseChannel(

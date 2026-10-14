@@ -1,6 +1,6 @@
-import { createApp } from './app.js';
-import { loadConfig } from './config.js';
-import { errorDetails, formatEvent, globalLogger } from './core/logging.js';
+import { createApp } from './app.ts';
+import { loadConfig } from './config.ts';
+import { errorDetails, formatEvent, globalLogger } from './core/logging.ts';
 
 let ctx: ReturnType<typeof createApp> | undefined;
 let stopping = false;

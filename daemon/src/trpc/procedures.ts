@@ -1,9 +1,9 @@
 import { initTRPC, type TRPC_ERROR_CODE_KEY, TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { AppError, type AppErrorKind } from '../core/errors.js';
-import { type EventLogger, formatEvent } from '../core/logging.js';
-import type { Principal } from '../plugins/auth/service.js';
+import { AppError, type AppErrorKind } from '../core/errors.ts';
+import { type EventLogger, formatEvent } from '../core/logging.ts';
+import type { Principal } from '../plugins/auth/service.ts';
 
 /** 单次 RPC 请求的上下文；服务实例在创建路由时注入，不经过请求上下文传递。 */
 export interface RpcContext {
