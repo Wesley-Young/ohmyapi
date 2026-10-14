@@ -2,8 +2,9 @@ import type { inferRouterInputs, inferRouterOutputs } from '@trpc/server';
 
 import { authRoutes } from '../plugins/auth/router.js';
 import type { AuthService } from '../plugins/auth/service.js';
+import type { BillingRecords } from '../plugins/billing/records.js';
+import type { BillingReviewService } from '../plugins/billing/review.js';
 import { billingRoutes } from '../plugins/billing/router.js';
-import type { BillingService } from '../plugins/billing/service.js';
 import { catalogAdminRoutes } from '../plugins/catalog/router.js';
 import type { CatalogService } from '../plugins/catalog/service.js';
 import { requestRoutes } from '../plugins/gateway/router.js';
@@ -27,7 +28,8 @@ export interface RouterServices {
   keys: KeyService;
   wallet: WalletService;
   pricing: PricingService;
-  billing: BillingService;
+  billingRecords: BillingRecords;
+  billingReview: BillingReviewService;
   catalog: CatalogService;
   subscription: SubscriptionService;
   gateway: GatewayService;
@@ -37,7 +39,7 @@ export interface RouterServices {
 export function createAppRouter(services: RouterServices) {
   const wallet = walletRoutes(services.wallet);
   const pricing = pricingRoutes(services.pricing, services.keys);
-  const billing = billingRoutes(services.billing);
+  const billing = billingRoutes(services.billingRecords, services.billingReview);
   const requests = requestRoutes(services.gateway);
   return router({
     system: {

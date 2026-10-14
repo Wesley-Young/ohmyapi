@@ -8,6 +8,8 @@ import { errorDetails, formatEvent } from '../../core/logging.js';
 import { definePlugin } from '../../kernel.js';
 import { createAppRouter } from '../../trpc/router.js';
 import { AuthService } from '../auth/service.js';
+import { BillingRecords } from '../billing/records.js';
+import { BillingReviewService } from '../billing/review.js';
 import { BillingService } from '../billing/service.js';
 import { CatalogService } from '../catalog/service.js';
 import { DatabaseService } from '../database/index.js';
@@ -30,6 +32,8 @@ export const HttpPlugin = definePlugin({
     gateway: GatewayService,
     pricing: PricingService,
     billing: BillingService,
+    billingRecords: BillingRecords,
+    billingReview: BillingReviewService,
     keys: KeyService,
     subscription: SubscriptionService,
     users: UserService,
@@ -44,7 +48,8 @@ export const HttpPlugin = definePlugin({
       keys: ctx.keys,
       wallet: ctx.wallet,
       pricing: ctx.pricing,
-      billing: ctx.billing,
+      billingRecords: ctx.billingRecords,
+      billingReview: ctx.billingReview,
       catalog: ctx.catalog,
       subscription: ctx.subscription,
       gateway: ctx.gateway,
