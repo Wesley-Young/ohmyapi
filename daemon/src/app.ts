@@ -23,8 +23,8 @@ export function createApp(config: AppConfig) {
   ctx.logBus.on('log', logHandler);
   ctx.install(DatabasePlugin);
   ctx.install(AuthPlugin);
-  ctx.install(UsersPlugin);
   ctx.install(GroupsPlugin);
+  ctx.install(UsersPlugin);
   ctx.install(KeysPlugin);
   ctx.install(WalletPlugin);
   ctx.install(PricingPlugin);

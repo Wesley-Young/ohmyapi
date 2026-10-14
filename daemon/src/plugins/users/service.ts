@@ -10,14 +10,17 @@ import { type AuthService, type Principal, publicUser } from '../auth/service.js
 import type { Database } from '../database/client.js';
 import { containsText, paginate } from '../database/query.js';
 import { apiKeys, sessions, systemSettings, userGroupMembers, users, wallets } from '../database/schema/index.js';
+import type { GroupService } from '../groups/service.js';
 
 export class UserService {
   static readonly token = serviceToken<UserService>('ohmyapi/users');
   private readonly db: Database;
   private readonly auth: AuthService;
-  constructor({ db, auth }: { db: Database; auth: AuthService }) {
+  private readonly groups: GroupService;
+  constructor({ db, auth, groups }: { db: Database; auth: AuthService; groups: GroupService }) {
     this.db = db;
     this.auth = auth;
+    this.groups = groups;
   }
 
   async list(page: number, search: string) {
@@ -50,7 +53,16 @@ export class UserService {
     return { ...publicUser(user), createdAt: user.createdAt.toISOString(), deleted: user.deletedAt !== null };
   }
 
-  async create(principal: Principal, username: string, password: string = generatePassword()) {
+  /** 创建普通用户，可同时加入用户组；sync 时授予各组原有成员共有的渠道。 */
+  async create(
+    principal: Principal,
+    {
+      username,
+      password = generatePassword(),
+      groupIds = [],
+      sync = true,
+    }: { username: string; password?: string; groupIds?: string[]; sync?: boolean },
+  ) {
     const passwordHash = await hashPassword(password);
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [user] = await tx
@@ -67,7 +79,8 @@ export class UserService {
         targetId: user.id,
         metadata: { username },
       });
-      return { user: publicUser(user), password };
+      const groups = await this.groups.addNewUser(tx, actor.id, user.id, groupIds, sync);
+      return { user: publicUser(user), password, ...groups };
     });
   }
 

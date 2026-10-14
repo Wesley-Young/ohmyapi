@@ -16,9 +16,7 @@ export function userAdminRoutes(users: UserService) {
     delete: adminProcedure
       .input(userIdInput)
       .mutation(({ ctx, input }) => users.manage(ctx.principal, input.userId, 'delete')),
-    create: adminProcedure
-      .input(createUserInput)
-      .mutation(({ ctx, input }) => users.create(ctx.principal, input.username, input.password)),
+    create: adminProcedure.input(createUserInput).mutation(({ ctx, input }) => users.create(ctx.principal, input)),
     setRole: adminProcedure
       .input(setRoleInput)
       .mutation(({ ctx, input }) => users.setRole(ctx.principal, input.userId, input.role)),

@@ -1,4 +1,4 @@
-import { Badge, Box, Button, Code, HStack, Input, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Checkbox, Code, HStack, Input, Stack, Table, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Pencil, Settings2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
@@ -18,7 +18,7 @@ import {
 } from '../components/ui';
 import { UserRoleAction } from '../components/user-role-action';
 import { WalletAdjustmentDialog } from '../components/wallet-adjustment';
-import { refreshUser } from '../lib/cache';
+import { refreshGrants, refreshUser } from '../lib/cache';
 import { displayMoney, formError, localDate } from '../lib/format';
 import { queryClient, trpc, trpcClient } from '../lib/trpc';
 
@@ -31,6 +31,9 @@ export default function Users() {
   const [adjustingUser, setAdjustingUser] = useState<{ id: string; username: string; balance: string } | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [groupIds, setGroupIds] = useState<string[]>([]);
+  const [sync, setSync] = useState(true);
+  const groups = useQuery({ ...trpc.admin.groups.list.queryOptions(), enabled: creating });
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string>();
   const task = useMutation(
@@ -41,8 +44,10 @@ export default function Users() {
         setCopyError(undefined);
         setCreating(false);
         setUsername('');
+        setGroupIds([]);
+        setSync(true);
         setPage(0);
-        await queryClient.invalidateQueries(trpc.admin.users.list.pathFilter());
+        await Promise.all([queryClient.invalidateQueries(trpc.admin.users.list.pathFilter()), refreshGrants()]);
       },
     }),
   );
@@ -84,6 +89,10 @@ export default function Users() {
                 {credentials.user.username}
               </Text>
               <Badge colorPalette="green">已创建</Badge>
+              {credentials.joined > 0 && <Badge colorPalette="gray">加入 {credentials.joined} 个用户组</Badge>}
+              {credentials.syncedChannels > 0 && (
+                <Badge colorPalette="gray">同步 {credentials.syncedChannels} 个渠道</Badge>
+              )}
             </HStack>
             <Text fontSize="sm" color="gray.500">
               请保存密码，关闭后无法再次查看。
@@ -131,6 +140,8 @@ export default function Users() {
           onClose={() => {
             setCreating(false);
             setPassword('');
+            setGroupIds([]);
+            setSync(true);
             task.reset();
           }}
           busy={task.isPending}
@@ -139,7 +150,13 @@ export default function Users() {
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                if (!task.isPending) task.mutate({ username, password: password || undefined });
+                if (!task.isPending)
+                  task.mutate({
+                    username,
+                    password: password || undefined,
+                    groupIds,
+                    sync: groupIds.length > 0 && sync,
+                  });
               }}
             >
               <Stack gap="5">
@@ -164,6 +181,52 @@ export default function Users() {
                   error={error?.fields.password?.[0]}
                   helper="留空自动生成 16 字符密码"
                 />
+                <Stack gap="3" as="fieldset">
+                  <Text as="legend" fontSize="sm" fontWeight="500" mb="3">
+                    用户组
+                  </Text>
+                  <ErrorText>{formError(groups.error)?.message}</ErrorText>
+                  {groups.isPending ? (
+                    <Loading />
+                  ) : (
+                    groups.data && (
+                      <>
+                        {groups.data.map((group) => (
+                          <Checkbox.Root
+                            key={group.id}
+                            checked={groupIds.includes(group.id)}
+                            disabled={task.isPending}
+                            onCheckedChange={(event) =>
+                              setGroupIds((previous) =>
+                                event.checked ? [...previous, group.id] : previous.filter((id) => id !== group.id),
+                              )
+                            }
+                          >
+                            <Checkbox.HiddenInput />
+                            <Checkbox.Control />
+                            <Checkbox.Label overflowWrap="anywhere">{group.name}</Checkbox.Label>
+                          </Checkbox.Root>
+                        ))}
+                        {!groups.data.length && (
+                          <Text color="gray.500" fontSize="sm">
+                            暂无用户组
+                          </Text>
+                        )}
+                      </>
+                    )
+                  )}
+                </Stack>
+                {groupIds.length > 0 && (
+                  <Checkbox.Root
+                    checked={sync}
+                    disabled={task.isPending}
+                    onCheckedChange={(event) => setSync(event.checked === true)}
+                  >
+                    <Checkbox.HiddenInput />
+                    <Checkbox.Control />
+                    <Checkbox.Label>同步各组现有成员共有的渠道</Checkbox.Label>
+                  </Checkbox.Root>
+                )}
                 <ErrorText>{copyError ?? error?.message}</ErrorText>
                 <HStack>
                   <PrimaryButton type="submit" loading={task.isPending}>
@@ -175,6 +238,8 @@ export default function Users() {
                     onClick={() => {
                       setCreating(false);
                       setPassword('');
+                      setGroupIds([]);
+                      setSync(true);
                       task.reset();
                     }}
                   >

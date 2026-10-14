@@ -179,16 +179,7 @@ export class GroupService {
   /** 设置用户所属的组；sync 时为新加入的每个组授予该组原有成员共有的渠道。 */
   async setUserGroups(principal: Principal, userId: string, groupIds: string[], sync: boolean) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
-      const ids = [...new Set(groupIds)].sort();
-      if (ids.length) {
-        const locked = await tx
-          .select({ id: userGroups.id })
-          .from(userGroups)
-          .where(inArray(userGroups.id, ids))
-          .orderBy(asc(userGroups.id))
-          .for('update');
-        if (locked.length !== ids.length) throw new AppError('bad_request', '用户组不存在');
-      }
+      const ids = await this.lockGroups(tx, groupIds);
       await this.lockUsers(tx, [userId]);
       const current = (
         await tx
@@ -198,35 +189,38 @@ export class GroupService {
       ).map((row) => row.groupId);
       const joined = ids.filter((id) => !current.includes(id));
       const left = current.filter((id) => !ids.includes(id));
-      const synced = new Set<string>();
-      if (sync)
-        for (const groupId of joined) {
-          const memberIds = await tx
-            .select({ userId: userGroupMembers.userId })
-            .from(userGroupMembers)
-            .where(eq(userGroupMembers.groupId, groupId));
-          for (const channel of await this.commonChannels(
-            tx,
-            memberIds.map((row) => row.userId),
-            true,
-          ))
-            synced.add(channel.id);
-        }
       if (left.length)
         await tx
           .delete(userGroupMembers)
           .where(and(eq(userGroupMembers.userId, userId), inArray(userGroupMembers.groupId, left)));
-      if (joined.length) await tx.insert(userGroupMembers).values(joined.map((groupId) => ({ groupId, userId })));
-      await this.grant(tx, [userId], [...synced]);
+      const synced = await this.join(tx, userId, joined, sync);
       await recordAudit(tx, {
         actorId: actor.id,
         action: 'user.groups',
         targetType: 'user',
         targetId: userId,
-        metadata: { joined, left, syncedChannelIds: [...synced] },
+        metadata: { joined, left, syncedChannelIds: synced },
       });
-      return { joined: joined.length, left: left.length, syncedChannels: synced.size };
+      return { joined: joined.length, left: left.length, syncedChannels: synced.length };
     });
+  }
+
+  /**
+   * 在创建用户的事务中把新用户加入用户组；sync 时授予各组原有成员共有的渠道。
+   * 新用户在事务提交前对其他事务不可见，无需再锁定。
+   */
+  async addNewUser(tx: Transaction, actorId: string, userId: string, groupIds: string[], sync: boolean) {
+    const ids = await this.lockGroups(tx, groupIds);
+    if (!ids.length) return { joined: 0, syncedChannels: 0 };
+    const synced = await this.join(tx, userId, ids, sync);
+    await recordAudit(tx, {
+      actorId,
+      action: 'user.groups',
+      targetType: 'user',
+      targetId: userId,
+      metadata: { joined: ids, left: [], syncedChannelIds: synced },
+    });
+    return { joined: ids.length, syncedChannels: synced.length };
   }
 
   /** 该组成员对每个非公开渠道的授权人数。 */
@@ -306,6 +300,44 @@ export class GroupService {
       await this.audit(tx, actor.id, 'group.channels', groupId, { channelIds: ids, granted, userIds: affectedUsers });
       return { affectedUsers: affectedUsers.length };
     });
+  }
+
+  /** 按标识顺序锁定用户组，要求全部存在；返回去重排序后的标识。 */
+  private async lockGroups(tx: Transaction, groupIds: string[]) {
+    const ids = [...new Set(groupIds)].sort();
+    if (!ids.length) return ids;
+    const locked = await tx
+      .select({ id: userGroups.id })
+      .from(userGroups)
+      .where(inArray(userGroups.id, ids))
+      .orderBy(asc(userGroups.id))
+      .for('update');
+    if (locked.length !== ids.length) throw new AppError('bad_request', '用户组不存在');
+    return ids;
+  }
+
+  /**
+   * 把用户加入尚未加入的组（调用方已锁定组和用户）。sync 时按加入前的成员，
+   * 授予每个组原有成员共有的渠道，返回同步的渠道。
+   */
+  private async join(tx: Transaction, userId: string, groupIds: string[], sync: boolean) {
+    const synced = new Set<string>();
+    if (sync)
+      for (const groupId of groupIds) {
+        const memberIds = await tx
+          .select({ userId: userGroupMembers.userId })
+          .from(userGroupMembers)
+          .where(eq(userGroupMembers.groupId, groupId));
+        for (const channel of await this.commonChannels(
+          tx,
+          memberIds.map((row) => row.userId),
+          true,
+        ))
+          synced.add(channel.id);
+      }
+    if (groupIds.length) await tx.insert(userGroupMembers).values(groupIds.map((groupId) => ({ groupId, userId })));
+    await this.grant(tx, [userId], [...synced]);
+    return [...synced];
   }
 
   private async lockGroup(tx: Transaction, groupId: string) {
