@@ -1,0 +1,161 @@
+import { Button, Field, HStack, Link, Stack, Text, Textarea } from '@chakra-ui/react';
+import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
+import { RefreshCw } from 'lucide-react';
+
+import { formError, localDateTime } from '../lib/format';
+import { brandColor } from '../lib/theme';
+import { OpenAIResetCredits } from './openai-reset-credits';
+import { ErrorText, FormInput } from './ui';
+
+type Channel = RouterOutputs['admin']['catalog']['list']['channels'][number];
+export type SubscriptionAccessMode = 'oauth' | 'import';
+
+/** 已接入订阅账号的令牌状态、手动刷新与重置卡。 */
+export function SubscriptionAccount({
+  channel,
+  subscription,
+  refreshing,
+  refreshError,
+  onRefresh,
+  onResetCreditBusyChange,
+}: {
+  channel: Channel;
+  subscription: NonNullable<Channel['subscription']>;
+  refreshing: boolean;
+  refreshError: unknown;
+  onRefresh: () => void;
+  onResetCreditBusyChange: (busy: boolean) => void;
+}) {
+  return (
+    <Stack gap="3">
+      <Text fontSize="sm" color="gray.500">
+        访问令牌有效期至 {localDateTime(subscription.expiresAt)}，到期前将自动刷新
+      </Text>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        alignSelf="start"
+        disabled={!channel.enabled}
+        loading={refreshing}
+        onClick={onRefresh}
+      >
+        <RefreshCw size={16} aria-hidden="true" />
+        手动刷新令牌
+      </Button>
+      <ErrorText>{formError(refreshError)?.message}</ErrorText>
+      {subscription.provider === 'openai' && (
+        <OpenAIResetCredits
+          channelId={channel.id}
+          channelName={channel.name}
+          enabled={channel.enabled && !subscription.errorCode}
+          onBusyChange={onResetCreditBusyChange}
+        />
+      )}
+    </Stack>
+  );
+}
+
+/** 订阅账号的接入方式：OAuth 授权回调或导入凭据。 */
+export function SubscriptionAccess({
+  provider,
+  editing,
+  busy,
+  mode,
+  onModeChange,
+  credentials,
+  onCredentialsChange,
+  callback,
+  onCallbackChange,
+  oauthUrl,
+  oauthPending,
+  onStartOAuth,
+}: {
+  provider: 'openai' | 'claude';
+  editing: boolean;
+  busy: boolean;
+  mode: SubscriptionAccessMode;
+  onModeChange: (mode: SubscriptionAccessMode) => void;
+  credentials: string;
+  onCredentialsChange: (value: string) => void;
+  callback: string;
+  onCallbackChange: (value: string) => void;
+  oauthUrl?: string;
+  oauthPending: boolean;
+  onStartOAuth: () => void;
+}) {
+  return (
+    <>
+      <Field.Root>
+        <Field.Label>接入方式</Field.Label>
+        <HStack gap="2" flexWrap="wrap" role="group" aria-label="接入方式">
+          {(
+            [
+              { value: 'oauth', label: 'OAuth 授权' },
+              { value: 'import', label: '导入凭据' },
+            ] as const
+          ).map((option) => (
+            <Button
+              key={option.value}
+              type="button"
+              size="sm"
+              variant={mode === option.value ? 'solid' : 'outline'}
+              aria-pressed={mode === option.value}
+              disabled={busy}
+              onClick={() => onModeChange(option.value)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </HStack>
+      </Field.Root>
+      {mode === 'import' ? (
+        <Field.Root>
+          <Field.Label>{editing ? '替换凭据（留空保留现有凭据）' : '账号凭据'}</Field.Label>
+          <Textarea
+            aria-label="账号凭据"
+            value={credentials}
+            onChange={(e) => onCredentialsChange(e.target.value)}
+            rows={7}
+            maxLength={60000}
+            required={!editing}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <Field.HelperText>
+            {provider === 'claude'
+              ? '粘贴 CPA Claude 凭据或 claudeAiOauth JSON；缺少账号 ID 时通过出站代理查询'
+              : '粘贴 ~/.codex/auth.json 文件内容'}
+          </Field.HelperText>
+        </Field.Root>
+      ) : (
+        <Stack gap="3">
+          <Button type="button" variant="outline" onClick={onStartOAuth} loading={oauthPending} disabled={busy}>
+            生成授权链接
+          </Button>
+          {oauthUrl && (
+            <>
+              <Link href={oauthUrl} target="_blank" rel="noreferrer" color={brandColor}>
+                打开 {provider === 'claude' ? 'Claude' : 'OpenAI'} 授权页面
+              </Link>
+              <Text fontSize="sm" color="gray.500">
+                授权后将跳转到 localhost:{provider === 'claude' ? '54545/callback' : '1455/auth/callback'}
+                ，即使页面提示无法访问，也请复制地址栏的完整 URL 并粘贴到下方。
+              </Text>
+            </>
+          )}
+          <FormInput
+            label={editing ? '授权回调地址（留空保留现有凭据）' : '授权回调地址'}
+            value={callback}
+            onChange={(e) => onCallbackChange(e.target.value)}
+            type="url"
+            required={!editing || Boolean(oauthUrl)}
+            autoComplete="off"
+            maxLength={8192}
+            spellCheck={false}
+          />
+        </Stack>
+      )}
+    </>
+  );
+}

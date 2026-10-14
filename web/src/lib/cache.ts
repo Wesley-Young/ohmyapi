@@ -27,3 +27,14 @@ export const refreshCatalog = () =>
     queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.channelGrants.pathFilter()),
   ]);
+
+/** 人工核对或修正某个请求的计费后，刷新请求列表、详情、对账与待核对计数。 */
+export const refreshRequestBilling = (userId: string, requestId: string) =>
+  Promise.all([
+    invalidateUser(userId),
+    queryClient.invalidateQueries(trpc.requests.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.requests.pathFilter()),
+    queryClient.invalidateQueries(trpc.requestDetail.queryFilter({ requestId })),
+    queryClient.invalidateQueries(trpc.admin.billing.reconcile.queryFilter({ userId })),
+    queryClient.invalidateQueries(trpc.admin.reviewCount.queryFilter()),
+  ]);

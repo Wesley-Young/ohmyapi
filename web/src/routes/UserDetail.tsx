@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router';
 
 import { ChannelGrants } from '../components/channel-grants';
-import { WalletReconciliation } from '../components/request-billing';
 import {
   ConfirmAction,
   ErrorText,
@@ -17,6 +16,7 @@ import {
 } from '../components/ui';
 import { UserRoleAction } from '../components/user-role-action';
 import { Ledger, WalletSummary } from '../components/wallet';
+import { WalletReconciliation } from '../components/wallet-reconciliation';
 import { invalidateUser } from '../lib/cache';
 import { formError } from '../lib/format';
 import { trpc, trpcClient } from '../lib/trpc';

@@ -14,6 +14,7 @@ import {
   type SourceModel,
   suggestedPreset,
 } from '../lib/models-dev';
+import { minuteText } from '../lib/pricing';
 import { trpc } from '../lib/trpc';
 import { SelectField } from './fields';
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton } from './ui';
@@ -27,8 +28,6 @@ const priceColumns = [
   ['cacheReadPrice', '缓存读'],
   ['cacheWritePrice', '缓存写'],
 ] as const;
-const minuteText = (minute: number) =>
-  `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
 const priceText = (price: string | null) =>
   price === null ? '—' : price.includes('.') ? price.replace(/0+$/, '').replace(/\.$/, '') : price;
 

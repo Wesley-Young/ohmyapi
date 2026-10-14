@@ -5,8 +5,9 @@ import { ArrowDown, ArrowUp, Brain, ClipboardCheck, Eye, Gauge, Package, Pencil 
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 
+import { BillingAction, BulkZeroBilling } from '../components/billing-review';
 import { IconButton } from '../components/icon-button';
-import { BillingAction, BulkZeroBilling, RequestDetail } from '../components/request-billing';
+import { RequestDetail } from '../components/request-detail';
 import { useReviewCount } from '../components/review-badge';
 import { ErrorText, Loading, PageControls, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
