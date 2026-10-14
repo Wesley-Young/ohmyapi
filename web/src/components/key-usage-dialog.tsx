@@ -1,5 +1,6 @@
 import { Code, Link, Stack, Text } from '@chakra-ui/react';
 
+import { brandColor } from '../lib/theme';
 import { FormDialog } from './ui';
 
 export function KeyUsageDialog({ onClose }: { onClose: () => void }) {
@@ -25,7 +26,7 @@ export function KeyUsageDialog({ onClose }: { onClose: () => void }) {
         <Text color="gray.600">设置客户端基础地址到本站点，并且复制列表中的 API Key 到客户端配置中。</Text>
         <Text color="gray.600">
           点击对应 API Key 的“导出”按钮，可将配置导入{' '}
-          <Link href="https://ccswitch.io/" color="#656bff">
+          <Link href="https://ccswitch.io/" color={brandColor}>
             CC Switch
           </Link>{' '}
           管理。

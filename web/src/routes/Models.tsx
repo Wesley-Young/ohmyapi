@@ -8,7 +8,7 @@ import { ModelImport } from '../components/model-import';
 import { ModelPricing } from '../components/model-pricing';
 import { ConfirmAction, ErrorText, Loading, PrimaryButton, Title } from '../components/ui';
 import { refreshCatalog } from '../lib/cache';
-import { formError } from '../lib/format';
+import { formatCount, formError } from '../lib/format';
 import { brandColor } from '../lib/theme';
 import { trpc, trpcClient } from '../lib/trpc';
 
@@ -109,8 +109,8 @@ export default function Models() {
                       {selected.name}
                     </Heading>
                     <HStack gap="2" flexWrap="wrap">
-                      <Badge colorPalette="gray">输入容量 {selected.inputTokenLimit.toLocaleString()} Token</Badge>
-                      <Badge colorPalette="gray">输出上限 {selected.outputTokenLimit.toLocaleString()} Token</Badge>
+                      <Badge colorPalette="gray">输入容量 {formatCount(selected.inputTokenLimit)} Token</Badge>
+                      <Badge colorPalette="gray">输出上限 {formatCount(selected.outputTokenLimit)} Token</Badge>
                     </HStack>
                   </Stack>
                   <HStack gap="2" flexWrap="wrap">

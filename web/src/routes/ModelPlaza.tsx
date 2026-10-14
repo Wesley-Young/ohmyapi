@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { ErrorText, FormDialog, Loading, Title } from '../components/ui';
-import { displayMoney, displayRange, formError } from '../lib/format';
+import { displayMoney, displayRange, formatCount, formError } from '../lib/format';
 import { brandColor } from '../lib/theme';
 import { trpc } from '../lib/trpc';
 
@@ -174,8 +174,8 @@ export default function ModelPlaza() {
         <FormDialog open title={selected.name} onClose={() => setSelectedId(undefined)} size="xl">
           <Stack gap="6">
             <HStack flexWrap="wrap">
-              <Badge colorPalette="gray">输入上限 {selected.inputTokenLimit.toLocaleString()} Token</Badge>
-              <Badge colorPalette="gray">输出上限 {selected.outputTokenLimit.toLocaleString()} Token</Badge>
+              <Badge colorPalette="gray">输入上限 {formatCount(selected.inputTokenLimit)} Token</Badge>
+              <Badge colorPalette="gray">输出上限 {formatCount(selected.outputTokenLimit)} Token</Badge>
             </HStack>
             {selected.channels.map((channel) => (
               <Stack key={channel.id} gap="3">

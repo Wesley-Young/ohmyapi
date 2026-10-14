@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { refreshCatalog } from '../lib/cache';
-import { formError } from '../lib/format';
+import { formatCount, formError } from '../lib/format';
 import {
   buildImportRules,
   convertPrices,
@@ -343,12 +343,8 @@ export function ModelImport({
                         <HStack gap="2" flexWrap="wrap">
                           <Badge colorPalette="gray">{selection.source.providerName}</Badge>
                           {existing.has(selection.source.name) && <Badge colorPalette="gray">将覆盖</Badge>}
-                          <Badge colorPalette="gray">
-                            输入容量 {selection.source.inputTokenLimit.toLocaleString()}
-                          </Badge>
-                          <Badge colorPalette="gray">
-                            输出上限 {selection.source.outputTokenLimit.toLocaleString()}
-                          </Badge>
+                          <Badge colorPalette="gray">输入容量 {formatCount(selection.source.inputTokenLimit)}</Badge>
+                          <Badge colorPalette="gray">输出上限 {formatCount(selection.source.outputTokenLimit)}</Badge>
                         </HStack>
                       </Stack>
                       <Box>
@@ -393,7 +389,7 @@ export function ModelImport({
                                     </Text>
                                     {rule.contextMin !== null && (
                                       <Badge colorPalette="gray" mt="1">
-                                        ≥ {Number(rule.contextMin).toLocaleString()} Token
+                                        ≥ {formatCount(rule.contextMin)} Token
                                       </Badge>
                                     )}
                                     {rule.startMinute !== null && rule.endMinute !== null && (
