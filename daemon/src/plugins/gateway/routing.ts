@@ -1,19 +1,11 @@
 import { and, desc, eq } from 'drizzle-orm';
 
 import { GatewayError } from '../../core/errors.js';
-import type { Database, Transaction } from '../database/client.js';
-import { activeChannel } from '../database/query.js';
+import type { Database } from '../database/client.js';
+import { activeChannel, availableSubscription } from '../database/query.js';
 import type { Endpoint } from '../database/schema/index.js';
-import {
-  aggregateChannelMembers,
-  channels,
-  effectiveChannelEndpoints,
-  effectiveChannelModels,
-  subscriptionAccounts,
-} from '../database/schema/index.js';
-import { availableSubscription } from '../subscription/availability.js';
-import { openAIEndpoints } from '../subscription/openai/request.js';
-import type { SubscriptionService } from '../subscription/service.js';
+import { aggregateChannelMembers, channels, subscriptionAccounts } from '../database/schema/index.js';
+import type { SubscriptionChannels } from './adapters.js';
 import type { AffinitySelection, ChannelAffinity } from './affinity.js';
 import { requestSession } from './session.js';
 
@@ -21,7 +13,7 @@ type Channel = typeof channels.$inferSelect;
 
 export async function selectExecutionChannel(
   db: Database,
-  subscription: SubscriptionService,
+  subscriptions: SubscriptionChannels,
   entry: Channel,
   parsed: Record<string, unknown>,
   endpoint: Endpoint,
@@ -49,9 +41,8 @@ export async function selectExecutionChannel(
     ({ channel, account }) =>
       channel.type === 'api' ||
       (channel.type === 'subscription' &&
-        (account?.provider === 'claude'
-          ? endpoint === '/v1/messages'
-          : account?.provider === 'openai' && openAIEndpoints.some((value) => value === endpoint))),
+        account !== null &&
+        subscriptions.supportsEndpoint(account.provider, endpoint)),
   );
   if (rows.length && !compatible.length)
     throw new GatewayError(400, 'aggregate_request_unsupported', 'No member supports the requested endpoint');
@@ -61,7 +52,7 @@ export async function selectExecutionChannel(
       (account &&
         (!account.cooldownUntil || account.cooldownUntil.getTime() <= Date.now()) &&
         !(Date.parse(account.modelCooldowns[String(parsed.model)] ?? '') > Date.now()) &&
-        subscription.concurrency.active(account.id) < account.maxConcurrent),
+        subscriptions.activeRequests(account.id) < account.maxConcurrent),
   );
   if (!available.length)
     throw new GatewayError(503, 'aggregate_unavailable', 'No aggregate member is currently available');
@@ -81,68 +72,4 @@ export async function selectExecutionChannel(
     }
   }
   return { channel, affinity };
-}
-
-// 在预占和发送前复查入口交集及实际成员，配置变更不能绕过成员关系或能力校验。
-export async function lockExecutionRoute(
-  tx: Transaction,
-  input: { channelId: string; modelId: string; endpoint: Endpoint; executionChannel: Channel },
-) {
-  const [entry] = await tx
-    .select({ type: channels.type })
-    .from(channels)
-    .innerJoin(effectiveChannelModels, eq(effectiveChannelModels.channelId, channels.id))
-    .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, channels.id))
-    .where(
-      and(
-        eq(channels.id, input.channelId),
-        activeChannel(),
-        eq(effectiveChannelModels.modelId, input.modelId),
-        eq(effectiveChannelEndpoints.endpoint, input.endpoint),
-      ),
-    )
-    .for('share', { of: channels });
-  if (!entry) throw new GatewayError(503, 'channel_unavailable', 'The entry channel capability changed');
-  const selected = input.executionChannel;
-  if (entry.type === 'aggregate') {
-    const [member] = await tx
-      .select()
-      .from(aggregateChannelMembers)
-      .where(
-        and(
-          eq(aggregateChannelMembers.aggregateChannelId, input.channelId),
-          eq(aggregateChannelMembers.memberChannelId, selected.id),
-        ),
-      )
-      .for('share');
-    if (!member) throw new GatewayError(503, 'channel_unavailable', 'The selected member was removed');
-  } else if (input.channelId !== selected.id) {
-    throw new GatewayError(503, 'channel_unavailable', 'The selected channel does not match the entry');
-  }
-  const [actual] = await tx
-    .select({ channel: channels })
-    .from(channels)
-    .innerJoin(effectiveChannelModels, eq(effectiveChannelModels.channelId, channels.id))
-    .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, channels.id))
-    .where(
-      and(
-        eq(channels.id, selected.id),
-        activeChannel(),
-        eq(effectiveChannelModels.modelId, input.modelId),
-        eq(effectiveChannelEndpoints.endpoint, input.endpoint),
-        availableSubscription(),
-      ),
-    )
-    .for('share', { of: channels });
-  const current = actual?.channel;
-  if (
-    !current ||
-    current.type === 'aggregate' ||
-    current.type !== selected.type ||
-    current.baseUrl !== selected.baseUrl ||
-    current.proxyUrlEncrypted !== selected.proxyUrlEncrypted ||
-    current.credentialEncrypted !== selected.credentialEncrypted ||
-    current.subscriptionAccountId !== selected.subscriptionAccountId
-  )
-    throw new GatewayError(503, 'channel_unavailable', 'The selected channel configuration changed');
 }

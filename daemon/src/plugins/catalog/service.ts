@@ -25,10 +25,11 @@ import {
   userChannelGrants,
   users,
 } from '../database/schema/index.js';
+import { channelProxy } from '../outbound/channel-proxy.js';
 import type { OutboundHttp } from '../outbound/index.js';
 import { expandRules, validateRules } from '../pricing/rules.js';
+import { providerSupports } from '../subscription/providers.js';
 import type { SubscriptionService } from '../subscription/service.js';
-import { channelProxy } from './proxy.js';
 import {
   type ChannelInput,
   type FetchChannelModelsInput,
@@ -368,14 +369,11 @@ export class CatalogService {
         if (!input.subscription) throw new AppError('bad_request', '请填写订阅配置');
         if (input.baseUrl || input.credential)
           throw new AppError('bad_request', '订阅渠道使用账号凭据，无需填写 API 连接信息');
-        const allowed =
-          input.subscription.provider === 'claude' ? ['/v1/messages'] : ['/v1/responses', '/v1/responses/compact'];
-        if (input.endpoints.some((endpoint) => !allowed.includes(endpoint)))
+        const { provider } = input.subscription;
+        if (input.endpoints.some((endpoint) => !providerSupports(provider, endpoint)))
           throw new AppError(
             'bad_request',
-            input.subscription.provider === 'claude'
-              ? 'Claude 订阅渠道仅支持 Messages'
-              : 'OpenAI 订阅渠道仅支持 Responses 和 compact',
+            provider === 'claude' ? 'Claude 订阅渠道仅支持 Messages' : 'OpenAI 订阅渠道仅支持 Responses 和 compact',
           );
       }
       const [duplicate] = await tx

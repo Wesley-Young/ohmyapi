@@ -1,8 +1,8 @@
-import { and, type Column, eq, gt, isNull, like, or } from 'drizzle-orm';
+import { and, type Column, eq, gt, isNull, like, or, sql } from 'drizzle-orm';
 import type { PgSelect } from 'drizzle-orm/pg-core';
 
 import { pageSize } from '../../core/pagination.js';
-import { apiKeys, channels, models, users } from './schema/index.js';
+import { apiKeys, channels, models, subscriptionAccounts, users } from './schema/index.js';
 
 // ---- 可用性条件：软删除、启用状态与有效期 ----
 
@@ -19,6 +19,17 @@ export const activeApiKey = () =>
 export const activeChannel = () => and(eq(channels.enabled, true), isNull(channels.deletedAt));
 
 export const activeModel = () => and(eq(models.enabled, true), isNull(models.deletedAt));
+
+/** 非订阅渠道，或绑定的订阅账号已启用、未删除且没有错误。 */
+export function availableSubscription() {
+  return sql`(${channels.type} <> 'subscription' or exists (
+    select 1 from ${subscriptionAccounts}
+    where ${subscriptionAccounts.id} = ${channels.subscriptionAccountId}
+      and ${subscriptionAccounts.enabled} = true
+      and ${subscriptionAccounts.deletedAt} is null
+      and ${subscriptionAccounts.errorCode} is null
+  ))`;
+}
 
 // ---- 列表查询 ----
 

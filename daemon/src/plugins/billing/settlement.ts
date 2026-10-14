@@ -2,8 +2,7 @@ import { eq } from 'drizzle-orm';
 
 import { formatMoney } from '../../core/money.js';
 import type { Transaction } from '../database/client.js';
-import { requests } from '../database/schema/index.js';
-import type { Usage } from '../gateway/usage.js';
+import { requests, type Usage } from '../database/schema/index.js';
 import type { PricingService } from '../pricing/service.js';
 import { lockWallet, postLedgerEntry } from '../wallet/ledger.js';
 import type { RequestRow } from './requests.js';

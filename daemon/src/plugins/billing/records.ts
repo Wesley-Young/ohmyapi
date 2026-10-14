@@ -6,9 +6,9 @@ import { formatMoney } from '../../core/money.js';
 import type { Principal } from '../auth/service.js';
 import type { Database } from '../database/client.js';
 import { requestAttempts, requests, requestUsage, users, walletLedger, wallets } from '../database/schema/index.js';
-import { cacheReadForDisplay } from '../gateway/cache-usage.js';
 import { type PricingService, publicPricingSnapshot } from '../pricing/service.js';
 import { ledgerAmounts } from '../wallet/ledger.js';
+import { cacheReadForDisplay } from './cache-usage.js';
 import { usageDto } from './requests.js';
 import { type PricedUsage, priceRequestUsage } from './settlement.js';
 

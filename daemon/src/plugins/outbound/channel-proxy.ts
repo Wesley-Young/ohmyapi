@@ -3,7 +3,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { AppError } from '../../core/errors.js';
 import type { CredentialVault } from '../../core/vault.js';
 import type { AuthService, Principal } from '../auth/service.js';
-import { channels } from '../database/schema/catalog.js';
+import { channels } from '../database/schema/index.js';
 
 // undefined 保留已有配置，null 明确直连，字符串用于保存或预览新的代理。
 export async function channelProxy(

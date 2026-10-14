@@ -7,7 +7,7 @@ import { toPage } from '../../core/pagination.js';
 import { recordAudit } from '../auth/audit.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import type { Database, Transaction } from '../database/client.js';
-import { activeApiKey, activeChannel, activeModel, paginate } from '../database/query.js';
+import { activeApiKey, activeChannel, activeModel, availableSubscription, paginate } from '../database/query.js';
 import {
   apiKeyChannels,
   apiKeyModelGrants,
@@ -21,7 +21,6 @@ import {
   requests,
   userChannelGrants,
 } from '../database/schema/index.js';
-import { availableSubscription } from '../subscription/availability.js';
 import type { CreateKeyInput, UpdateKeyInput } from './schemas.js';
 
 import { randomBytes } from 'node:crypto';

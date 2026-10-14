@@ -2,20 +2,27 @@ import { and, eq } from 'drizzle-orm';
 
 import { GatewayError } from '../../core/errors.js';
 import type { Transaction } from '../database/client.js';
-import { activeApiKey, activeChannel, activeModel } from '../database/query.js';
+import { activeApiKey, activeChannel, activeModel, availableSubscription } from '../database/query.js';
 import {
+  aggregateChannelMembers,
   apiKeyChannels,
   apiKeys,
   effectiveChannelModels as channelAvailableModels,
   effectiveChannelEndpoints as channelEndpoints,
   channels,
   type Endpoint,
+  effectiveChannelEndpoints,
+  effectiveChannelModels,
   models,
   users,
 } from '../database/schema/index.js';
-import { lockExecutionRoute } from '../gateway/routing.js';
 import { canUseChannel, keyAllowsModel } from '../keys/access.js';
 import type { LockedPrice } from '../pricing/service.js';
+
+type Channel = typeof channels.$inferSelect;
+
+/** 网关选定的入口渠道与实际执行渠道。 */
+export type ExecutionRoute = { channelId: string; modelId: string; endpoint: Endpoint; executionChannel: Channel };
 
 export type ReservationInput = {
   requestId: string;
@@ -23,7 +30,7 @@ export type ReservationInput = {
   keyId: string;
   modelId: string;
   channelId: string;
-  executionChannel: typeof channels.$inferSelect;
+  executionChannel: Channel;
   price: LockedPrice;
   inputLimit: number;
   outputLimit: number;
@@ -74,4 +81,65 @@ export async function lockAdmission(tx: Transaction, input: ReservationInput) {
   if (!(await keyAllowsModel(tx, { id: input.keyId, restrictModels: key.restrictModels }, input.modelId)))
     throw new GatewayError(403, 'model_forbidden', 'API Key does not authorize this model');
   return user;
+}
+
+// 在预占和发送前复查入口交集及实际成员，配置变更不能绕过成员关系或能力校验。
+export async function lockExecutionRoute(tx: Transaction, input: ExecutionRoute) {
+  const [entry] = await tx
+    .select({ type: channels.type })
+    .from(channels)
+    .innerJoin(effectiveChannelModels, eq(effectiveChannelModels.channelId, channels.id))
+    .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, channels.id))
+    .where(
+      and(
+        eq(channels.id, input.channelId),
+        activeChannel(),
+        eq(effectiveChannelModels.modelId, input.modelId),
+        eq(effectiveChannelEndpoints.endpoint, input.endpoint),
+      ),
+    )
+    .for('share', { of: channels });
+  if (!entry) throw new GatewayError(503, 'channel_unavailable', 'The entry channel capability changed');
+  const selected = input.executionChannel;
+  if (entry.type === 'aggregate') {
+    const [member] = await tx
+      .select()
+      .from(aggregateChannelMembers)
+      .where(
+        and(
+          eq(aggregateChannelMembers.aggregateChannelId, input.channelId),
+          eq(aggregateChannelMembers.memberChannelId, selected.id),
+        ),
+      )
+      .for('share');
+    if (!member) throw new GatewayError(503, 'channel_unavailable', 'The selected member was removed');
+  } else if (input.channelId !== selected.id) {
+    throw new GatewayError(503, 'channel_unavailable', 'The selected channel does not match the entry');
+  }
+  const [actual] = await tx
+    .select({ channel: channels })
+    .from(channels)
+    .innerJoin(effectiveChannelModels, eq(effectiveChannelModels.channelId, channels.id))
+    .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, channels.id))
+    .where(
+      and(
+        eq(channels.id, selected.id),
+        activeChannel(),
+        eq(effectiveChannelModels.modelId, input.modelId),
+        eq(effectiveChannelEndpoints.endpoint, input.endpoint),
+        availableSubscription(),
+      ),
+    )
+    .for('share', { of: channels });
+  const current = actual?.channel;
+  if (
+    !current ||
+    current.type === 'aggregate' ||
+    current.type !== selected.type ||
+    current.baseUrl !== selected.baseUrl ||
+    current.proxyUrlEncrypted !== selected.proxyUrlEncrypted ||
+    current.credentialEncrypted !== selected.credentialEncrypted ||
+    current.subscriptionAccountId !== selected.subscriptionAccountId
+  )
+    throw new GatewayError(503, 'channel_unavailable', 'The selected channel configuration changed');
 }

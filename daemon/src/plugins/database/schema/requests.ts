@@ -152,6 +152,18 @@ export const requestAttempts = pgTable(
   ],
 );
 
+/** 归一化后的请求用量，各类别互不重叠；与 request_usage 表一一对应。 */
+export type Usage = {
+  inputTokens: bigint;
+  outputTokens: bigint;
+  cacheReadTokens: bigint;
+  cacheWriteTokens: bigint;
+  contextTokens: bigint;
+  webSearchCalls: bigint;
+  webSearchPreviewCalls: bigint;
+  rawUsage: Record<string, unknown>;
+};
+
 export const requestUsage = pgTable(
   'request_usage',
   {

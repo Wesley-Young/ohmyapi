@@ -1,8 +1,9 @@
 import { billingConventions, formatMoney, parseMoney } from '../../core/money.js';
-import { maxSearchCalls } from '../billing/search.js';
 import type { RuleInput } from './schemas.js';
 
 const maxInteger = 9_223_372_036_854_775_807n;
+/** 单个请求可计费的搜索调用数上限。 */
+export const maxSearchCalls = 10_000;
 
 export type Rule = {
   id: string;

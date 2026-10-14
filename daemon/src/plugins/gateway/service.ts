@@ -8,10 +8,18 @@ import { formatMoney } from '../../core/money.js';
 import { toPage } from '../../core/pagination.js';
 import type { CredentialVault } from '../../core/vault.js';
 import { validateBillableRequest } from '../billing/admission.js';
+import { cacheReadForDisplay } from '../billing/cache-usage.js';
 import { searchRequest } from '../billing/search.js';
 import type { BillingService } from '../billing/service.js';
 import type { Database } from '../database/client.js';
-import { activeApiKey, activeChannel, activeModel, activeUser, paginate } from '../database/query.js';
+import {
+  activeApiKey,
+  activeChannel,
+  activeModel,
+  activeUser,
+  availableSubscription,
+  paginate,
+} from '../database/query.js';
 import type { Endpoint } from '../database/schema/index.js';
 import {
   apiKeyChannels,
@@ -31,12 +39,9 @@ import {
 import { canUseChannel, keyAllowsModel } from '../keys/access.js';
 import type { OutboundHttp } from '../outbound/index.js';
 import { type PricingService, publicPricingSnapshot } from '../pricing/service.js';
-import { availableSubscription } from '../subscription/availability.js';
-import type { SubscriptionService } from '../subscription/service.js';
-import { channelAdapter } from './adapters.js';
+import { channelAdapter, type SubscriptionChannels } from './adapters.js';
 import { type AffinitySelection, ChannelAffinity } from './affinity.js';
 import { ForwardBillingSession } from './billing-session.js';
-import { cacheReadForDisplay } from './cache-usage.js';
 import { RequestLifecycle } from './lifecycle.js';
 import { reasoningEffort } from './protocol.js';
 import { selectExecutionChannel } from './routing.js';
@@ -51,7 +56,7 @@ export class GatewayService implements Disposable {
   private readonly pricing: PricingService;
   private readonly billing: BillingService;
   private readonly vault: CredentialVault;
-  private readonly subscription: SubscriptionService;
+  private readonly subscriptions: SubscriptionChannels;
   private readonly outbound: OutboundHttp;
   private readonly config: GatewayConfig;
   private readonly logger: EventLogger;
@@ -64,7 +69,7 @@ export class GatewayService implements Disposable {
     pricing: PricingService;
     billing: BillingService;
     vault: CredentialVault;
-    subscription: SubscriptionService;
+    subscriptions: SubscriptionChannels;
     outbound: OutboundHttp;
     config: GatewayConfig;
     logger: EventLogger;
@@ -73,7 +78,7 @@ export class GatewayService implements Disposable {
     this.pricing = deps.pricing;
     this.billing = deps.billing;
     this.vault = deps.vault;
-    this.subscription = deps.subscription;
+    this.subscriptions = deps.subscriptions;
     this.outbound = deps.outbound;
     this.config = deps.config;
     this.logger = deps.logger;
@@ -181,7 +186,7 @@ export class GatewayService implements Disposable {
         .from(channels)
         .where(and(eq(channels.id, identity.channelId), activeChannel(), availableSubscription()));
       if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
-      if (channel.type !== 'aggregate') await channelAdapter(channel, this.subscription);
+      if (channel.type !== 'aggregate') await channelAdapter(channel, this.subscriptions);
       const available = await this.db
         .selectDistinct({ name: models.name, createdAt: models.createdAt })
         .from(models)
@@ -439,7 +444,7 @@ export class GatewayService implements Disposable {
       const { model, channel } = await this.resolveRoute(identity, parsed.model as string, endpoint, session);
       const { channel: executionChannel, affinity } = await selectExecutionChannel(
         this.db,
-        this.subscription,
+        this.subscriptions,
         channel,
         parsed,
         endpoint,
@@ -460,7 +465,7 @@ export class GatewayService implements Disposable {
         subscriptionAccountId: executionChannel.subscriptionAccountId,
       });
       session.attemptId = attemptId;
-      const adapter = await channelAdapter(executionChannel, this.subscription);
+      const adapter = await channelAdapter(executionChannel, this.subscriptions);
       const lockedPrice = await this.pricing.lockRoute(model.id, receivedAt, channel.id, executionChannel.id);
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
       const requestedOutputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);

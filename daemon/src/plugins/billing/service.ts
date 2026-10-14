@@ -7,11 +7,10 @@ import { type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '.
 import { formatMoney } from '../../core/money.js';
 import type { Database } from '../database/client.js';
 import { requestAttempts, requests, requestUsage } from '../database/schema/index.js';
-import { reportedCacheReadTokens } from '../gateway/cache-usage.js';
-import { lockExecutionRoute } from '../gateway/routing.js';
 import type { PricingService } from '../pricing/service.js';
 import { lockWallet, postLedgerEntry } from '../wallet/ledger.js';
 import { reservationAmount } from './admission.js';
+import { reportedCacheReadTokens } from './cache-usage.js';
 import { estimateReservation } from './estimation.js';
 import { BillingOwnership } from './ownership.js';
 import {
@@ -24,7 +23,7 @@ import {
   transition,
   writeUsage,
 } from './requests.js';
-import { lockAdmission, type ReservationInput } from './reservation.js';
+import { type ExecutionRoute, lockAdmission, lockExecutionRoute, type ReservationInput } from './reservation.js';
 import { searchRequest } from './search.js';
 import { type PricedUsage, priceRequestUsage, releaseRequest, settleRequest } from './settlement.js';
 
@@ -200,7 +199,7 @@ export class BillingService implements Disposable {
     return { amount, estimate };
   }
 
-  async forwarding(id: string, attemptId: string, route: Parameters<typeof lockExecutionRoute>[1]) {
+  async forwarding(id: string, attemptId: string, route: ExecutionRoute) {
     this.assertReady();
     await this.db.transaction(async (tx) => {
       await lockExecutionRoute(tx, route);

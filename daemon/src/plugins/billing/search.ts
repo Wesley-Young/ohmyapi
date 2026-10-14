@@ -1,7 +1,7 @@
 import { GatewayError } from '../../core/errors.js';
 import type { Endpoint } from '../database/schema/index.js';
+import { maxSearchCalls } from '../pricing/rules.js';
 
-export const maxSearchCalls = 10_000;
 export type SearchKind = 'webSearch' | 'webSearchPreview';
 export type SearchRequest = {
   kind?: SearchKind;

@@ -24,7 +24,7 @@ export const GatewayPlugin = definePlugin({
       pricing: ctx.pricing,
       billing: ctx.billing,
       vault: ctx.vault,
-      subscription: ctx.subscription,
+      subscriptions: ctx.subscription,
       outbound: ctx.outbound,
       config: ctx.config.gateway,
       logger: ctx.logger,

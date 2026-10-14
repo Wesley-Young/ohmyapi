@@ -6,10 +6,12 @@ import { AppError, GatewayError } from '../../core/errors.js';
 import type { CredentialVault } from '../../core/vault.js';
 import { recordAudit } from '../auth/audit.js';
 import type { AuthService, Principal } from '../auth/service.js';
-import { channelProxy } from '../catalog/proxy.js';
 import type { Database, Transaction } from '../database/client.js';
-import { channels, subscriptionAccounts } from '../database/schema/index.js';
+import { channels, type Endpoint, subscriptionAccounts } from '../database/schema/index.js';
+import type { ChannelAdapter, SubscriptionChannels } from '../gateway/adapters.js';
+import { channelProxy } from '../outbound/channel-proxy.js';
 import type { OutboundHttp } from '../outbound/index.js';
+import { claudeAdapter } from './claude/adapter.js';
 import { fetchClaudeModels } from './claude/catalog.js';
 import { importClaudeCredentials } from './claude/client.js';
 import { type ClaudeCredentials, claudeCredentialsSchema } from './claude/credentials.js';
@@ -20,12 +22,14 @@ import { ClaudeSessions } from './claude/session.js';
 import { ClaudeTokens } from './claude/tokens.js';
 import { SubscriptionConcurrency } from './concurrency.js';
 import { estimateCycleUsage } from './cycle.js';
+import { openAIAdapter } from './openai/adapter.js';
 import { accountHeaders, codexBaseUrl, latestCodexClientVersion, readJson } from './openai/client.js';
 import { credentialsSchema, type OpenAICredentials, parseCredentials } from './openai/credentials.js';
 import { OpenAIOAuth } from './openai/oauth.js';
 import { OpenAIQuota } from './openai/quota.js';
 import { OpenAIResetCredits } from './openai/reset-credits.js';
 import { OpenAITokens } from './openai/tokens.js';
+import { providerSupports } from './providers.js';
 import type {
   ConsumeResetCreditInput,
   CredentialInput,
@@ -33,7 +37,7 @@ import type {
   SetCycleResetInput,
 } from './schemas.js';
 
-export class SubscriptionService implements Disposable {
+export class SubscriptionService implements Disposable, SubscriptionChannels {
   static readonly token = serviceToken<SubscriptionService>('ohmyapi/subscription');
   readonly concurrency = new SubscriptionConcurrency();
   readonly tokens: OpenAITokens;
@@ -396,6 +400,23 @@ export class SubscriptionService implements Disposable {
     } finally {
       signal.removeEventListener('abort', onAbort);
     }
+  }
+
+  async adapterFor(channel: typeof channels.$inferSelect): Promise<ChannelAdapter> {
+    if (!channel.subscriptionAccountId)
+      throw new GatewayError(503, 'subscription_unavailable', 'Bind a subscription account first');
+    const provider = await this.provider(channel.subscriptionAccountId);
+    if (provider === 'claude') return claudeAdapter(this);
+    if (provider === 'openai') return openAIAdapter(this);
+    throw new GatewayError(503, 'subscription_unavailable', 'Unsupported subscription provider');
+  }
+
+  supportsEndpoint(provider: string, endpoint: Endpoint) {
+    return providerSupports(provider, endpoint);
+  }
+
+  activeRequests(accountId: string) {
+    return this.concurrency.active(accountId);
   }
 
   async provider(id: string) {

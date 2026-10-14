@@ -1,7 +1,7 @@
 import { safeErrorMessage } from '../../core/logging.js';
+import { reportedCacheReadTokens } from '../billing/cache-usage.js';
 import type { SearchRequest } from '../billing/search.js';
-import type { Endpoint, UsageEstimate } from '../database/schema/index.js';
-import { reportedCacheReadTokens } from './cache-usage.js';
+import type { Endpoint, Usage, UsageEstimate } from '../database/schema/index.js';
 import { SearchUsageCollector } from './search-usage.js';
 import { StreamUsageEstimate } from './usage-estimate.js';
 
@@ -34,16 +34,6 @@ function usageNumbers(raw: ObjectValue, depth = 0): ObjectValue {
   }
   return result;
 }
-export type Usage = {
-  inputTokens: bigint;
-  outputTokens: bigint;
-  cacheReadTokens: bigint;
-  cacheWriteTokens: bigint;
-  contextTokens: bigint;
-  webSearchCalls: bigint;
-  webSearchPreviewCalls: bigint;
-  rawUsage: ObjectValue;
-};
 
 /** 仅保留用量元数据和脱敏后的错误消息。 */
 export class UsageCollector {

@@ -1,8 +1,7 @@
 import { eq } from 'drizzle-orm';
 
 import type { Transaction } from '../database/client.js';
-import { requests, requestUsage, type UsageEstimate } from '../database/schema/index.js';
-import type { Usage } from '../gateway/usage.js';
+import { requests, requestUsage, type Usage, type UsageEstimate } from '../database/schema/index.js';
 
 export type RequestRow = typeof requests.$inferSelect;
 type RequestStatus = RequestRow['status'];

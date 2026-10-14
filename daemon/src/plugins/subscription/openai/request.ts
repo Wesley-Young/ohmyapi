@@ -1,9 +1,8 @@
 import { GatewayError } from '../../../core/errors.js';
 import type { Endpoint } from '../../database/schema/index.js';
+import { providerSupports } from '../providers.js';
 
 import { createHash } from 'node:crypto';
-
-export const openAIEndpoints = ['/v1/responses', '/v1/responses/compact'] as const;
 
 const removedResponseFields = [
   'max_output_tokens',
@@ -51,7 +50,7 @@ function ensureWebSearchToolForHistory(body: Record<string, unknown>, input: Rec
 }
 
 export function prepareBody(parsed: Record<string, unknown>, endpoint: Endpoint) {
-  if (!openAIEndpoints.some((value) => value === endpoint))
+  if (!providerSupports('openai', endpoint))
     throw new GatewayError(
       400,
       'subscription_endpoint_unsupported',
