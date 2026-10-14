@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
+import { localDateTime } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { IconButton, Tooltip } from './icon-button';
 import { SubscriptionCycleDialog, subscriptionCycleQuery, usd } from './subscription-cycle';
@@ -39,7 +40,7 @@ function QuotaWindow({
       : `${Math.floor(hoursUntilReset / 24)}d ${hoursUntilReset % 24}h`
     : '';
   const description = window
-    ? `${label} 已用 ${percent}，${window.resetsAt ? `${new Date(window.resetsAt).toLocaleString()} 重置` : '重置时间未知'}`
+    ? `${label} 已用 ${percent}，${window.resetsAt ? `${localDateTime(window.resetsAt)} 重置` : '重置时间未知'}`
     : `${label}：${unavailable}`;
   return (
     <HStack gap="2">

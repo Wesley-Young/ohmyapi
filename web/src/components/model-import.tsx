@@ -3,6 +3,7 @@ import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import { refreshCatalog } from '../lib/cache';
 import { formError } from '../lib/format';
 import {
   buildImportRules,
@@ -14,7 +15,7 @@ import {
   suggestedPreset,
 } from '../lib/models-dev';
 import { trpc } from '../lib/trpc';
-import { refreshCatalog, SelectField } from '../routes/Catalog';
+import { SelectField } from './fields';
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton } from './ui';
 
 type Selection = { source: SourceModel; preset: ImportPreset };

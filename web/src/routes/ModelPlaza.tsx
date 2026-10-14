@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 import { ErrorText, FormDialog, Loading, Title } from '../components/ui';
 import { displayMoney, displayRange, formError } from '../lib/format';
+import { brandColor } from '../lib/theme';
 import { trpc } from '../lib/trpc';
 
 type Model = RouterOutputs['modelPlaza']['models'][number];
@@ -120,8 +121,8 @@ export default function ModelPlaza() {
                           aria-label={`查看 ${model.name} 定价详情`}
                           aria-haspopup="dialog"
                           onClick={() => setSelectedId(model.id)}
-                          _hover={{ color: '#635bff' }}
-                          _focusVisible={{ outline: '2px solid #635bff', outlineOffset: '4px' }}
+                          _hover={{ color: brandColor }}
+                          _focusVisible={{ outline: `2px solid ${brandColor}`, outlineOffset: '4px' }}
                         >
                           {model.name}
                         </Button>

@@ -1,7 +1,8 @@
-import { Button, Flex, Heading, Stack } from '@chakra-ui/react';
+import { Flex, Heading, Stack } from '@chakra-ui/react';
 import { useNavigate } from 'react-router';
 
 import { Logo } from '../components/logo';
+import { PrimaryButton } from '../components/ui';
 
 export default function Landing() {
   const navigate = useNavigate();
@@ -11,19 +12,9 @@ export default function Landing() {
         <Heading as="h1" fontSize={{ base: '48px', md: '64px' }} lineHeight="1">
           <Logo />
         </Heading>
-        <Button
-          type="button"
-          onClick={() => navigate('/login')}
-          size="md"
-          px="8"
-          borderRadius="full"
-          bg="#635bff"
-          color="white"
-          fontWeight="600"
-          _hover={{ bg: '#5146e6' }}
-        >
+        <PrimaryButton type="button" onClick={() => navigate('/login')} size="md" px="8">
           登录
-        </Button>
+        </PrimaryButton>
       </Stack>
     </Flex>
   );

@@ -4,11 +4,11 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
+import { SelectField } from '../components/fields';
 import { IconButton } from '../components/icon-button';
 import { ErrorText, FormDialog, FormInput, Loading, Panel, PrimaryButton } from '../components/ui';
 import { displayRange, formError } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
-import { SelectField } from './Catalog';
 
 type Rule = Omit<RouterOutputs['admin']['pricing']['list']['rules'][number], 'id'>;
 type SearchDefaults = RouterOutputs['admin']['pricing']['list']['searchDefaults'];

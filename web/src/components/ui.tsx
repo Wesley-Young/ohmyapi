@@ -19,17 +19,18 @@ import { X } from 'lucide-react';
 import { type ReactNode, useId, useState } from 'react';
 
 import { formError } from '../lib/format';
+import { brandColor, brandHoverColor } from '../lib/theme';
 import { IconButton } from './icon-button';
 
 export function PrimaryButton(props: ButtonProps) {
   return (
     <Button
-      bg="#635bff"
+      bg={brandColor}
       color="white"
       borderRadius="full"
       px="6"
       fontWeight="600"
-      _hover={{ bg: '#5146e6' }}
+      _hover={{ bg: brandHoverColor }}
       {...props}
     />
   );
@@ -71,7 +72,7 @@ export function FormInput({
   return (
     <Field.Root invalid={Boolean(error)}>
       <Field.Label htmlFor={id}>{label}</Field.Label>
-      <Input {...props} id={id} borderRadius="lg" h="11" focusRingColor="#635bff" />
+      <Input {...props} id={id} borderRadius="lg" h="11" focusRingColor={brandColor} />
       {error && <Field.ErrorText>{error}</Field.ErrorText>}
       {helper && <Field.HelperText>{helper}</Field.HelperText>}
     </Field.Root>

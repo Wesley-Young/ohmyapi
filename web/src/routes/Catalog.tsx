@@ -21,13 +21,16 @@ import { Link as RouterLink } from 'react-router';
 import { AggregateMembers } from '../components/aggregate-members';
 import { ChannelUsersDialog } from '../components/channel-grants';
 import { type ChannelModel, ChannelModels } from '../components/channel-models';
+import { EnabledField, SelectField } from '../components/fields';
 import { IconButton } from '../components/icon-button';
 import { OpenAIResetCredits } from '../components/openai-reset-credits';
 import { PlanBadge } from '../components/plan-badge';
 import { SubscriptionQuota } from '../components/subscription-quota';
 import { ConfirmAction, ErrorText, FormDialog, FormInput, Loading, PrimaryButton, Title } from '../components/ui';
-import { formError } from '../lib/format';
-import { queryClient, trpc, trpcClient } from '../lib/trpc';
+import { refreshCatalog } from '../lib/cache';
+import { formError, localDateTime } from '../lib/format';
+import { brandColor } from '../lib/theme';
+import { trpc, trpcClient } from '../lib/trpc';
 
 export const endpoints = ['/v1/chat/completions', '/v1/responses', '/v1/messages', '/v1/responses/compact'] as const;
 export type Endpoint = (typeof endpoints)[number];
@@ -42,21 +45,6 @@ const providerLabels: Partial<Record<string, string>> = {
   openai: 'OpenAI',
   claude: 'Claude',
 };
-
-export const refreshCatalog = () =>
-  Promise.all([
-    queryClient.invalidateQueries(trpc.admin.catalog.list.queryFilter()),
-    queryClient.invalidateQueries(trpc.admin.catalog.openAIQuota.pathFilter()),
-    queryClient.invalidateQueries(trpc.admin.catalog.claudeQuota.pathFilter()),
-    queryClient.invalidateQueries(trpc.admin.catalog.openAIResetCredits.pathFilter()),
-    queryClient.invalidateQueries(trpc.keys.models.queryFilter()),
-    queryClient.invalidateQueries(trpc.modelPlaza.queryFilter()),
-    queryClient.invalidateQueries(trpc.keys.channels.queryFilter()),
-    queryClient.invalidateQueries(trpc.keys.list.pathFilter()),
-    queryClient.invalidateQueries(trpc.keys.playgroundOptions.queryFilter()),
-    queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
-    queryClient.invalidateQueries(trpc.admin.catalog.channelGrants.pathFilter()),
-  ]);
 
 export function EndpointFields({
   value,
@@ -105,47 +93,6 @@ export function EndpointFields({
           ))}
       </Stack>
     </Box>
-  );
-}
-
-function Enabled({ value, onChange }: { value: boolean; onChange: (value: boolean) => void }) {
-  return (
-    <Checkbox.Root checked={value} onCheckedChange={(e) => onChange(e.checked === true)}>
-      <Checkbox.HiddenInput />
-      <Checkbox.Control />
-      <Checkbox.Label>启用</Checkbox.Label>
-    </Checkbox.Root>
-  );
-}
-
-export function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-  disabled,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: { id: string; name: string }[];
-  disabled?: boolean;
-}) {
-  return (
-    <Field.Root>
-      <Field.Label>{label}</Field.Label>
-      <NativeSelect.Root disabled={disabled}>
-        <NativeSelect.Field aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
-          <option value="">请选择</option>
-          {options.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </NativeSelect.Field>
-        <NativeSelect.Indicator />
-      </NativeSelect.Root>
-    </Field.Root>
   );
 }
 
@@ -342,7 +289,7 @@ function ChannelForm({
                 {initial?.subscription && (
                   <Stack gap="3">
                     <Text fontSize="sm" color="gray.500">
-                      访问令牌有效期至 {new Date(initial.subscription.expiresAt).toLocaleString()}，到期前将自动刷新
+                      访问令牌有效期至 {localDateTime(initial.subscription.expiresAt)}，到期前将自动刷新
                     </Text>
                     <Button
                       type="button"
@@ -433,7 +380,7 @@ function ChannelForm({
                     </Button>
                     {startOAuth.data && (
                       <>
-                        <Link href={startOAuth.data.url} target="_blank" rel="noreferrer" color="#635bff">
+                        <Link href={startOAuth.data.url} target="_blank" rel="noreferrer" color={brandColor}>
                           打开 {provider === 'claude' ? 'Claude' : 'OpenAI'} 授权页面
                         </Link>
                         <Text fontSize="sm" color="gray.500">
@@ -589,7 +536,7 @@ function ChannelForm({
                 默认对所有用户开放；非公开渠道需管理员授权可访问用户。
               </Text>
             </Stack>
-            <Enabled value={enabled} onChange={setEnabled} />
+            <EnabledField value={enabled} onChange={setEnabled} />
             <ErrorText>{formError(task.error ?? startOAuth.error)?.message}</ErrorText>
           </Stack>
         </fieldset>
@@ -611,77 +558,6 @@ function ChannelForm({
             取消
           </Button>
         </HStack>
-      </form>
-    </FormDialog>
-  );
-}
-export function ModelForm({
-  initial,
-  close,
-  onSaved,
-}: {
-  initial?: CatalogData['models'][number];
-  close: () => void;
-  onSaved: (id: string) => void;
-}) {
-  const [name, setName] = useState(initial?.name ?? '');
-  const [inputTokenLimit, setInputTokenLimit] = useState(String(initial?.inputTokenLimit ?? 1_000_000));
-  const [outputTokenLimit, setOutputTokenLimit] = useState(String(initial?.outputTokenLimit ?? 128_000));
-  const [enabled, setEnabled] = useState(initial?.enabled ?? true);
-  const task = useMutation(
-    trpc.admin.catalog.saveModel.mutationOptions({
-      onSuccess: async (model) => {
-        await refreshCatalog();
-        close();
-        onSaved(model.id);
-      },
-    }),
-  );
-  return (
-    <FormDialog open title={initial ? '编辑模型元数据' : '添加模型'} onClose={close} busy={task.isPending}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!task.isPending)
-            task.mutate({
-              id: initial?.id,
-              name,
-              enabled,
-              inputTokenLimit: Number(inputTokenLimit),
-              outputTokenLimit: Number(outputTokenLimit),
-            });
-        }}
-      >
-        <Stack gap="5">
-          <FormInput label="模型名称" value={name} onChange={(e) => setName(e.target.value)} required maxLength={128} />
-          <FormInput
-            label="输入 Token 容量"
-            type="number"
-            min={1}
-            required
-            value={inputTokenLimit}
-            onChange={(e) => setInputTokenLimit(e.target.value)}
-            helper="JSON 正文的字节数也不能超过此值"
-          />
-          <FormInput
-            label="输出 Token 上限"
-            type="number"
-            min={1}
-            required
-            value={outputTokenLimit}
-            onChange={(e) => setOutputTokenLimit(e.target.value)}
-          />
-          <Enabled value={enabled} onChange={setEnabled} />
-          <ErrorText>{formError(task.error)?.message}</ErrorText>
-          <HStack>
-            <PrimaryButton type="submit" loading={task.isPending}>
-              保存模型
-            </PrimaryButton>
-            <Button variant="ghost" disabled={task.isPending} onClick={close}>
-              取消
-            </Button>
-          </HStack>
-        </Stack>
       </form>
     </FormDialog>
   );
@@ -731,7 +607,7 @@ export default function Catalog() {
                 </RouterLink>
               </Link>
             ))}
-            <Link asChild fontSize="sm" color="#635bff">
+            <Link asChild fontSize="sm" color={brandColor}>
               <RouterLink to="/console/models">前往模型页面</RouterLink>
             </Link>
           </HStack>
@@ -838,11 +714,7 @@ export default function Catalog() {
                               {Object.entries(c.subscription.modelCooldowns)
                                 .filter(([, until]) => Date.parse(until) > Date.now())
                                 .map(([model, until]) => (
-                                  <Badge
-                                    key={model}
-                                    colorPalette="orange"
-                                    title={`恢复时间：${new Date(until).toLocaleString()}`}
-                                  >
+                                  <Badge key={model} colorPalette="orange" title={`恢复时间：${localDateTime(until)}`}>
                                     {model} 冷却中
                                   </Badge>
                                 ))}

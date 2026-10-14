@@ -18,8 +18,9 @@ import {
 } from '../components/ui';
 import { UserRoleAction } from '../components/user-role-action';
 import { WalletAdjustmentDialog } from '../components/wallet-adjustment';
+import { invalidateUser } from '../lib/cache';
 import { displayMoney, formError, localDate } from '../lib/format';
-import { invalidateUser, queryClient, trpc, trpcClient } from '../lib/trpc';
+import { queryClient, trpc, trpcClient } from '../lib/trpc';
 
 export default function Users() {
   const [page, setPage] = useState(0);

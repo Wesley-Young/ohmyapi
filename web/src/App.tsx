@@ -2,6 +2,8 @@ import { Box } from '@chakra-ui/react';
 import { useEffect } from 'react';
 import { Outlet } from 'react-router';
 
+import { textColor } from './lib/theme';
+
 export default function App() {
   useEffect(() => {
     if (import.meta.env.DEV) {
@@ -15,7 +17,7 @@ export default function App() {
       as="main"
       minH="100dvh"
       bg="white"
-      color="#171717"
+      color={textColor}
       fontFamily="-apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', sans-serif"
     >
       <Outlet />

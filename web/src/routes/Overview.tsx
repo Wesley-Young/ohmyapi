@@ -7,7 +7,7 @@ import { ErrorText, FormDialog, Loading, PageControls, Panel, Title } from '../c
 import UsageTrend from '../components/usage-trend';
 import { Ledger } from '../components/wallet';
 import { useAuth } from '../lib/auth';
-import { displayMoney, formError } from '../lib/format';
+import { displayMoney, formatCount, formError } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 
 function LedgerDialog({ onClose }: { onClose: () => void }) {
@@ -38,8 +38,6 @@ function LedgerDialog({ onClose }: { onClose: () => void }) {
     </FormDialog>
   );
 }
-
-const count = (value: string) => BigInt(value).toLocaleString('zh-CN');
 
 function balanceAmount(value: string) {
   const negative = value.startsWith('-');
@@ -138,8 +136,8 @@ export default function Overview() {
         stats.data && (
           <Grid templateColumns={{ base: '1fr', sm: 'repeat(2, 1fr)', xl: 'repeat(3, 1fr)' }} gap="4">
             {[
-              { label: '近 24 小时请求数', value: count(stats.data.requestCount), unit: '次' },
-              { label: '近 24 小时 Token 量', value: count(stats.data.tokens) },
+              { label: '近 24 小时请求数', value: formatCount(stats.data.requestCount), unit: '次' },
+              { label: '近 24 小时 Token 量', value: formatCount(stats.data.tokens) },
               { label: '近 24 小时消费', value: displayMoney(stats.data.chargedAmount), unit: wallet.data.currency },
               { label: '本月消费', value: displayMoney(stats.data.monthChargedAmount), unit: wallet.data.currency },
               {
@@ -175,8 +173,8 @@ export default function Overview() {
                   ] as const
                 ).flatMap(([period, stats]) =>
                   [
-                    { label: `${period}平台请求数`, value: count(stats.requestCount), unit: '次' },
-                    { label: `${period}平台 Token 量`, value: count(stats.tokens) },
+                    { label: `${period}平台请求数`, value: formatCount(stats.requestCount), unit: '次' },
+                    { label: `${period}平台 Token 量`, value: formatCount(stats.tokens) },
                     {
                       label: `${period}平台消费`,
                       value: displayMoney(stats.chargedAmount),

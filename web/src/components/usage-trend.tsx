@@ -2,7 +2,8 @@ import { Box, Button, Grid, Heading, HStack, Stack, Text } from '@chakra-ui/reac
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useId, useState } from 'react';
 
-import { displayMoney } from '../lib/format';
+import { displayMoney, formatCount } from '../lib/format';
+import { brandColor } from '../lib/theme';
 import { Panel } from './ui';
 
 const metrics = [
@@ -22,8 +23,7 @@ export default function UsageTrend({ days, currency }: { days: RouterOutputs['wa
     x: 40 + index * 100,
     y: 170 - (maximum ? Number((value * 10_000n) / maximum) / 10_000 : 0) * 140,
   }));
-  const display = (value: string) =>
-    metric === 'chargedAmount' ? displayMoney(value) : BigInt(value).toLocaleString('zh-CN');
+  const display = (value: string) => (metric === 'chargedAmount' ? displayMoney(value) : formatCount(value));
   return (
     <Panel>
       <Stack gap="5">
@@ -60,12 +60,12 @@ export default function UsageTrend({ days, currency }: { days: RouterOutputs['wa
               <polyline
                 points={points.map(({ x, y }) => `${x},${y}`).join(' ')}
                 fill="none"
-                stroke="#635bff"
+                stroke={brandColor}
                 strokeWidth="2"
                 strokeLinejoin="round"
               />
               {points.map(({ x, y }, index) => (
-                <circle key={days[index].date} cx={x} cy={y} r="4" fill="white" stroke="#635bff" strokeWidth="2">
+                <circle key={days[index].date} cx={x} cy={y} r="4" fill="white" stroke={brandColor} strokeWidth="2">
                   <title>
                     {days[index].date}：{display(days[index][metric])}
                   </title>

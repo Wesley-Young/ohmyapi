@@ -5,12 +5,12 @@ import { BookOpen, Check, Copy, Download, Pencil, Trash2 } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
 import { CCSwitchDialog } from '../components/cc-switch-dialog';
+import { SelectField } from '../components/fields';
 import { IconButton } from '../components/icon-button';
 import { KeyUsageDialog } from '../components/key-usage-dialog';
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton, Title } from '../components/ui';
 import { dateTimeInput, displayMoney, formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
-import { SelectField } from './Catalog';
 
 type ApiKey = RouterOutputs['keys']['list']['items'][number];
 

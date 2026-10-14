@@ -2,7 +2,7 @@ import { Badge, Box, Button, HStack, Stack, Table, Text } from '@chakra-ui/react
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { dateTimeInput, formError, localDate } from '../lib/format';
+import { dateTimeInput, formatCount, formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
 
@@ -21,7 +21,6 @@ export function subscriptionCycleQuery(channelId: string, enabled: boolean) {
 }
 
 const sources = { upstream: '按上游重置时间', manual: '管理员填写', rolling: '最近 7 天' } as const;
-const count = (value: string | number) => BigInt(value).toLocaleString('zh-CN');
 const tokenColumns = [
   ['inputTokens', '输入'],
   ['outputTokens', '输出'],
@@ -106,7 +105,7 @@ export function SubscriptionCycleDialog({ channelId, onClose }: { channelId: str
                 {usd(data.amount)}
               </Text>
               <Text fontSize="sm" color="gray.500">
-                {count(data.requests)} 个请求
+                {formatCount(data.requests)} 个请求
               </Text>
             </HStack>
             {data.usedPercent !== null && (
@@ -128,17 +127,18 @@ export function SubscriptionCycleDialog({ channelId, onClose }: { channelId: str
             <Stack gap="1" fontSize="sm" color="gray.600">
               {data.fallback.requests > 0 && (
                 <Text>
-                  其中 {usd(data.fallback.amount)}（{count(data.fallback.requests)}{' '}
+                  其中 {usd(data.fallback.amount)}（{formatCount(data.fallback.requests)}{' '}
                   个请求）的价格规则已变更，按默认规则估算
                 </Text>
               )}
               {data.unconfirmed.requests > 0 && (
                 <Text>
-                  其中 {usd(data.unconfirmed.amount)}（{count(data.unconfirmed.requests)} 个请求）的用量尚未最终确认
+                  其中 {usd(data.unconfirmed.amount)}（{formatCount(data.unconfirmed.requests)}{' '}
+                  个请求）的用量尚未最终确认
                 </Text>
               )}
               {data.unpricedRequests > 0 && (
-                <Text>{count(data.unpricedRequests)} 个请求的部分用量缺少单价，未计入</Text>
+                <Text>{formatCount(data.unpricedRequests)} 个请求的部分用量缺少单价，未计入</Text>
               )}
             </Stack>
           )}
@@ -164,8 +164,8 @@ export function SubscriptionCycleDialog({ channelId, onClose }: { channelId: str
                         {row.name ?? '未识别模型'}
                       </Table.Cell>
                       {[
-                        ['requests', count(row.requests)],
-                        ...tokenColumns.map(([key]) => [key, count(row[key])]),
+                        ['requests', formatCount(row.requests)],
+                        ...tokenColumns.map(([key]) => [key, formatCount(row[key])]),
                         ['amount', usd(row.amount)],
                       ].map(([key, value]) => (
                         <Table.Cell key={key} textAlign="end" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">

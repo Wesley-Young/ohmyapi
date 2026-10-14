@@ -16,6 +16,7 @@ import { Tooltip } from '../components/icon-button';
 import { Logo } from '../components/logo';
 import { ReviewBadge, ReviewDot, useReviewCount } from '../components/review-badge';
 import { useAuth } from '../lib/auth';
+import { brandColor, textColor } from '../lib/theme';
 
 const navigationIcons = {
   overview: LayoutDashboard,
@@ -71,7 +72,7 @@ export default function Console() {
             </RouterLink>
           </Link>
           <HStack gap={{ base: 2, md: 4 }} minW="0">
-            <Link asChild fontSize="sm" fontWeight="500" textDecoration="none" _hover={{ color: '#635bff' }}>
+            <Link asChild fontSize="sm" fontWeight="500" textDecoration="none" _hover={{ color: brandColor }}>
               <RouterLink to="/console/profile">
                 <UserRound size={18} strokeWidth={1.6} aria-hidden="true" />
                 {auth.data.username}
@@ -114,8 +115,8 @@ export default function Console() {
                         justify={{ base: 'center', md: 'start' }}
                         borderRadius="lg"
                         bg={isActive ? 'gray.100' : 'transparent'}
-                        color={isActive ? '#171717' : 'gray.500'}
-                        _hover={{ bg: isActive ? 'gray.100' : 'gray.50', color: '#171717' }}
+                        color={isActive ? textColor : 'gray.500'}
+                        _hover={{ bg: isActive ? 'gray.100' : 'gray.50', color: textColor }}
                         fontSize="sm"
                         fontWeight={isActive ? '600' : '400'}
                       >

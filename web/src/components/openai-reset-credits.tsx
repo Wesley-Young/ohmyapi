@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { useRef, useState } from 'react';
 
-import { formError } from '../lib/format';
+import { formError, localDateTime } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { IconButton } from './icon-button';
 import { ErrorText, FormDialog, PrimaryButton } from './ui';
@@ -123,7 +123,7 @@ export function OpenAIResetCredits({
             {credit.expiresAt && Date.parse(credit.expiresAt) <= Date.now() && (
               <Badge colorPalette="gray">已过期</Badge>
             )}
-            {credit.expiresAt && <Badge>有效期至 {new Date(credit.expiresAt).toLocaleString()}</Badge>}
+            {credit.expiresAt && <Badge>有效期至 {localDateTime(credit.expiresAt)}</Badge>}
           </HStack>
         ))
       )}
@@ -139,7 +139,7 @@ export function OpenAIResetCredits({
           <Stack gap="4">
             <Text fontSize="sm">将为渠道「{channelName}」消耗最近到期的 1 张可用重置卡。重置卡使用后无法撤销。</Text>
             <Text fontSize="sm" color="gray.500">
-              所选卡有效期至 {new Date(selected.expiresAt).toLocaleString()}
+              所选卡有效期至 {localDateTime(selected.expiresAt)}
             </Text>
             <ErrorText>{formError(consume.error)?.message}</ErrorText>
             {!consume.isPending && !query.isFetching && nextCredit?.id !== selected.id && (

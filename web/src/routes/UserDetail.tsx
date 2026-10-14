@@ -17,8 +17,9 @@ import {
 } from '../components/ui';
 import { UserRoleAction } from '../components/user-role-action';
 import { Ledger, WalletSummary } from '../components/wallet';
+import { invalidateUser } from '../lib/cache';
 import { formError } from '../lib/format';
-import { invalidateUser, trpc, trpcClient } from '../lib/trpc';
+import { trpc, trpcClient } from '../lib/trpc';
 
 function ResetPassword({ userId }: { userId: string }) {
   const [password, setPassword] = useState('');

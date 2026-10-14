@@ -3,6 +3,7 @@ import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { Link as RouterLink } from 'react-router';
 
 import { displayMoney, localDate } from '../lib/format';
+import { brandColor } from '../lib/theme';
 import { Panel } from './ui';
 
 type Output = RouterOutputs;
@@ -80,7 +81,7 @@ export function Ledger({ items }: { items: Output['wallet']['ledger']['items'] }
               <Table.Cell whiteSpace="nowrap">{item.actorName ?? '系统'}</Table.Cell>
               <Table.Cell>
                 {item.requestId && (
-                  <Link asChild color="#635bff" fontSize="xs">
+                  <Link asChild color={brandColor} fontSize="xs">
                     <RouterLink to={`/console/requests?request=${item.requestId}`}>
                       {item.requestId.slice(0, 8)}
                     </RouterLink>

@@ -3,6 +3,7 @@ import type { RouterInputs, RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { Download, Plus, X } from 'lucide-react';
 import { useId, useState } from 'react';
 
+import { brandColor } from '../lib/theme';
 import { IconButton } from './icon-button';
 import { ErrorText } from './ui';
 
@@ -39,7 +40,7 @@ function MultiplierField({
         disabled={disabled}
         onChange={(event) => onChange(event.target.value || null)}
         borderRadius="lg"
-        focusRingColor="#635bff"
+        focusRingColor={brandColor}
       />
     </Field.Root>
   );
@@ -105,7 +106,7 @@ export function ChannelModels({
                 setError(undefined);
               }}
               borderRadius="lg"
-              focusRingColor="#635bff"
+              focusRingColor={brandColor}
             />
             {error && <Field.ErrorText>{error}</Field.ErrorText>}
           </Field.Root>

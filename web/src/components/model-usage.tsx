@@ -3,7 +3,7 @@ import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 
-import { displayMoney, formError } from '../lib/format';
+import { displayMoney, formatCount, formError } from '../lib/format';
 import { trpc } from '../lib/trpc';
 import { ErrorText, Loading, Panel } from './ui';
 
@@ -13,7 +13,6 @@ const ranges = [
 ] as const;
 type Range = (typeof ranges)[number]['key'];
 
-const count = (value: string) => BigInt(value).toLocaleString('zh-CN');
 const micros = (amount: string) => BigInt(amount.replace('.', ''));
 
 function share(value: bigint, total: bigint) {
@@ -30,8 +29,8 @@ const shareOf: Record<Scope, (row: Row) => bigint> = {
   platform: (row) => BigInt(row.requestCount),
 };
 const columns: { key: string; label: string; value: (row: Row, total: bigint, scope: Scope) => string }[] = [
-  { key: 'requests', label: '请求数', value: (row) => count(row.requestCount) },
-  { key: 'tokens', label: 'Token 量', value: (row) => count(row.tokens) },
+  { key: 'requests', label: '请求数', value: (row) => formatCount(row.requestCount) },
+  { key: 'tokens', label: 'Token 量', value: (row) => formatCount(row.tokens) },
   { key: 'charged', label: '消费', value: (row) => displayMoney(row.chargedAmount) },
   { key: 'share', label: '占比', value: (row, total, scope) => share(shareOf[scope](row), total) },
 ];

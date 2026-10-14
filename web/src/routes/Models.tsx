@@ -3,11 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router';
 
+import { ModelForm } from '../components/model-form';
 import { ModelImport } from '../components/model-import';
 import { ConfirmAction, ErrorText, Loading, PrimaryButton, Title } from '../components/ui';
+import { refreshCatalog } from '../lib/cache';
 import { formError } from '../lib/format';
+import { brandColor } from '../lib/theme';
 import { trpc, trpcClient } from '../lib/trpc';
-import { ModelForm, refreshCatalog } from './Catalog';
 import Pricing from './Pricing';
 
 export default function Models() {
@@ -71,7 +73,7 @@ export default function Models() {
                     color="gray.900"
                     bg={active ? 'gray.100' : 'transparent'}
                     _hover={{ bg: 'gray.50', textDecoration: 'none' }}
-                    _focusVisible={{ outline: '2px solid #635bff', outlineOffset: '-2px' }}
+                    _focusVisible={{ outline: `2px solid ${brandColor}`, outlineOffset: '-2px' }}
                   >
                     <RouterLink to={`/console/models/${model.id}/pricing`} aria-current={active ? 'page' : undefined}>
                       <Stack gap="2">

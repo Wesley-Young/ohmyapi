@@ -10,6 +10,7 @@ import { PlaygroundSelector } from '../components/playground-selector';
 import { ErrorText, Loading } from '../components/ui';
 import { formError } from '../lib/format';
 import { messageText, playgroundTransport, preferredEndpoint } from '../lib/playground';
+import { brandColor, brandHoverColor } from '../lib/theme';
 import { queryClient, trpc } from '../lib/trpc';
 
 export default function Playground() {
@@ -172,7 +173,7 @@ export default function Playground() {
               {!options.isPending && !options.error && !options.data?.length && (
                 <Text fontSize="sm" color="gray.500">
                   暂无可用的 Key 和模型，请在{' '}
-                  <Link asChild color="#635bff">
+                  <Link asChild color={brandColor}>
                     <RouterLink to="/console/keys">API Key</RouterLink>
                   </Link>{' '}
                   页面创建或绑定渠道。
@@ -215,7 +216,7 @@ export default function Playground() {
                   px="1"
                   py="2"
                   borderRadius="md"
-                  focusRingColor="#635bff"
+                  focusRingColor={brandColor}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                       event.preventDefault();
@@ -273,10 +274,10 @@ export default function Playground() {
                   ) : (
                     <IconButton
                       type="submit"
-                      bg="#635bff"
+                      bg={brandColor}
                       color="white"
                       borderRadius="full"
-                      _hover={{ bg: '#5146e6' }}
+                      _hover={{ bg: brandHoverColor }}
                       size="sm"
                       px="0"
                       minW="36px"

@@ -4,8 +4,9 @@ import { TRPCClientError } from '@trpc/client';
 import { useRef, useState } from 'react';
 
 import { useAuth } from '../lib/auth';
+import { invalidateUser } from '../lib/cache';
 import { displayMoney, formError } from '../lib/format';
-import { invalidateUser, trpc } from '../lib/trpc';
+import { trpc } from '../lib/trpc';
 import { ErrorText, FormDialog, FormInput, PrimaryButton } from './ui';
 
 export function WalletAdjustmentDialog({

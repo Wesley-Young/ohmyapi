@@ -4,8 +4,9 @@ import { ShieldCheck, ShieldMinus } from 'lucide-react';
 import { useState } from 'react';
 
 import { useAuth } from '../lib/auth';
+import { invalidateUser } from '../lib/cache';
 import { formError } from '../lib/format';
-import { invalidateUser, trpc } from '../lib/trpc';
+import { trpc } from '../lib/trpc';
 import { IconButton } from './icon-button';
 import { ErrorText, FormDialog, PrimaryButton } from './ui';
 

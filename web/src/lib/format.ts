@@ -21,6 +21,10 @@ export function dateTimeInput(value: string | null) {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, -1);
 }
+/** 整数计数（含 Token 数），按千分位显示。 */
+export const formatCount = (value: string | number | bigint) => BigInt(value).toLocaleString('zh-CN');
+/** 按浏览器默认区域显示的日期时间。 */
+export const localDateTime = (value: string | number | Date) => new Date(value).toLocaleString();
 export const displayMoney = (value: string) => value.replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
 
 export function displayRange(minimum: string, maximum: string) {

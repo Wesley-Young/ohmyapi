@@ -5,9 +5,10 @@ import { TRPCClientError } from '@trpc/client';
 import { useRef, useState } from 'react';
 
 import { useAuth } from '../lib/auth';
+import { invalidateUser } from '../lib/cache';
 import { displayMoney, formError, localDate } from '../lib/format';
-import { invalidateUser, queryClient, trpc } from '../lib/trpc';
-import { SelectField } from '../routes/Catalog';
+import { queryClient, trpc } from '../lib/trpc';
+import { SelectField } from './fields';
 import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
 
 export const requestStatuses: Record<string, string> = {
