@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 import { ErrorText, FormDialog, Loading, Title } from '../components/ui';
 import { displayMoney, displayRange, formatCount, formError } from '../lib/format';
+import { minuteText } from '../lib/pricing';
 import { brandColor } from '../lib/theme';
 import { trpc } from '../lib/trpc';
 
@@ -18,13 +19,11 @@ const categories = [
   ['webSearchPrice', '搜索 / 千次'],
   ['webSearchPreviewPrice', '预览搜索 / 千次'],
 ] as const;
-const minuteText = (minute: number) =>
-  `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
 
 function currencySymbol(currency: string) {
   try {
     return (
-      new Intl.NumberFormat('zh-CN', { style: 'currency', currency, currencyDisplay: 'narrowSymbol' })
+      new Intl.NumberFormat(undefined, { style: 'currency', currency, currencyDisplay: 'narrowSymbol' })
         .formatToParts(0)
         .find((part) => part.type === 'currency')?.value ?? currency
     );
