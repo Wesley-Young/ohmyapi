@@ -5,12 +5,12 @@ import { Link as RouterLink, useNavigate, useParams } from 'react-router';
 
 import { ModelForm } from '../components/model-form';
 import { ModelImport } from '../components/model-import';
+import { ModelPricing } from '../components/model-pricing';
 import { ConfirmAction, ErrorText, Loading, PrimaryButton, Title } from '../components/ui';
 import { refreshCatalog } from '../lib/cache';
 import { formError } from '../lib/format';
 import { brandColor } from '../lib/theme';
 import { trpc, trpcClient } from '../lib/trpc';
-import Pricing from './Pricing';
 
 export default function Models() {
   const { modelId } = useParams();
@@ -130,7 +130,7 @@ export default function Models() {
                     />
                   </HStack>
                 </HStack>
-                <Pricing
+                <ModelPricing
                   key={selected.id}
                   modelId={selected.id}
                   copyLunaPrice={selected.name === 'codex-auto-review'}

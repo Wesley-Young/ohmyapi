@@ -2,11 +2,11 @@ import { Badge, Button, HStack, Stack, Text } from '@chakra-ui/react';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import { ChangePasswordDialog } from '../components/change-password';
 import { ErrorText, Panel, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { formError } from '../lib/format';
 import { setSession, trpc } from '../lib/trpc';
-import ChangePassword from './ChangePassword';
 
 export default function Profile() {
   const { data: user } = useAuth();
@@ -52,7 +52,7 @@ export default function Profile() {
           </Button>
         </HStack>
       </Stack>
-      {changingPassword && <ChangePassword onClose={() => setChangingPassword(false)} />}
+      {changingPassword && <ChangePasswordDialog onClose={() => setChangingPassword(false)} />}
     </Stack>
   );
 }

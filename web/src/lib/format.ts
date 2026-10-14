@@ -25,6 +25,13 @@ export function dateTimeInput(value: string | null) {
 export const formatCount = (value: string | number | bigint) => BigInt(value).toLocaleString('zh-CN');
 /** 按浏览器默认区域显示的日期时间。 */
 export const localDateTime = (value: string | number | Date) => new Date(value).toLocaleString();
+/** 等效 API 费用固定以美元展示。 */
+export function formatUsd(amount: string) {
+  const value = Number(amount);
+  if (value > 0 && value < 0.005) return '<$0.01';
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export const displayMoney = (value: string) => value.replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
 
 export function displayRange(minimum: string, maximum: string) {

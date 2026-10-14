@@ -2,16 +2,9 @@ import { Badge, Box, Button, HStack, Stack, Table, Text } from '@chakra-ui/react
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { dateTimeInput, formatCount, formError, localDate } from '../lib/format';
+import { dateTimeInput, formatCount, formatUsd, formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
-
-/** 等效 API 费用固定以美元展示。 */
-export function usd(amount: string) {
-  const value = Number(amount);
-  if (value > 0 && value < 0.005) return '<$0.01';
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 export function subscriptionCycleQuery(channelId: string, enabled: boolean) {
   return trpc.admin.catalog.subscriptionCycleUsage.queryOptions(
@@ -102,7 +95,7 @@ export function SubscriptionCycleDialog({ channelId, onClose }: { channelId: str
           <Stack gap="2">
             <HStack gap="3" align="baseline" flexWrap="wrap">
               <Text fontSize="2xl" fontWeight="600" fontVariantNumeric="tabular-nums">
-                {usd(data.amount)}
+                {formatUsd(data.amount)}
               </Text>
               <Text fontSize="sm" color="gray.500">
                 {formatCount(data.requests)} 个请求
@@ -111,7 +104,7 @@ export function SubscriptionCycleDialog({ channelId, onClose }: { channelId: str
             {data.usedPercent !== null && (
               <Text fontSize="sm" color="gray.600">
                 {data.projectedAmount !== null
-                  ? `按已用 ${Math.round(data.usedPercent)}% 推算，整个周期约 ${usd(data.projectedAmount)}`
+                  ? `按已用 ${Math.round(data.usedPercent)}% 推算，整个周期约 ${formatUsd(data.projectedAmount)}`
                   : '已用不足 5%，暂不推算整个周期的额度'}
               </Text>
             )}
@@ -127,13 +120,13 @@ export function SubscriptionCycleDialog({ channelId, onClose }: { channelId: str
             <Stack gap="1" fontSize="sm" color="gray.600">
               {data.fallback.requests > 0 && (
                 <Text>
-                  其中 {usd(data.fallback.amount)}（{formatCount(data.fallback.requests)}{' '}
+                  其中 {formatUsd(data.fallback.amount)}（{formatCount(data.fallback.requests)}{' '}
                   个请求）的价格规则已变更，按默认规则估算
                 </Text>
               )}
               {data.unconfirmed.requests > 0 && (
                 <Text>
-                  其中 {usd(data.unconfirmed.amount)}（{formatCount(data.unconfirmed.requests)}{' '}
+                  其中 {formatUsd(data.unconfirmed.amount)}（{formatCount(data.unconfirmed.requests)}{' '}
                   个请求）的用量尚未最终确认
                 </Text>
               )}
@@ -166,7 +159,7 @@ export function SubscriptionCycleDialog({ channelId, onClose }: { channelId: str
                       {[
                         ['requests', formatCount(row.requests)],
                         ...tokenColumns.map(([key]) => [key, formatCount(row[key])]),
-                        ['amount', usd(row.amount)],
+                        ['amount', formatUsd(row.amount)],
                       ].map(([key, value]) => (
                         <Table.Cell key={key} textAlign="end" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
                           {value}

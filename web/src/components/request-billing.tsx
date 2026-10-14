@@ -11,7 +11,7 @@ import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './fields';
 import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
 
-export const requestStatuses: Record<string, string> = {
+const requestStatuses: Record<string, string> = {
   received: '处理中',
   reserved: '已预占',
   forwarding: '转发中',

@@ -4,10 +4,10 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
-import { localDateTime } from '../lib/format';
+import { formatUsd, localDateTime } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { IconButton, Tooltip } from './icon-button';
-import { SubscriptionCycleDialog, subscriptionCycleQuery, usd } from './subscription-cycle';
+import { SubscriptionCycleDialog, subscriptionCycleQuery } from './subscription-cycle';
 
 type Quota = RouterOutputs['admin']['catalog']['openAIQuota'];
 
@@ -137,15 +137,15 @@ export function SubscriptionQuota({
                   fontWeight="500"
                   color="gray.700"
                   fontVariantNumeric="tabular-nums"
-                  aria-label={`本周期等效 API 费用约 ${usd(cycle.data.amount)}，查看明细`}
+                  aria-label={`本周期等效 API 费用约 ${formatUsd(cycle.data.amount)}，查看明细`}
                   title={
                     cycle.data.projectedAmount !== null
-                      ? `本周期等效 API 费用（估算），整个周期约 ${usd(cycle.data.projectedAmount)}`
+                      ? `本周期等效 API 费用（估算），整个周期约 ${formatUsd(cycle.data.projectedAmount)}`
                       : '本周期等效 API 费用（估算）'
                   }
                   onClick={() => setShowingCycle(true)}
                 >
-                  ≈ {usd(cycle.data.amount)}
+                  ≈ {formatUsd(cycle.data.amount)}
                 </Button>
               ) : undefined
             }
