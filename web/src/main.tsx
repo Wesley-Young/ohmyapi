@@ -11,6 +11,8 @@ import { queryClient } from './lib/trpc';
 import ChangePassword from './routes/change-password';
 import Channels from './routes/channels';
 import Console from './routes/console';
+import GroupDetail from './routes/group-detail';
+import Groups from './routes/groups';
 import Keys from './routes/keys';
 import Landing from './routes/landing';
 import Login from './routes/login';
@@ -59,6 +61,8 @@ createRoot(root).render(
                     <Route path="models/:modelId/pricing" element={<Models />} />
                     <Route path="users" element={<Users />} />
                     <Route path="users/:userId" element={<UserDetail />} />
+                    <Route path="groups" element={<Groups />} />
+                    <Route path="groups/:groupId" element={<GroupDetail />} />
                   </Route>
                 </Route>
               </Route>

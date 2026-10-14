@@ -70,7 +70,7 @@ export function UserRoleAction({
         <Stack gap="5">
           <Text color="gray.600">
             {role === 'admin'
-              ? `将「${user.username}」提升为管理员后，该用户可以管理用户、渠道、定价和余额。现有会话将失效，需要重新登录。`
+              ? `将「${user.username}」提升为管理员后，该用户可以管理用户、渠道、定价和余额，并会移出所有用户组。现有会话将失效，需要重新登录。`
               : `将「${user.username}」降级为普通用户后，该用户将失去管理员权限。现有会话将失效，需要重新登录。`}
           </Text>
           <ErrorText>{formError(task.error)?.message}</ErrorText>

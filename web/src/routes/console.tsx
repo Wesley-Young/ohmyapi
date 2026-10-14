@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Network,
   ScrollText,
+  Tags,
   UserRound,
   Users,
 } from 'lucide-react';
@@ -23,6 +24,7 @@ const navigationIcons = {
   keys: KeyRound,
   requests: ScrollText,
   users: Users,
+  groups: Tags,
   channels: Network,
   models: Layers,
   plaza: CircleDollarSign,
@@ -50,6 +52,7 @@ export default function Console() {
           { to: '/console/channels', label: '渠道', end: false, icon: 'channels' as const },
           { to: '/console/models', label: '模型', end: false, icon: 'models' as const },
           { to: '/console/users', label: '用户', end: false, icon: 'users' as const },
+          { to: '/console/groups', label: '用户组', end: false, icon: 'groups' as const },
         ]
       : []),
   ];

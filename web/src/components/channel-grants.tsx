@@ -2,18 +2,11 @@ import { Badge, Button, Checkbox, Heading, HStack, Stack, Text } from '@chakra-u
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import { refreshGrants } from '../lib/cache';
 import { formError } from '../lib/format';
-import { queryClient, trpc } from '../lib/trpc';
+import { trpc } from '../lib/trpc';
+import { ChannelGroupAccess } from './group-access';
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, Panel, PrimaryButton } from './ui';
-
-function refreshGrants() {
-  return Promise.all([
-    queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
-    queryClient.invalidateQueries(trpc.admin.catalog.channelGrants.pathFilter()),
-    queryClient.invalidateQueries(trpc.keys.pathFilter()),
-    queryClient.invalidateQueries(trpc.modelPlaza.queryFilter()),
-  ]);
-}
 
 export function ChannelUsersDialog({
   channelId,
@@ -41,6 +34,7 @@ export function ChannelUsersDialog({
   return (
     <FormDialog open title={`「${channelName}」用户授权`} onClose={onClose} busy={task.isPending}>
       <Stack gap="5">
+        <ChannelGroupAccess channelId={channelId} channelName={channelName} />
         <form
           onSubmit={(event) => {
             event.preventDefault();

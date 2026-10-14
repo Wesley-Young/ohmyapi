@@ -8,6 +8,7 @@ import { BillingPlugin } from './plugins/billing/index.js';
 import { CatalogPlugin } from './plugins/catalog/index.js';
 import { DatabasePlugin } from './plugins/database/index.js';
 import { GatewayPlugin } from './plugins/gateway/index.js';
+import { GroupsPlugin } from './plugins/groups/index.js';
 import { HttpPlugin } from './plugins/http/index.js';
 import { KeysPlugin } from './plugins/keys/index.js';
 import { OutboundPlugin } from './plugins/outbound/index.js';
@@ -23,6 +24,7 @@ export function createApp(config: AppConfig) {
   ctx.install(DatabasePlugin);
   ctx.install(AuthPlugin);
   ctx.install(UsersPlugin);
+  ctx.install(GroupsPlugin);
   ctx.install(KeysPlugin);
   ctx.install(WalletPlugin);
   ctx.install(PricingPlugin);

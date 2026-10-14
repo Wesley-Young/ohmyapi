@@ -11,6 +11,8 @@ import { catalogAdminRoutes } from '../plugins/catalog/router.js';
 import type { CatalogService } from '../plugins/catalog/service.js';
 import type { RequestHistory } from '../plugins/gateway/history.js';
 import { requestRoutes } from '../plugins/gateway/router.js';
+import { groupAdminRoutes } from '../plugins/groups/router.js';
+import type { GroupService } from '../plugins/groups/service.js';
 import { keyRoutes } from '../plugins/keys/router.js';
 import type { KeyService } from '../plugins/keys/service.js';
 import { pricingRoutes } from '../plugins/pricing/router.js';
@@ -27,6 +29,7 @@ export interface RouterServices {
   startedAt: string;
   auth: AuthService;
   users: UserService;
+  groups: GroupService;
   keys: KeyService;
   wallet: WalletService;
   pricing: PricingService;
@@ -65,6 +68,7 @@ export function createAppRouter(services: RouterServices) {
       },
       requests: requests.admin,
       users: userAdminRoutes(services.users),
+      groups: groupAdminRoutes(services.groups),
       wallet: wallet.admin,
     },
   });

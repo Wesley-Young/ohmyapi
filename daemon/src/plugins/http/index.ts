@@ -18,6 +18,7 @@ import { DatabaseService } from '../database/index.js';
 import { endpoints } from '../database/schema/index.js';
 import { RequestHistory } from '../gateway/history.js';
 import { GatewayService } from '../gateway/service.js';
+import { GroupService } from '../groups/service.js';
 import { KeyService } from '../keys/service.js';
 import { PricingService } from '../pricing/service.js';
 import { SubscriptionService } from '../subscription/service.js';
@@ -43,6 +44,7 @@ export const HttpPlugin = definePlugin({
     keys: KeyService,
     subscription: SubscriptionService,
     users: UserService,
+    groups: GroupService,
     wallet: WalletService,
   },
   apply(ctx) {
@@ -51,6 +53,7 @@ export const HttpPlugin = definePlugin({
       startedAt: new Date().toISOString(),
       auth: ctx.auth,
       users: ctx.users,
+      groups: ctx.groups,
       keys: ctx.keys,
       wallet: ctx.wallet,
       pricing: ctx.pricing,

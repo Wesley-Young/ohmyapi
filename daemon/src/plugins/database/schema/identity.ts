@@ -7,6 +7,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -33,6 +34,36 @@ export const users = pgTable(
   (table) => [
     uniqueIndex('users_username_unique').on(table.username).where(sql`${table.deletedAt} is null`),
     check('users_username_format', sql`${table.username} ~ '^[a-z0-9][a-z0-9_.-]{2,63}$'`),
+  ],
+);
+
+/** 用户组只是普通用户的标签；组级授权在操作时展开写入每个成员的渠道授权。 */
+export const userGroups = pgTable(
+  'user_groups',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex('user_groups_name_unique').on(table.name),
+    check('user_groups_name_length', sql`char_length(${table.name}) between 1 and 64`),
+  ],
+);
+
+export const userGroupMembers = pgTable(
+  'user_group_members',
+  {
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => userGroups.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+  },
+  (table) => [
+    primaryKey({ columns: [table.groupId, table.userId] }),
+    index('user_group_members_user_idx').on(table.userId),
   ],
 );
 

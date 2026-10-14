@@ -9,7 +9,7 @@ import { generatePassword, hashPassword } from '../auth/password.js';
 import { type AuthService, type Principal, publicUser } from '../auth/service.js';
 import type { Database } from '../database/client.js';
 import { containsText, paginate } from '../database/query.js';
-import { apiKeys, sessions, systemSettings, users, wallets } from '../database/schema/index.js';
+import { apiKeys, sessions, systemSettings, userGroupMembers, users, wallets } from '../database/schema/index.js';
 
 export class UserService {
   static readonly token = serviceToken<UserService>('ohmyapi/users');
@@ -84,6 +84,14 @@ export class UserService {
       if (role === 'admin' && target.status !== 'active')
         throw new AppError('bad_request', '请先启用该用户，再提升为管理员');
       const [updated] = await tx.update(users).set({ role }).where(eq(users.id, userId)).returning();
+      // 管理员不属于任何用户组。
+      const leftGroups =
+        role === 'admin'
+          ? await tx
+              .delete(userGroupMembers)
+              .where(eq(userGroupMembers.userId, userId))
+              .returning({ groupId: userGroupMembers.groupId })
+          : [];
       await tx
         .update(sessions)
         .set({ revokedAt: new Date() })
@@ -93,7 +101,12 @@ export class UserService {
         action: 'user.set_role',
         targetType: 'user',
         targetId: userId,
-        metadata: { username: target.username, previousRole: target.role, role },
+        metadata: {
+          username: target.username,
+          previousRole: target.role,
+          role,
+          ...(leftGroups.length ? { leftGroupIds: leftGroups.map((group) => group.groupId) } : {}),
+        },
       });
       return publicUser(updated);
     });
@@ -128,6 +141,7 @@ export class UserService {
           .update(apiKeys)
           .set({ deletedAt: now, revokedAt: sql`coalesce(${apiKeys.revokedAt}, ${now})` })
           .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.deletedAt)));
+        await tx.delete(userGroupMembers).where(eq(userGroupMembers.userId, userId));
       }
       if (action !== 'enable')
         await tx

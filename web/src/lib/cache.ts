@@ -6,6 +6,7 @@ export function refreshUser(userId: string) {
     queryClient.invalidateQueries(trpc.admin.users.get.queryFilter({ userId })),
     queryClient.invalidateQueries(trpc.admin.users.list.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.channelGrants.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.groups.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.wallet.get.queryFilter({ userId })),
     queryClient.invalidateQueries(trpc.admin.wallet.ledger.queryFilter({ userId })),
     queryClient.invalidateQueries(trpc.wallet.pathFilter()),
@@ -26,6 +27,17 @@ export const refreshCatalog = () =>
     queryClient.invalidateQueries(trpc.keys.playgroundOptions.queryFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.channelGrants.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.groups.pathFilter()),
+  ]);
+
+/** 渠道授权或用户组变化后，刷新授权、用户组及依赖授权的 Key 和模型广场。 */
+export const refreshGrants = () =>
+  Promise.all([
+    queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.catalog.channelGrants.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.groups.pathFilter()),
+    queryClient.invalidateQueries(trpc.keys.pathFilter()),
+    queryClient.invalidateQueries(trpc.modelPlaza.queryFilter()),
   ]);
 
 /** 人工核对或修正某个请求的计费后，刷新请求列表、详情、对账与待核对计数。 */

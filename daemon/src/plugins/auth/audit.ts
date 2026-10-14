@@ -4,7 +4,8 @@ import { adminAuditLogs } from '../database/schema/index.js';
 /** 需要留痕的管理操作。审计记录只追加、不可修改。 */
 export type AuditAction =
   | 'system.bootstrap'
-  | `user.${'create' | 'set_role' | 'enable' | 'disable' | 'revoke_sessions' | 'reset_password' | 'delete' | 'channels'}`
+  | `user.${'create' | 'set_role' | 'enable' | 'disable' | 'revoke_sessions' | 'reset_password' | 'delete' | 'channels' | 'groups'}`
+  | `group.${'create' | 'rename' | 'delete' | 'members' | 'channels'}`
   | 'wallet.adjust'
   | 'key.delete'
   | 'price.save'
@@ -13,7 +14,14 @@ export type AuditAction =
   | `model.${'save' | 'delete' | 'import' | 'placeholder'}`
   | 'subscription.cycle_reset';
 
-export type AuditTargetType = 'user' | 'api_key' | 'model' | 'catalog' | 'request' | 'subscription_account';
+export type AuditTargetType =
+  | 'user'
+  | 'api_key'
+  | 'model'
+  | 'catalog'
+  | 'request'
+  | 'subscription_account'
+  | 'user_group';
 
 export async function recordAudit(
   tx: Transaction,
