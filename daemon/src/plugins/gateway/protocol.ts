@@ -97,3 +97,36 @@ export function responseHeaders(upstream: Headers, requestId: string): Headers {
   }
   return headers;
 }
+
+/** 按端点协议格式化错误：Messages 使用 Anthropic 格式，其余使用 OpenAI 格式。 */
+export function errorResponse(
+  endpoint: Endpoint | '/v1/models',
+  status: number,
+  code: string,
+  message: string,
+  id: string,
+): Response {
+  const type =
+    status === 401
+      ? 'authentication_error'
+      : status === 403
+        ? 'permission_error'
+        : status === 429
+          ? 'rate_limit_error'
+          : status >= 500
+            ? 'api_error'
+            : 'invalid_request_error';
+  return Response.json(
+    endpoint === '/v1/messages'
+      ? { type: 'error', error: { type, message }, request_id: id }
+      : { error: { type, code, message, param: null } },
+    {
+      status,
+      headers: {
+        'x-request-id': id,
+        'cache-control': 'no-store',
+        ...(status === 429 ? { 'retry-after': '60' } : {}),
+      },
+    },
+  );
+}

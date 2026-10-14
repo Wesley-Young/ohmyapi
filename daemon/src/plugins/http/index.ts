@@ -14,6 +14,7 @@ import { BillingService } from '../billing/service.js';
 import { CatalogService } from '../catalog/service.js';
 import { DatabaseService } from '../database/index.js';
 import { endpoints } from '../database/schema/index.js';
+import { RequestHistory } from '../gateway/history.js';
 import { GatewayService } from '../gateway/service.js';
 import { KeyService } from '../keys/service.js';
 import { PricingService } from '../pricing/service.js';
@@ -30,6 +31,7 @@ export const HttpPlugin = definePlugin({
     auth: AuthService,
     catalog: CatalogService,
     gateway: GatewayService,
+    requestHistory: RequestHistory,
     pricing: PricingService,
     billing: BillingService,
     billingRecords: BillingRecords,
@@ -52,7 +54,7 @@ export const HttpPlugin = definePlugin({
       billingReview: ctx.billingReview,
       catalog: ctx.catalog,
       subscription: ctx.subscription,
-      gateway: ctx.gateway,
+      requestHistory: ctx.requestHistory,
     });
     const sessionConfig = ctx.config.session;
     const cookieName: string = sessionConfig.secure ? '__Host-ohmyapi_session' : 'ohmyapi_session';

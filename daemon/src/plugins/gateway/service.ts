@@ -1,56 +1,38 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import type { GatewayConfig } from '../../config.js';
 import { GatewayError } from '../../core/errors.js';
 import { createLogSampler, type EventLogger, errorDetails, formatEvent } from '../../core/logging.js';
-import { formatMoney } from '../../core/money.js';
-import { toPage } from '../../core/pagination.js';
 import type { CredentialVault } from '../../core/vault.js';
 import { validateBillableRequest } from '../billing/admission.js';
-import { cacheReadForDisplay } from '../billing/cache-usage.js';
 import { searchRequest } from '../billing/search.js';
 import type { BillingService } from '../billing/service.js';
 import type { Database } from '../database/client.js';
-import {
-  activeApiKey,
-  activeChannel,
-  activeModel,
-  activeUser,
-  availableSubscription,
-  paginate,
-} from '../database/query.js';
+import { activeChannel, availableSubscription } from '../database/query.js';
 import type { Endpoint } from '../database/schema/index.js';
-import {
-  apiKeyChannels,
-  apiKeyModelGrants,
-  apiKeys,
-  effectiveChannelModels as channelAvailableModels,
-  effectiveChannelEndpoints as channelEndpoints,
-  channels,
-  models,
-  priceRules,
-  requestAttempts,
-  requests,
-  requestUsage,
-  userChannelGrants,
-  users,
-} from '../database/schema/index.js';
-import { canUseChannel, keyAllowsModel } from '../keys/access.js';
+import { channels, requestAttempts, requests } from '../database/schema/index.js';
 import type { OutboundHttp } from '../outbound/index.js';
-import { type PricingService, publicPricingSnapshot } from '../pricing/service.js';
+import type { PricingService } from '../pricing/service.js';
 import { channelAdapter, type SubscriptionChannels } from './adapters.js';
 import { type AffinitySelection, ChannelAffinity } from './affinity.js';
 import { ForwardBillingSession } from './billing-session.js';
+import { readJsonBody } from './body.js';
+import { identifyApiKey } from './identity.js';
 import { RequestLifecycle } from './lifecycle.js';
-import { reasoningEffort } from './protocol.js';
-import { selectExecutionChannel } from './routing.js';
+import { availableModels, modelListResponse } from './models.js';
+import { errorResponse, reasoningEffort } from './protocol.js';
+import { UserRateLimiter } from './rate-limit.js';
+import { resolveEntryRoute, selectExecutionChannel } from './routing.js';
 
 import { randomUUID } from 'node:crypto';
 
+/**
+ * 网关请求流程：鉴权与限流 → 读取请求体 → 入库 → 解析路由 → 锁定价格 → 预占 → 转发 → 收尾计费。
+ * 停止时中止所有进行中的请求并等待其完成计费收尾。
+ */
 export class GatewayService implements Disposable {
   static readonly token = serviceToken<GatewayService>('ohmyapi/gateway');
-  private readonly limits = new Map<string, { active: number; count: number; reset: number }>();
   private readonly affinity = new ChannelAffinity();
   private readonly db: Database;
   private readonly pricing: PricingService;
@@ -61,6 +43,7 @@ export class GatewayService implements Disposable {
   private readonly config: GatewayConfig;
   private readonly logger: EventLogger;
   private readonly sampleLog = createLogSampler();
+  private readonly rateLimiter: UserRateLimiter;
   private stopping = false;
   private disposal?: Promise<void>;
   private readonly running = new Map<string, { abort: AbortController; done: Promise<void> }>();
@@ -82,6 +65,7 @@ export class GatewayService implements Disposable {
     this.outbound = deps.outbound;
     this.config = deps.config;
     this.logger = deps.logger;
+    this.rateLimiter = new UserRateLimiter(deps.config);
   }
 
   dispose() {
@@ -106,71 +90,7 @@ export class GatewayService implements Disposable {
           errorMessage: message,
         }),
       );
-    const type =
-      status === 401
-        ? 'authentication_error'
-        : status === 403
-          ? 'permission_error'
-          : status === 429
-            ? 'rate_limit_error'
-            : status >= 500
-              ? 'api_error'
-              : 'invalid_request_error';
-    return Response.json(
-      endpoint === '/v1/messages'
-        ? { type: 'error', error: { type, message }, request_id: id }
-        : { error: { type, code, message, param: null } },
-      {
-        status,
-        headers: {
-          'x-request-id': id,
-          'cache-control': 'no-store',
-          ...(status === 429 ? { 'retry-after': '60' } : {}),
-        },
-      },
-    );
-  }
-
-  private acquire(userId: string) {
-    const now = Date.now();
-    for (const [key, entry] of this.limits) if (!entry.active && entry.reset <= now) this.limits.delete(key);
-    const entry = this.limits.get(userId) ?? { active: 0, count: 0, reset: now + 60_000 };
-    if (entry.reset <= now) {
-      entry.count = 0;
-      entry.reset = now + 60_000;
-    }
-    if (
-      entry.active >= this.config.maxConcurrent ||
-      entry.count >= this.config.requestsPerMinute ||
-      this.limits.size >= 10_000
-    )
-      throw new GatewayError(429, 'rate_limit_exceeded', 'User request limit exceeded');
-    entry.active++;
-    entry.count++;
-    this.limits.set(userId, entry);
-    return () => {
-      entry.active--;
-    };
-  }
-
-  private async identify(req: Request, endpoint: Endpoint | '/v1/models') {
-    const authorization = req.headers.get('authorization');
-    const bearer = authorization?.match(/^Bearer (sk-[A-Za-z0-9_-]{43})$/i)?.[1];
-    // 模型列表同时服务 Anthropic 客户端，接受 x-api-key；响应仍使用 OpenAI 格式。
-    const headerKey = endpoint === '/v1/messages' || endpoint === '/v1/models' ? req.headers.get('x-api-key') : null;
-    if ((authorization && !bearer) || (bearer && headerKey && bearer !== headerKey))
-      throw new GatewayError(401, 'invalid_api_key', 'Invalid API Key');
-    const token = bearer ?? headerKey;
-    if (!token || !/^sk-[A-Za-z0-9_-]{43}$/.test(token))
-      throw new GatewayError(401, 'invalid_api_key', 'An API Key is required');
-    const [identity] = await this.db
-      .select({ key: apiKeys, user: users, channelId: apiKeyChannels.channelId })
-      .from(apiKeys)
-      .innerJoin(users, eq(apiKeys.userId, users.id))
-      .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
-      .where(and(eq(apiKeys.key, token), activeApiKey(), activeUser()));
-    if (!identity) throw new GatewayError(401, 'invalid_api_key', 'Invalid or expired API Key');
-    return identity;
+    return errorResponse(endpoint, status, code, message, id);
   }
 
   async listModels(req: Request): Promise<Response> {
@@ -178,7 +98,7 @@ export class GatewayService implements Disposable {
     const startedAt = Date.now();
     try {
       if (this.stopping) throw new GatewayError(503, 'server_stopping', 'Gateway is stopping');
-      const identity = await this.identify(req, '/v1/models');
+      const identity = await identifyApiKey(this.db, req, '/v1/models');
       if (!identity.channelId)
         throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
       const [channel] = await this.db
@@ -187,63 +107,8 @@ export class GatewayService implements Disposable {
         .where(and(eq(channels.id, identity.channelId), activeChannel(), availableSubscription()));
       if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
       if (channel.type !== 'aggregate') await channelAdapter(channel, this.subscriptions);
-      const available = await this.db
-        .selectDistinct({ name: models.name, createdAt: models.createdAt })
-        .from(models)
-        .innerJoin(channelAvailableModels, eq(channelAvailableModels.modelId, models.id))
-        .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channelAvailableModels.channelId))
-        .innerJoin(priceRules, and(eq(priceRules.modelId, models.id), eq(priceRules.kind, 'default')))
-        .leftJoin(
-          apiKeyModelGrants,
-          and(eq(apiKeyModelGrants.modelId, models.id), eq(apiKeyModelGrants.apiKeyId, identity.key.id)),
-        )
-        .leftJoin(
-          userChannelGrants,
-          and(
-            eq(userChannelGrants.channelId, channelAvailableModels.channelId),
-            eq(userChannelGrants.userId, identity.user.id),
-          ),
-        )
-        .where(
-          and(
-            eq(channelAvailableModels.channelId, identity.channelId),
-            activeModel(),
-            identity.key.restrictModels ? eq(apiKeyModelGrants.apiKeyId, identity.key.id) : undefined,
-            identity.user.role !== 'admin' && !channel.isPublic
-              ? eq(userChannelGrants.userId, identity.user.id)
-              : undefined,
-          ),
-        )
-        .orderBy(models.name);
-      const headers = { 'x-request-id': id, 'cache-control': 'no-store' };
-      // 与 New API 一致：同时带 x-api-key 和 anthropic-version 时返回 Anthropic 格式，其余返回 OpenAI 格式。
-      if (req.headers.get('x-api-key') && req.headers.get('anthropic-version'))
-        return Response.json(
-          {
-            data: available.map((model) => ({
-              type: 'model',
-              id: model.name,
-              display_name: model.name,
-              created_at: model.createdAt.toISOString().replace(/\.\d{3}Z$/, 'Z'),
-            })),
-            has_more: false,
-            first_id: available[0]?.name ?? null,
-            last_id: available.at(-1)?.name ?? null,
-          },
-          { headers },
-        );
-      return Response.json(
-        {
-          object: 'list',
-          data: available.map((model) => ({
-            id: model.name,
-            object: 'model',
-            created: Math.floor(model.createdAt.getTime() / 1000),
-            owned_by: 'ohmyapi',
-          })),
-        },
-        { headers },
-      );
+      const available = await availableModels(this.db, { ...identity, channelId: identity.channelId }, channel);
+      return modelListResponse(req, available, id);
     } catch (error) {
       const failure =
         error instanceof GatewayError
@@ -262,113 +127,6 @@ export class GatewayService implements Disposable {
         );
       return this.error('/v1/models', failure.status, failure.code, failure.message, id);
     }
-  }
-
-  private async body(req: Request, signal: AbortSignal, stats: { bytes: number }, progress: () => void) {
-    if (!req.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
-      throw new GatewayError(415, 'unsupported_media_type', 'Content-Type must be application/json');
-    const reader = req.body?.getReader();
-    if (!reader) throw new GatewayError(400, 'invalid_request', 'JSON body is required');
-    const cancel = () => {
-      void reader.cancel().catch(() => {});
-    };
-    signal.addEventListener('abort', cancel, { once: true });
-    if (signal.aborted) cancel();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value.byteLength) progress();
-        size += value.byteLength;
-        stats.bytes = size;
-        if (size > this.config.maxBodyBytes) {
-          await reader.cancel();
-          throw new GatewayError(413, 'request_too_large', 'Request body exceeds the gateway limit');
-        }
-        chunks.push(value);
-      }
-    } finally {
-      signal.removeEventListener('abort', cancel);
-      reader.releaseLock();
-    }
-    if (signal.aborted) {
-      const message = 'Request body was not completed before admission';
-      if (signal.reason === 'body_idle_timeout')
-        throw new GatewayError(408, 'body_idle_timeout', 'Request body upload stalled');
-      if (signal.reason === 'body_timeout') throw new GatewayError(408, 'body_timeout', message);
-      throw new GatewayError(400, 'request_cancelled', message);
-    }
-    const bytes = Buffer.concat(chunks);
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(bytes.toString('utf8'));
-    } catch {
-      throw new GatewayError(400, 'invalid_json', 'Invalid JSON body');
-    }
-    if (
-      !parsed ||
-      typeof parsed !== 'object' ||
-      Array.isArray(parsed) ||
-      typeof parsed.model !== 'string' ||
-      !parsed.model ||
-      parsed.model.length > 128 ||
-      (parsed.stream !== undefined && typeof parsed.stream !== 'boolean')
-    )
-      throw new GatewayError(400, 'invalid_request', 'A model name and a boolean stream option are required');
-    // Async/background Responses retrieval is outside this synchronous gateway's scope.
-    if (parsed.background === true)
-      throw new GatewayError(400, 'unsupported_mode', 'Background responses are not supported');
-    return { parsed, bytes };
-  }
-
-  private async resolveRoute(
-    identity: Awaited<ReturnType<GatewayService['identify']>>,
-    requestedModel: string,
-    endpoint: Endpoint,
-    details: { modelName?: string; upstreamTimeoutMs?: number },
-  ) {
-    const [model] = await this.db
-      .select({
-        id: models.id,
-        name: models.name,
-        inputTokenLimit: models.inputTokenLimit,
-        outputTokenLimit: models.outputTokenLimit,
-      })
-      .from(models)
-      .where(and(eq(models.name, requestedModel), activeModel()));
-    if (!model) throw new GatewayError(404, 'model_not_found', 'Unknown or disabled model');
-    details.modelName = model.name;
-    if (!(await keyAllowsModel(this.db, identity.key, model.id)))
-      throw new GatewayError(403, 'model_forbidden', 'API Key does not authorize this model');
-
-    if (!identity.channelId)
-      throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
-    const [route] = await this.db
-      .select({ channel: channels })
-      .from(channels)
-      .innerJoin(channelAvailableModels, eq(channelAvailableModels.channelId, channels.id))
-      .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
-      .where(
-        and(
-          eq(channels.id, identity.channelId),
-          activeChannel(),
-          eq(channelAvailableModels.modelId, model.id),
-          eq(channelEndpoints.endpoint, endpoint),
-        ),
-      );
-    if (!route)
-      throw new GatewayError(
-        503,
-        'channel_unavailable',
-        'The API Key channel does not provide this model and endpoint',
-      );
-    details.upstreamTimeoutMs = route.channel.timeoutMs;
-
-    if (!(await canUseChannel(this.db, identity.user, route.channel)))
-      throw new GatewayError(403, 'channel_forbidden', 'Channel is not authorized for this user');
-    return { model, ...route };
   }
 
   async forward(req: Request, endpoint: Endpoint): Promise<Response> {
@@ -414,15 +172,15 @@ export class GatewayService implements Disposable {
           '此端点不支持 Claude Code 客户端，请在其他兼容 Anthropic Messages 的客户端中使用。',
         );
       this.billing.assertReady();
-      const identity = await this.identify(req, endpoint);
+      const identity = await identifyApiKey(this.db, req, endpoint);
       session.userId = identity.user.id;
       session.channelId = identity.channelId ?? undefined;
-      lifecycle.releaseCapacity = this.acquire(identity.user.id);
+      lifecycle.releaseCapacity = this.rateLimiter.acquire(identity.user.id);
 
       const { parsed, bytes } = await lifecycle.withBodyTimeout(
         this.config.bodyTimeoutMs,
         this.config.bodyIdleTimeoutMs,
-        (progress) => this.body(req, abort.signal, session.bodyStats, progress),
+        (progress) => readJsonBody(req, abort.signal, session.bodyStats, progress, this.config.maxBodyBytes),
       );
       const streaming = parsed.stream === true;
       session.streaming = streaming;
@@ -441,7 +199,7 @@ export class GatewayService implements Disposable {
         reasoningEffort: requestedEffort,
       });
       session.recorded = true;
-      const { model, channel } = await this.resolveRoute(identity, parsed.model as string, endpoint, session);
+      const { model, channel } = await resolveEntryRoute(this.db, identity, parsed.model as string, endpoint, session);
       const { channel: executionChannel, affinity } = await selectExecutionChannel(
         this.db,
         this.subscriptions,
@@ -575,99 +333,5 @@ export class GatewayService implements Disposable {
       await finish(failure.code);
       return this.error(endpoint, failure.status, failure.code, failure.message, id);
     }
-  }
-
-  async list(userId: string | undefined, page: number, reviewOnly = false) {
-    const rows = await paginate(
-      this.db
-        .select({
-          request: requests,
-          username: users.username,
-          usage: requestUsage,
-          channelName: channels.name,
-          channelType: channels.type,
-          apiKeyName: apiKeys.name,
-        })
-        .from(requests)
-        .innerJoin(users, eq(requests.userId, users.id))
-        .leftJoin(channels, eq(requests.channelId, channels.id))
-        .leftJoin(apiKeys, eq(requests.apiKeyId, apiKeys.id))
-        .leftJoin(requestUsage, eq(requests.id, requestUsage.requestId))
-        .where(
-          and(
-            userId ? eq(requests.userId, userId) : undefined,
-            reviewOnly ? and(eq(requests.status, 'needs_review'), eq(requests.billingEnabled, true)) : undefined,
-          ),
-        )
-        .orderBy(desc(requests.receivedAt), desc(requests.id))
-        .$dynamic(),
-      page,
-    );
-    const { items: pageRows, hasMore } = toPage(rows);
-    const attempts =
-      userId === undefined && pageRows.length > 0
-        ? await this.db
-            .select({
-              id: requestAttempts.id,
-              requestId: requestAttempts.requestId,
-              channelId: requestAttempts.channelId,
-              channelName: requestAttempts.channelName,
-            })
-            .from(requestAttempts)
-            .where(
-              inArray(
-                requestAttempts.requestId,
-                pageRows.map(({ request }) => request.id),
-              ),
-            )
-            .orderBy(asc(requestAttempts.sequence))
-        : [];
-    return {
-      currency: this.pricing.currency,
-      hasMore,
-      items: pageRows.map(({ request: r, username, usage: u, channelName, channelType, apiKeyName }) => ({
-        id: r.id,
-        username,
-        apiKeyId: r.apiKeyId,
-        apiKeyName,
-        reasoningEffort: r.reasoningEffort,
-        ttftMs: r.ttftMs,
-        outputTps: r.outputTps,
-        model: r.requestedModel,
-        endpoint: r.endpoint,
-        channelId: r.channelId,
-        channelName,
-        channelType,
-        executionChannels: attempts
-          .filter((attempt) => attempt.requestId === r.id)
-          .map(({ id, channelId, channelName }) => ({ id, channelId, channelName })),
-        status: r.status,
-        billingEnabled: r.billingEnabled,
-        usageFinal: r.usageFinal,
-        usageEstimate: r.usageEstimate,
-        reservedAmount: formatMoney(r.reservedMicros),
-        heldAmount: formatMoney(r.heldMicros),
-        chargedAmount: r.chargedMicros === null ? null : formatMoney(r.chargedMicros),
-        quotedAmount: r.quotedMicros === null ? null : formatMoney(r.quotedMicros),
-        pricing: userId ? publicPricingSnapshot(r.pricingSnapshot) : r.pricingSnapshot,
-        streaming: r.streaming,
-        httpStatus: r.httpStatus,
-        receivedAt: r.receivedAt.toISOString(),
-        durationMs: r.finishedAt ? r.finishedAt.getTime() - r.receivedAt.getTime() : null,
-        errorCode: r.errorCode,
-        upstreamRequestId: r.upstreamRequestId,
-        usage: u
-          ? {
-              input: u.inputTokens.toString(),
-              output: u.outputTokens.toString(),
-              cacheRead: cacheReadForDisplay(r.endpoint, r.usageFinal, u.rawUsage, u.cacheReadTokens),
-              cacheWrite: u.cacheWriteTokens.toString(),
-              context: u.contextTokens.toString(),
-              webSearchCalls: u.webSearchCalls.toString(),
-              webSearchPreviewCalls: u.webSearchPreviewCalls.toString(),
-            }
-          : null,
-      })),
-    };
   }
 }

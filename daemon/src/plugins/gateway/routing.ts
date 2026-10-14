@@ -2,11 +2,20 @@ import { and, desc, eq } from 'drizzle-orm';
 
 import { GatewayError } from '../../core/errors.js';
 import type { Database } from '../database/client.js';
-import { activeChannel, availableSubscription } from '../database/query.js';
+import { activeChannel, activeModel, availableSubscription } from '../database/query.js';
 import type { Endpoint } from '../database/schema/index.js';
-import { aggregateChannelMembers, channels, subscriptionAccounts } from '../database/schema/index.js';
+import {
+  aggregateChannelMembers,
+  effectiveChannelModels as channelAvailableModels,
+  effectiveChannelEndpoints as channelEndpoints,
+  channels,
+  models,
+  subscriptionAccounts,
+} from '../database/schema/index.js';
+import { canUseChannel, keyAllowsModel } from '../keys/access.js';
 import type { SubscriptionChannels } from './adapters.js';
 import type { AffinitySelection, ChannelAffinity } from './affinity.js';
+import type { KeyIdentity } from './identity.js';
 import { requestSession } from './session.js';
 
 type Channel = typeof channels.$inferSelect;
@@ -72,4 +81,50 @@ export async function selectExecutionChannel(
     }
   }
   return { channel, affinity };
+}
+
+/** 解析模型并确认 Key 绑定的入口渠道提供该模型和端点，且用户与 Key 均有权使用。 */
+export async function resolveEntryRoute(
+  db: Database,
+  identity: KeyIdentity,
+  requestedModel: string,
+  endpoint: Endpoint,
+  details: { modelName?: string; upstreamTimeoutMs?: number },
+) {
+  const [model] = await db
+    .select({
+      id: models.id,
+      name: models.name,
+      inputTokenLimit: models.inputTokenLimit,
+      outputTokenLimit: models.outputTokenLimit,
+    })
+    .from(models)
+    .where(and(eq(models.name, requestedModel), activeModel()));
+  if (!model) throw new GatewayError(404, 'model_not_found', 'Unknown or disabled model');
+  details.modelName = model.name;
+  if (!(await keyAllowsModel(db, identity.key, model.id)))
+    throw new GatewayError(403, 'model_forbidden', 'API Key does not authorize this model');
+
+  if (!identity.channelId)
+    throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
+  const [route] = await db
+    .select({ channel: channels })
+    .from(channels)
+    .innerJoin(channelAvailableModels, eq(channelAvailableModels.channelId, channels.id))
+    .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
+    .where(
+      and(
+        eq(channels.id, identity.channelId),
+        activeChannel(),
+        eq(channelAvailableModels.modelId, model.id),
+        eq(channelEndpoints.endpoint, endpoint),
+      ),
+    );
+  if (!route)
+    throw new GatewayError(503, 'channel_unavailable', 'The API Key channel does not provide this model and endpoint');
+  details.upstreamTimeoutMs = route.channel.timeoutMs;
+
+  if (!(await canUseChannel(db, identity.user, route.channel)))
+    throw new GatewayError(403, 'channel_forbidden', 'Channel is not authorized for this user');
+  return { model, ...route };
 }

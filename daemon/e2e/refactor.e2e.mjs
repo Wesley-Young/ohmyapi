@@ -322,6 +322,27 @@ test('认证、目录配置、Key 与网关结算主流程', async () => {
   const noKey = await fetch(`${base}/v1/messages`, { method: 'POST', body: '{}' });
   assert.equal(noKey.status, 401);
   assert.equal((await noKey.json()).error.type, 'authentication_error');
+  const notJson = await fetch(`${base}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'text/plain', authorization: `Bearer ${state.key}` },
+    body: '{}',
+  });
+  assert.equal(notJson.status, 415);
+  assert.equal((await notJson.json()).error.code, 'unsupported_media_type');
+  const badJson = await fetch(`${base}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${state.key}` },
+    body: '{',
+  });
+  assert.equal(badJson.status, 400);
+  assert.equal((await badJson.json()).error.code, 'invalid_json');
+  const wrongMethod = await fetch(`${base}/v1/messages`, { headers: { 'x-api-key': state.key } });
+  assert.equal(wrongMethod.status, 405);
+  assert.deepEqual(await wrongMethod.json(), {
+    type: 'error',
+    error: { type: 'invalid_request_error', message: 'Only POST is supported' },
+    request_id: wrongMethod.headers.get('x-request-id'),
+  });
   const unknownModel = await gateway('/v1/chat/completions', state.key, { model: 'nope', messages: [] });
   assert.equal(unknownModel.status, 404);
   assert.equal((await unknownModel.json()).error.code, 'model_not_found');

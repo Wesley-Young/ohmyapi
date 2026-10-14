@@ -5,6 +5,7 @@ import { DatabaseService } from '../database/index.js';
 import { OutboundHttp } from '../outbound/index.js';
 import { PricingService } from '../pricing/service.js';
 import { SubscriptionService } from '../subscription/service.js';
+import { RequestHistory } from './history.js';
 import { GatewayService } from './service.js';
 
 export const GatewayPlugin = definePlugin({
@@ -17,7 +18,7 @@ export const GatewayPlugin = definePlugin({
     subscription: SubscriptionService,
     outbound: OutboundHttp,
   },
-  provides: [GatewayService],
+  provides: [GatewayService, RequestHistory],
   apply(ctx) {
     const gateway = new GatewayService({
       db: ctx.database.db,
@@ -30,6 +31,7 @@ export const GatewayPlugin = definePlugin({
       logger: ctx.logger,
     });
     ctx.provide(GatewayService, gateway);
+    ctx.provide(RequestHistory, new RequestHistory({ db: ctx.database.db, pricing: ctx.pricing }));
     ctx.billing.onLeaseLost(() => {
       void gateway.dispose();
     });
