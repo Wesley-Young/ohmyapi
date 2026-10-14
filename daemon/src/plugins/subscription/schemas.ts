@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
+import { subscriptionProviders } from '../database/schema/index.js';
 import { proxyUrlInput } from '../outbound/schemas.js';
-import { subscriptionProviders } from './providers.js';
 
 export const credentialInput = z.object({
   provider: z.enum(subscriptionProviders).default('openai'),

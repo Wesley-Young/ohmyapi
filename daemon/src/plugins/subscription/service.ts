@@ -7,6 +7,7 @@ import type { CredentialVault } from '../../core/vault.js';
 import { recordAudit } from '../auth/audit.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import type { Database, Transaction } from '../database/client.js';
+import type { SubscriptionProvider } from '../database/schema/index.js';
 import { channels, subscriptionAccounts } from '../database/schema/index.js';
 import { channelProxy } from '../outbound/channel-proxy.js';
 import type { OutboundHttp } from '../outbound/index.js';
@@ -21,7 +22,6 @@ import { credentialsSchema, type OpenAICredentials, parseCredentials } from './o
 import { OpenAIOAuth } from './openai/oauth.js';
 import { OpenAIQuota } from './openai/quota.js';
 import { OpenAIResetCredits } from './openai/reset-credits.js';
-import type { SubscriptionProvider } from './providers.js';
 import type { SubscriptionRuntime } from './runtime.js';
 import type {
   ConsumeResetCreditInput,

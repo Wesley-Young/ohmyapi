@@ -2,11 +2,11 @@ import { Badge, type BadgeProps } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { Crown } from 'lucide-react';
 
+import type { SubscriptionProvider } from '../lib/subscription';
 import { Tooltip } from './icon-button';
 import { subscriptionQuotaQuery } from './subscription-quota';
 
 type Tier = 'free' | 'standard' | 'premium' | 'luxury' | 'flagship' | 'organization';
-type Provider = 'openai' | 'claude';
 
 // 按月价对齐两家套餐：灰 → 蓝 → 紫 → 金 → 金色加强；按席位计费的组织套餐单独用青色。
 // 金色自定义，避免与并发告警使用的 yellow 混淆。
@@ -50,7 +50,7 @@ const claudePlans: Record<string, { label: string; tier: Tier }> = {
 };
 
 /** 识别不出的套餐原样显示为灰色。 */
-export function planInfo(provider: Provider, raw: string): { label: string; tier: Tier } {
+export function planInfo(provider: SubscriptionProvider, raw: string): { label: string; tier: Tier } {
   if (provider === 'openai') return openAIPlans[raw.replace(/[\s_-]+/g, '')] ?? { label: raw, tier: 'free' };
   // Max 的倍数只出现在 rate_limit_tier（如 default_claude_max_5x），按数字归档以兼容新倍数。
   const multiple = raw.match(/max_(\d+)x/)?.[1];
@@ -63,7 +63,7 @@ export function PlanBadge({
   channelId,
   enabled,
 }: {
-  provider: Provider;
+  provider: SubscriptionProvider;
   channelId: string;
   enabled: boolean;
 }) {
@@ -71,7 +71,7 @@ export function PlanBadge({
   return plan ? <PlanLabel provider={provider} plan={plan} /> : null;
 }
 
-export function PlanLabel({ provider, plan }: { provider: Provider; plan: string }) {
+export function PlanLabel({ provider, plan }: { provider: SubscriptionProvider; plan: string }) {
   const { label, tier } = planInfo(provider, plan);
   return (
     <Tooltip content={`上游套餐标识：${plan}`}>

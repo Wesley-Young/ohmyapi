@@ -3,6 +3,7 @@ import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { RefreshCw } from 'lucide-react';
 
 import { formError, localDateTime } from '../lib/format';
+import type { SubscriptionProvider } from '../lib/subscription';
 import { brandColor } from '../lib/theme';
 import { OpenAIResetCredits } from './openai-reset-credits';
 import { ErrorText, FormInput } from './ui';
@@ -71,7 +72,7 @@ export function SubscriptionAccess({
   oauthPending,
   onStartOAuth,
 }: {
-  provider: 'openai' | 'claude';
+  provider: SubscriptionProvider;
   editing: boolean;
   busy: boolean;
   mode: SubscriptionAccessMode;

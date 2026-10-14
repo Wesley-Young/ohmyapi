@@ -3,12 +3,15 @@ import { boolean, check, integer, jsonb, pgTable, text, timestamp, uniqueIndex }
 
 import { createdAt, id } from './common.js';
 
+export const subscriptionProviders = ['openai', 'claude'] as const;
+export type SubscriptionProvider = (typeof subscriptionProviders)[number];
+
 export const subscriptionAccounts = pgTable(
   'subscription_accounts',
   {
     id: id(),
     name: text('name').notNull(),
-    provider: text('provider').default('openai').notNull(),
+    provider: text('provider', { enum: subscriptionProviders }).default('openai').notNull(),
     accountId: text('account_id').notNull(),
     userId: text('user_id').default('').notNull(),
     credentialEncrypted: text('credential_encrypted').notNull(),

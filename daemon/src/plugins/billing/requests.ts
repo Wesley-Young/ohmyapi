@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
 
 import type { Transaction } from '../database/client.js';
-import { requests, requestUsage, type Usage, type UsageEstimate } from '../database/schema/index.js';
+import { type Endpoint, requests, requestUsage, type Usage, type UsageEstimate } from '../database/schema/index.js';
+import { cacheReadForDisplay } from './cache-usage.js';
 
 export type RequestRow = typeof requests.$inferSelect;
 type RequestStatus = RequestRow['status'];
@@ -88,4 +89,10 @@ export const usageDto = (u: typeof requestUsage.$inferSelect) => ({
   contextTokens: u.contextTokens.toString(),
   webSearchCalls: u.webSearchCalls.toString(),
   webSearchPreviewCalls: u.webSearchPreviewCalls.toString(),
+});
+
+/** 展示给用户的用量。缓存读取以上游报告为准，无法确认时为 null。 */
+export const displayUsage = (r: { endpoint: Endpoint; usageFinal: boolean }, u: typeof requestUsage.$inferSelect) => ({
+  ...usageDto(u),
+  cacheReadTokens: cacheReadForDisplay(r.endpoint, r.usageFinal, u.rawUsage, u.cacheReadTokens),
 });

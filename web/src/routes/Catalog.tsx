@@ -22,10 +22,10 @@ const channelTypeLabels = {
   subscription: '订阅渠道',
   aggregate: '聚合渠道',
 } satisfies Record<CatalogData['channels'][number]['type'], string>;
-const providerLabels: Partial<Record<string, string>> = {
+const providerLabels = {
   openai: 'OpenAI',
   claude: 'Claude',
-};
+} satisfies Record<NonNullable<CatalogData['channels'][number]['subscription']>['provider'], string>;
 
 export default function Catalog() {
   const data = useQuery(trpc.admin.catalog.list.queryOptions());
@@ -113,14 +113,13 @@ export default function Catalog() {
                             {channelTypeLabels[c.type]}{' '}
                             {c.subscription && `(${providerLabels[c.subscription.provider]})`}
                           </Text>
-                          {c.type === 'subscription' &&
-                            (c.subscription?.provider === 'openai' || c.subscription?.provider === 'claude') && (
-                              <PlanBadge
-                                provider={c.subscription.provider}
-                                channelId={c.id}
-                                enabled={c.enabled && !c.subscription.errorCode}
-                              />
-                            )}
+                          {c.type === 'subscription' && c.subscription && (
+                            <PlanBadge
+                              provider={c.subscription.provider}
+                              channelId={c.id}
+                              enabled={c.enabled && !c.subscription.errorCode}
+                            />
+                          )}
                         </HStack>
                         {c.type === 'aggregate' && (
                           <Text fontSize="xs" color="gray.500">
@@ -192,8 +191,7 @@ export default function Catalog() {
                         </Stack>
                       </Table.Cell>
                       <Table.Cell>
-                        {c.type === 'subscription' &&
-                        (c.subscription?.provider === 'openai' || c.subscription?.provider === 'claude') ? (
+                        {c.type === 'subscription' && c.subscription ? (
                           <SubscriptionQuota
                             provider={c.subscription.provider}
                             channelId={c.id}

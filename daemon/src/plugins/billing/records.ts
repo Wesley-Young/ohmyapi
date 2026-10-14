@@ -9,7 +9,7 @@ import { requestAttempts, requests, requestUsage, users, walletLedger, wallets }
 import { type PricingService, publicPricingSnapshot } from '../pricing/service.js';
 import { ledgerAmounts } from '../wallet/ledger.js';
 import { cacheReadForDisplay } from './cache-usage.js';
-import { usageDto } from './requests.js';
+import { displayUsage } from './requests.js';
 import { type PricedUsage, priceRequestUsage } from './settlement.js';
 
 /** 账单查询：请求的计费明细与钱包对账。 */
@@ -88,7 +88,7 @@ export class BillingRecords {
       pricing: principal.user.role === 'admin' ? r.pricingSnapshot : publicPricingSnapshot(r.pricingSnapshot),
       reservation:
         principal.user.role === 'admin' ? r.reservationSnapshot : publicPricingSnapshot(r.reservationSnapshot),
-      usage: usage ? { ...usageDto(usage), cacheReadTokens: cacheRead } : null,
+      usage: usage ? displayUsage(r, usage) : null,
       preview: preview
         ? { ...preview, routing: principal.user.role === 'admin' ? preview.routing : undefined }
         : undefined,

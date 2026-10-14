@@ -57,7 +57,7 @@ function outputRate(r: RequestItem) {
   // 有 TTFT 但没有速度时，网关判断生成窗口过短，不再回退到总耗时估算。
   if (r.ttftMs !== null || !r.usage || r.durationMs === null || r.durationMs <= 0) return undefined;
   // 旧记录没有测量值，沿用输出 ÷ 总耗时。
-  return (Number(r.usage.output) / r.durationMs) * 1000;
+  return (Number(r.usage.outputTokens) / r.durationMs) * 1000;
 }
 
 function RateBadge({ request }: { request: RequestItem }) {
@@ -86,7 +86,7 @@ function RequestDuration({ request: r }: { request: RequestItem }) {
   const seconds = Math.max(0, r.durationMs) / 1000;
   const rows = [
     ...(r.ttftMs !== null ? [{ label: '首字', seconds: r.ttftMs / 1000, tone: firstTokenTone(r.ttftMs / 1000) }] : []),
-    { label: '耗时', seconds, tone: totalTone(seconds, Number(r.usage?.output ?? 0)) },
+    { label: '耗时', seconds, tone: totalTone(seconds, Number(r.usage?.outputTokens ?? 0)) },
   ];
   return (
     <HStack gap="2" align="stretch" whiteSpace="nowrap">
@@ -315,13 +315,13 @@ export default function Requests() {
                             <HStack gap="2">
                               <UsageBadge
                                 kind="input"
-                                value={String(Number(r.usage.input) + Number(r.usage.cacheWrite))}
+                                value={String(Number(r.usage.inputTokens) + Number(r.usage.cacheWriteTokens))}
                               />
-                              <UsageBadge kind="output" value={r.usage.output} />
+                              <UsageBadge kind="output" value={r.usage.outputTokens} />
                               {r.usageEstimate && <Badge colorPalette="orange">估算</Badge>}
                             </HStack>
                             <HStack gap="2">
-                              <UsageBadge kind="cacheRead" value={r.usage.cacheRead ?? '未知'} />
+                              <UsageBadge kind="cacheRead" value={r.usage.cacheReadTokens ?? '未知'} />
                               <RateBadge request={r} />
                             </HStack>
                           </Stack>

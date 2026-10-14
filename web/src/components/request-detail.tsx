@@ -1,11 +1,12 @@
 import { Badge, Box, Grid, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
+import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
 
 import { displayMoney, formError, localDate } from '../lib/format';
 import { trpc } from '../lib/trpc';
 import { ErrorText, FormDialog, Loading } from './ui';
 
-const requestStatuses: Record<string, string> = {
+const requestStatuses = {
   received: '处理中',
   reserved: '已预占',
   forwarding: '转发中',
@@ -15,7 +16,7 @@ const requestStatuses: Record<string, string> = {
   rejected: '已拒绝',
   needs_review: '待核对',
   completed: '历史未计费',
-};
+} satisfies Record<RouterOutputs['requestDetail']['status'], string>;
 const ledgerKinds = { reserve: '预占', settlement: '消费', release: '释放', correction: '修正', adjustment: '调账' };
 
 export function RequestDetail({ requestId, close }: { requestId: string; close: () => void }) {

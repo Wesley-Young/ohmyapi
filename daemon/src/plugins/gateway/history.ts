@@ -3,7 +3,7 @@ import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
 import { formatMoney } from '../../core/money.js';
 import { toPage } from '../../core/pagination.js';
-import { cacheReadForDisplay } from '../billing/cache-usage.js';
+import { displayUsage } from '../billing/requests.js';
 import type { Database } from '../database/client.js';
 import { paginate } from '../database/query.js';
 import { apiKeys, channels, requestAttempts, requests, requestUsage, users } from '../database/schema/index.js';
@@ -98,17 +98,7 @@ export class RequestHistory {
         durationMs: r.finishedAt ? r.finishedAt.getTime() - r.receivedAt.getTime() : null,
         errorCode: r.errorCode,
         upstreamRequestId: r.upstreamRequestId,
-        usage: u
-          ? {
-              input: u.inputTokens.toString(),
-              output: u.outputTokens.toString(),
-              cacheRead: cacheReadForDisplay(r.endpoint, r.usageFinal, u.rawUsage, u.cacheReadTokens),
-              cacheWrite: u.cacheWriteTokens.toString(),
-              context: u.contextTokens.toString(),
-              webSearchCalls: u.webSearchCalls.toString(),
-              webSearchPreviewCalls: u.webSearchPreviewCalls.toString(),
-            }
-          : null,
+        usage: u ? displayUsage(r, u) : null,
       })),
     };
   }

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { refreshCatalog } from '../lib/cache';
 import { type Endpoint, endpoints, responsesEndpoints } from '../lib/endpoints';
 import { formError } from '../lib/format';
+import type { SubscriptionProvider } from '../lib/subscription';
 import { trpc } from '../lib/trpc';
 import { AggregateMembers, AggregateSummary, aggregateCommon } from './aggregate-members';
 import { type ChannelModel, ChannelModels } from './channel-models';
@@ -24,7 +25,7 @@ export function EndpointFields({
   value: Endpoint[];
   onChange: (value: Endpoint[]) => void;
   subscription?: boolean;
-  provider?: string;
+  provider?: SubscriptionProvider;
 }) {
   return (
     <Box as="fieldset">
@@ -82,9 +83,7 @@ export function ChannelForm({
   const passthrough = type === 'aggregate' && pricingMode === 'passthrough';
   const [members, setMembers] = useState<CatalogData['channels'][number]['members']>(initial?.members ?? []);
   const [maximum, setMaximum] = useState(String(initial?.subscription?.maxConcurrent ?? 5));
-  const [provider, setProvider] = useState<'openai' | 'claude'>(
-    initial?.subscription?.provider === 'claude' ? 'claude' : 'openai',
-  );
+  const [provider, setProvider] = useState<SubscriptionProvider>(initial?.subscription?.provider ?? 'openai');
   const [mode, setMode] = useState<SubscriptionAccessMode>('oauth');
   const [credentials, setCredentials] = useState('');
   const [callback, setCallback] = useState('');

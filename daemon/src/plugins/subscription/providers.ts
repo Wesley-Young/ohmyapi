@@ -1,7 +1,4 @@
-import type { Endpoint } from '../database/schema/index.js';
-
-export const subscriptionProviders = ['openai', 'claude'] as const;
-export type SubscriptionProvider = (typeof subscriptionProviders)[number];
+import type { Endpoint, SubscriptionProvider } from '../database/schema/index.js';
 
 /** 各订阅平台可转发的端点。 */
 export const providerEndpoints = {

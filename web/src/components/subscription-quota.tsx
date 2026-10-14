@@ -5,6 +5,7 @@ import { RefreshCw } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
 import { formatUsd, localDateTime } from '../lib/format';
+import type { SubscriptionProvider } from '../lib/subscription';
 import { queryClient, trpc } from '../lib/trpc';
 import { IconButton, Tooltip } from './icon-button';
 import { SubscriptionCycleDialog, subscriptionCycleQuery } from './subscription-cycle';
@@ -12,7 +13,7 @@ import { SubscriptionCycleDialog, subscriptionCycleQuery } from './subscription-
 type Quota = RouterOutputs['admin']['catalog']['openAIQuota'];
 
 /** 额度与套餐共用同一个查询，组件各自订阅时不会重复请求。 */
-export function subscriptionQuotaQuery(provider: 'openai' | 'claude', channelId: string, enabled: boolean) {
+export function subscriptionQuotaQuery(provider: SubscriptionProvider, channelId: string, enabled: boolean) {
   const endpoint = provider === 'claude' ? trpc.admin.catalog.claudeQuota : trpc.admin.catalog.openAIQuota;
   return endpoint.queryOptions({ channelId }, { enabled, staleTime: 60_000, refetchInterval: 60_000, retry: false });
 }
@@ -84,7 +85,7 @@ export function SubscriptionQuota({
   enabled,
   reauthorizationRequired,
 }: {
-  provider: 'openai' | 'claude';
+  provider: SubscriptionProvider;
   channelId: string;
   enabled: boolean;
   reauthorizationRequired: boolean;
