@@ -72,7 +72,7 @@ function Channels({ groupId, groupName }: { groupId: string; groupName: string }
             非公开渠道授权
           </Heading>
           <Text fontSize="sm" color="gray.500">
-            按当前成员一次性授予或撤销，之后加入的成员不会自动获得。
+            授予和撤销只作用于当前成员。新成员加入时，可选择同步现有成员共有的渠道。
           </Text>
         </Stack>
         <ErrorText>{formError(channels.error)?.message}</ErrorText>
