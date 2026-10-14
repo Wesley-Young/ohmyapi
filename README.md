@@ -1,6 +1,6 @@
 # ohmyapi
 
-简单的 AI API 网关。
+Simple yet capable AI gateway, yours to extend.
 
 ## 环境要求
 

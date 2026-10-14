@@ -17,7 +17,7 @@ export default function About() {
       <Stack gap="7">
         <Stack gap="4">
           <Logo fontSize="32px" />
-          <Text color="gray.600">Simple AI Gateway For You and By You</Text>
+          <Text color="gray.600">Simple yet capable AI gateway, yours to extend.</Text>
         </Stack>
         <Stack gap="3" align="start" fontSize="sm">
           <Link href={repository} target="_blank" rel="noreferrer" fontWeight="500" _hover={{ color: brandColor }}>
