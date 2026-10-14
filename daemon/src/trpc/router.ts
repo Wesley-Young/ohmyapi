@@ -176,6 +176,10 @@ export const appRouter = t.router({
     .query(({ ctx, input }) => ctx.billing.detail(ctx.principal, input.requestId)),
   admin: t.router({
     stats: adminProcedure.query(({ ctx }) => ctx.wallet.platformStats()),
+    reviewCount: adminProcedure.query(({ ctx }) => ctx.wallet.reviewCount()),
+    models: adminProcedure
+      .input(z.object({ range: z.enum(['24h', '30d']) }))
+      .query(({ ctx, input }) => ctx.wallet.models(undefined, input.range)),
     billing: t.router({
       resolve: adminProcedure
         .input(resolveBillInput)

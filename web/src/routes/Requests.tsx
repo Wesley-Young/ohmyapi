@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router';
 
 import { IconButton } from '../components/icon-button';
 import { BillingAction, BulkZeroBilling, RequestDetail } from '../components/request-billing';
+import { useReviewCount } from '../components/review-badge';
 import { ErrorText, Loading, PageControls, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { formError, localDate } from '../lib/format';
@@ -134,6 +135,7 @@ export default function Requests() {
     ),
   );
   const data = admin ? all : own;
+  const reviews = useReviewCount(admin);
   const selectable = data.data?.items.filter((r) => r.billingEnabled && r.status === 'needs_review') ?? [];
   const pageIds = selectable.map((r) => r.id);
   const selectedOnPage = pageIds.filter((id) => selectedIds.includes(id)).length;
@@ -164,13 +166,14 @@ export default function Requests() {
           <Button
             size="sm"
             variant={reviewOnly ? 'solid' : 'outline'}
+            aria-label={reviews ? `待核对，${reviews} 条` : '待核对'}
             onClick={() => {
               setReviewOnly(true);
               setPage(0);
               setSelectedIds([]);
             }}
           >
-            待核对
+            待核对 ({reviews})
           </Button>
         </HStack>
       )}
@@ -309,7 +312,10 @@ export default function Requests() {
                         ) : r.usage ? (
                           <Stack gap="2">
                             <HStack gap="2">
-                              <UsageBadge kind="input" value={String(Number(r.usage.input) + Number(r.usage.cacheWrite))} />
+                              <UsageBadge
+                                kind="input"
+                                value={String(Number(r.usage.input) + Number(r.usage.cacheWrite))}
+                              />
                               <UsageBadge kind="output" value={r.usage.output} />
                               {r.usageEstimate && <Badge colorPalette="orange">估算</Badge>}
                             </HStack>

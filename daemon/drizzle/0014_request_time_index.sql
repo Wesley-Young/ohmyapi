@@ -1,0 +1,1 @@
+CREATE INDEX "requests_time_idx" ON "requests" USING btree ("received_at");

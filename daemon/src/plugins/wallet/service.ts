@@ -35,6 +35,9 @@ const usageStats = () => ({
   chargedMicros: sql<string>`coalesce(sum(${requests.chargedMicros}) filter (where ${requests.status} = 'settled'), 0)::text`,
 });
 
+const within = (range: '24h' | '30d') =>
+  sql`${requests.receivedAt} >= now() - ${range === '24h' ? sql`interval '24 hours'` : sql`interval '30 days'`} and ${requests.receivedAt} <= now()`;
+
 const statsDto = (stats: { requestCount: string; tokens: string; chargedMicros: string }) => ({
   requestCount: stats.requestCount,
   tokens: stats.tokens,
@@ -87,40 +90,52 @@ export class WalletService {
     };
   }
 
-  async models(userId: string, range: '24h' | '30d') {
+  /** 个人按消费排序；全站按请求数排行，前 10 名之后合并为一行，合计仍与卡片一致。 */
+  async models(userId: string | undefined, range: '24h' | '30d') {
     const rows = await this.auth.db
       .select({ modelId: requests.modelId, name: models.name, ...usageStats() })
       .from(requests)
       .leftJoin(requestUsage, eq(requestUsage.requestId, requests.id))
       .leftJoin(models, eq(models.id, requests.modelId))
-      .where(
-        and(
-          eq(requests.userId, userId),
-          sql`${requests.receivedAt} >= now() - ${range === '24h' ? sql`interval '24 hours'` : sql`interval '30 days'`} and ${requests.receivedAt} <= now()`,
-        ),
-      )
+      .where(and(userId ? eq(requests.userId, userId) : undefined, within(range)))
       .groupBy(requests.modelId, models.name);
     const descending = (a: string, b: string) => {
       const difference = BigInt(b) - BigInt(a);
       return difference > 0n ? 1 : difference < 0n ? -1 : 0;
     };
+    const sorted = rows.sort((a, b) =>
+      userId
+        ? descending(a.chargedMicros, b.chargedMicros) || descending(a.requestCount, b.requestCount)
+        : descending(a.requestCount, b.requestCount) || descending(a.chargedMicros, b.chargedMicros),
+    );
     // Requests rejected before model resolution carry no model and are reported together.
-    return rows
-      .sort((a, b) => descending(a.chargedMicros, b.chargedMicros) || descending(a.requestCount, b.requestCount))
-      .map(({ modelId, name, ...stats }) => ({ modelId, name: modelId ? name : null, ...statsDto(stats) }));
+    const items = sorted.map(({ modelId, name, ...stats }) => ({
+      modelId,
+      name: modelId ? name : null,
+      others: 0,
+      ...statsDto(stats),
+    }));
+    if (userId || sorted.length <= 11) return items;
+    const rest = sorted.slice(10);
+    const sum = (key: 'requestCount' | 'tokens' | 'chargedMicros') =>
+      rest.reduce((total, row) => total + BigInt(row[key]), 0n).toString();
+    return [
+      ...items.slice(0, 10),
+      {
+        modelId: null,
+        name: null,
+        others: rest.length,
+        ...statsDto({ requestCount: sum('requestCount'), tokens: sum('tokens'), chargedMicros: sum('chargedMicros') }),
+      },
+    ];
   }
 
-  private async aggregateStats(userId?: string) {
+  private async aggregateStats(userId?: string, range: '24h' | '30d' = '24h') {
     const [stats] = await this.auth.db
       .select(usageStats())
       .from(requests)
       .leftJoin(requestUsage, eq(requestUsage.requestId, requests.id))
-      .where(
-        and(
-          userId ? eq(requests.userId, userId) : undefined,
-          sql`${requests.receivedAt} >= now() - interval '24 hours' and ${requests.receivedAt} <= now()`,
-        ),
-      );
+      .where(and(userId ? eq(requests.userId, userId) : undefined, within(range)));
     return statsDto(stats);
   }
 
@@ -146,15 +161,21 @@ export class WalletService {
   }
 
   async platformStats() {
-    const [stats, [review], [settings]] = await Promise.all([
-      this.aggregateStats(),
-      this.auth.db
-        .select({ count: sql<string>`count(*)::text` })
-        .from(requests)
-        .where(eq(requests.status, 'needs_review')),
+    const [last24Hours, last30Days, [settings]] = await Promise.all([
+      this.aggregateStats(undefined, '24h'),
+      this.aggregateStats(undefined, '30d'),
       this.auth.db.select({ currency: systemSettings.currency }).from(systemSettings),
     ]);
-    return { ...stats, reviewCount: review.count, currency: settings.currency };
+    return { last24Hours, last30Days, currency: settings.currency };
+  }
+
+  /** 与请求列表「待核对」筛选条件一致，供导航徽标轮询。 */
+  async reviewCount() {
+    const [review] = await this.auth.db
+      .select({ count: sql<number>`count(*)::integer` })
+      .from(requests)
+      .where(and(eq(requests.status, 'needs_review'), eq(requests.billingEnabled, true)));
+    return review.count;
   }
 
   async ledger(userId: string, page: number) {

@@ -1,7 +1,6 @@
-import { Button, Grid, Heading, HStack, Link, Stack, Text } from '@chakra-ui/react';
+import { Button, Grid, Heading, HStack, Stack, Text } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Link as RouterLink } from 'react-router';
 
 import ModelUsage from '../components/model-usage';
 import { ErrorText, FormDialog, Loading, PageControls, Panel, Title } from '../components/ui';
@@ -50,6 +49,33 @@ function balanceAmount(value: string) {
   return `${negative && cents !== 0n ? '-' : ''}${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`;
 }
 
+function StatCard({ label, value, unit }: { label: string; value: string; unit?: string }) {
+  return (
+    <Panel>
+      <Stack gap="3">
+        <Text fontSize="sm" color="gray.500">
+          {label}
+        </Text>
+        <Text
+          fontSize="26px"
+          fontWeight="600"
+          letterSpacing="-0.03em"
+          overflowWrap="anywhere"
+          fontVariantNumeric="tabular-nums"
+        >
+          {value}
+          {unit && (
+            <Text as="span" fontSize="sm" fontWeight="400" color="gray.500">
+              {' '}
+              {unit}
+            </Text>
+          )}
+        </Text>
+      </Stack>
+    </Panel>
+  );
+}
+
 export default function Overview() {
   const { data: user } = useAuth();
   const admin = user?.role === 'admin';
@@ -64,7 +90,8 @@ export default function Overview() {
     trpc.wallet.trend.queryOptions(undefined, { refetchOnMount: 'always', refetchInterval: 10000 }),
   );
   const platform = useQuery(
-    trpc.admin.stats.queryOptions(undefined, { enabled: admin, refetchOnMount: 'always', refetchInterval: 10000 }),
+    // 全站统计需要扫描时间窗口内的所有请求，刷新频率低于个人统计。
+    trpc.admin.stats.queryOptions(undefined, { enabled: admin, refetchOnMount: 'always', refetchInterval: 60_000 }),
   );
   return (
     <Stack gap="7">
@@ -82,7 +109,12 @@ export default function Overview() {
               onClick={() =>
                 void Promise.all([
                   queryClient.invalidateQueries(trpc.wallet.pathFilter()),
-                  ...(admin ? [queryClient.invalidateQueries(trpc.admin.stats.queryFilter())] : []),
+                  ...(admin
+                    ? [
+                        queryClient.invalidateQueries(trpc.admin.stats.queryFilter()),
+                        queryClient.invalidateQueries(trpc.admin.models.pathFilter()),
+                      ]
+                    : []),
                 ])
               }
             >
@@ -116,29 +148,8 @@ export default function Overview() {
                 unit: wallet.data.currency,
               },
               { label: '钱包总余额', value: balanceAmount(wallet.data.balance), unit: wallet.data.currency },
-            ].map(({ label, value, unit }) => (
-              <Panel key={label}>
-                <Stack gap="3">
-                  <Text fontSize="sm" color="gray.500">
-                    {label}
-                  </Text>
-                  <Text
-                    fontSize="26px"
-                    fontWeight="600"
-                    letterSpacing="-0.03em"
-                    overflowWrap="anywhere"
-                    fontVariantNumeric="tabular-nums"
-                  >
-                    {value}
-                    {unit && (
-                      <Text as="span" fontSize="sm" fontWeight="400" color="gray.500">
-                        {' '}
-                        {unit}
-                      </Text>
-                    )}
-                  </Text>
-                </Stack>
-              </Panel>
+            ].map((card) => (
+              <StatCard key={card.label} {...card} />
             ))}
           </Grid>
         )
@@ -156,54 +167,27 @@ export default function Overview() {
             <Loading />
           ) : (
             platform.data && (
-              <Grid templateColumns={{ base: '1fr', sm: 'repeat(2, 1fr)', xl: 'repeat(4, 1fr)' }} gap="4">
-                {[
-                  { label: '近 24 小时平台请求数', value: count(platform.data.requestCount), unit: '次' },
-                  { label: '近 24 小时平台 Token 量', value: count(platform.data.tokens) },
-                  {
-                    label: '近 24 小时平台消费',
-                    value: displayMoney(platform.data.chargedAmount),
-                    unit: platform.data.currency,
-                  },
-                  {
-                    label: '待核对请求数',
-                    value: count(platform.data.reviewCount),
-                    unit: '次',
-                    to: '/console/requests?reviewOnly=true',
-                  },
-                ].map(({ label, value, unit, to }) => (
-                  <Panel key={label}>
-                    <Stack gap="3">
-                      {to ? (
-                        <Link asChild fontSize="sm" color="#635bff">
-                          <RouterLink to={to}>{label}</RouterLink>
-                        </Link>
-                      ) : (
-                        <Text fontSize="sm" color="gray.500">
-                          {label}
-                        </Text>
-                      )}
-                      <Text
-                        fontSize="26px"
-                        fontWeight="600"
-                        letterSpacing="-0.03em"
-                        overflowWrap="anywhere"
-                        fontVariantNumeric="tabular-nums"
-                      >
-                        {value}
-                        {unit && (
-                          <Text as="span" fontSize="sm" fontWeight="400" color="gray.500">
-                            {' '}
-                            {unit}
-                          </Text>
-                        )}
-                      </Text>
-                    </Stack>
-                  </Panel>
-                ))}
+              <Grid templateColumns={{ base: '1fr', sm: 'repeat(2, 1fr)', xl: 'repeat(3, 1fr)' }} gap="4">
+                {(
+                  [
+                    ['近 24 小时', platform.data.last24Hours],
+                    ['近 30 天', platform.data.last30Days],
+                  ] as const
+                ).flatMap(([period, stats]) =>
+                  [
+                    { label: `${period}平台请求数`, value: count(stats.requestCount), unit: '次' },
+                    { label: `${period}平台 Token 量`, value: count(stats.tokens) },
+                    {
+                      label: `${period}平台消费`,
+                      value: displayMoney(stats.chargedAmount),
+                      unit: platform.data.currency,
+                    },
+                  ].map((card) => <StatCard key={card.label} {...card} />),
+                )}
               </Grid>
             )
           )}
+          <ModelUsage scope="platform" currency={platform.data?.currency} />
         </Stack>
       )}
       {viewingLedger && <LedgerDialog onClose={() => setViewingLedger(false)} />}

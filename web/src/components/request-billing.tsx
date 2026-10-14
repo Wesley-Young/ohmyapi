@@ -29,6 +29,7 @@ const refreshRequests = (userId: string, requestId: string) =>
     queryClient.invalidateQueries(trpc.admin.requests.pathFilter()),
     queryClient.invalidateQueries(trpc.requestDetail.queryFilter({ requestId })),
     queryClient.invalidateQueries(trpc.admin.billing.reconcile.queryFilter({ userId })),
+    queryClient.invalidateQueries(trpc.admin.reviewCount.queryFilter()),
   ]);
 const definitive = (error: unknown) =>
   error instanceof TRPCClientError &&
@@ -316,6 +317,7 @@ export function BulkZeroBilling({
           queryClient.invalidateQueries(trpc.requestDetail.pathFilter()),
           queryClient.invalidateQueries(trpc.admin.billing.reconcile.pathFilter()),
           queryClient.invalidateQueries(trpc.admin.stats.pathFilter()),
+          queryClient.invalidateQueries(trpc.admin.reviewCount.queryFilter()),
         ]);
         setOpen(false);
       },

@@ -14,6 +14,7 @@ import { Navigate, NavLink, Outlet, Link as RouterLink, useMatch } from 'react-r
 
 import { Tooltip } from '../components/icon-button';
 import { Logo } from '../components/logo';
+import { ReviewBadge, ReviewDot, useReviewCount } from '../components/review-badge';
 import { useAuth } from '../lib/auth';
 
 const navigationIcons = {
@@ -35,13 +36,14 @@ function NavigationIcon({ name }: { name: keyof typeof navigationIcons }) {
 export default function Console() {
   const auth = useAuth();
   const playground = Boolean(useMatch('/console/playground'));
+  const reviews = useReviewCount(auth.data?.role === 'admin');
   if (!auth.data) return null;
-  const links: { to: string; label: string; end: boolean; icon: keyof typeof navigationIcons }[] = [
+  const links: { to: string; label: string; end: boolean; icon: keyof typeof navigationIcons; badge?: number }[] = [
     { to: '/console', label: '总览', end: true, icon: 'overview' },
     { to: '/console/model-plaza', label: '模型广场', end: false, icon: 'plaza' },
     { to: '/console/keys', label: 'API Key', end: false, icon: 'keys' },
     { to: '/console/playground', label: 'Playground', end: false, icon: 'playground' },
-    { to: '/console/requests', label: '请求', end: false, icon: 'requests' },
+    { to: '/console/requests', label: '请求', end: false, icon: 'requests', badge: reviews },
     ...(auth.data.role === 'admin'
       ? [
           { to: '/console/channels', label: '渠道', end: false, icon: 'channels' as const },
@@ -94,36 +96,47 @@ export default function Console() {
           py="5"
         >
           <Stack as="nav" aria-label="控制台导航" gap="1">
-            {links.map((link) => (
-              <Tooltip key={link.to} content={link.label}>
-                <NavLink
-                  to={link.to}
-                  end={link.end}
-                  aria-label={link.label}
-                  style={{ display: 'block', borderRadius: '8px' }}
-                >
-                  {({ isActive }) => (
-                    <HStack
-                      gap="3"
-                      h="44px"
-                      px={{ base: 0, md: 3 }}
-                      justify={{ base: 'center', md: 'start' }}
-                      borderRadius="lg"
-                      bg={isActive ? 'gray.100' : 'transparent'}
-                      color={isActive ? '#171717' : 'gray.500'}
-                      _hover={{ bg: isActive ? 'gray.100' : 'gray.50', color: '#171717' }}
-                      fontSize="sm"
-                      fontWeight={isActive ? '600' : '400'}
-                    >
-                      <NavigationIcon name={link.icon} />
-                      <Text display={{ base: 'none', md: 'block' }} whiteSpace="nowrap">
-                        {link.label}
-                      </Text>
-                    </HStack>
-                  )}
-                </NavLink>
-              </Tooltip>
-            ))}
+            {links.map((link) => {
+              const name = link.badge ? `${link.label}，${link.badge} 条待核对` : link.label;
+              return (
+                <Tooltip key={link.to} content={name}>
+                  <NavLink
+                    to={link.to}
+                    end={link.end}
+                    aria-label={name}
+                    style={{ display: 'block', borderRadius: '8px' }}
+                  >
+                    {({ isActive }) => (
+                      <HStack
+                        gap="3"
+                        h="44px"
+                        px={{ base: 0, md: 3 }}
+                        justify={{ base: 'center', md: 'start' }}
+                        borderRadius="lg"
+                        bg={isActive ? 'gray.100' : 'transparent'}
+                        color={isActive ? '#171717' : 'gray.500'}
+                        _hover={{ bg: isActive ? 'gray.100' : 'gray.50', color: '#171717' }}
+                        fontSize="sm"
+                        fontWeight={isActive ? '600' : '400'}
+                      >
+                        <Box position="relative" display="flex">
+                          <NavigationIcon name={link.icon} />
+                          <Box display={{ base: 'block', md: 'none' }}>
+                            <ReviewDot count={link.badge ?? 0} />
+                          </Box>
+                        </Box>
+                        <Text display={{ base: 'none', md: 'block' }} whiteSpace="nowrap" flex="1">
+                          {link.label}
+                        </Text>
+                        <Box display={{ base: 'none', md: 'flex' }}>
+                          <ReviewBadge count={link.badge ?? 0} />
+                        </Box>
+                      </HStack>
+                    )}
+                  </NavLink>
+                </Tooltip>
+              );
+            })}
           </Stack>
         </Box>
         <Box

@@ -16,36 +16,47 @@ type Range = (typeof ranges)[number]['key'];
 const count = (value: string) => BigInt(value).toLocaleString('zh-CN');
 const micros = (amount: string) => BigInt(amount.replace('.', ''));
 
-function share(amount: string, total: bigint) {
+function share(value: bigint, total: bigint) {
   if (!total) return '—';
-  const permille = (micros(amount) * 1000n + total / 2n) / total;
+  const permille = (value * 1000n + total / 2n) / total;
   return `${permille / 10n}.${permille % 10n}%`;
 }
 
 type Row = RouterOutputs['wallet']['models'][number];
-const columns: { key: string; label: string; value: (row: Row, total: bigint) => string }[] = [
+type Scope = 'self' | 'platform';
+// 个人关心钱花在哪个模型，占比按消费；全站看调用量排行，占比按请求数。
+const shareOf: Record<Scope, (row: Row) => bigint> = {
+  self: (row) => micros(row.chargedAmount),
+  platform: (row) => BigInt(row.requestCount),
+};
+const columns: { key: string; label: string; value: (row: Row, total: bigint, scope: Scope) => string }[] = [
   { key: 'requests', label: '请求数', value: (row) => count(row.requestCount) },
   { key: 'tokens', label: 'Token 量', value: (row) => count(row.tokens) },
   { key: 'charged', label: '消费', value: (row) => displayMoney(row.chargedAmount) },
-  { key: 'share', label: '消费占比', value: (row, total) => share(row.chargedAmount, total) },
+  { key: 'share', label: '占比', value: (row, total, scope) => share(shareOf[scope](row), total) },
 ];
 
-export default function ModelUsage({ currency }: { currency?: string }) {
+export default function ModelUsage({ currency, scope = 'self' }: { currency?: string; scope?: Scope }) {
   const [range, setRange] = useState<Range>('24h');
   const titleId = useId();
+  const endpoint = scope === 'platform' ? trpc.admin.models : trpc.wallet.models;
   const usage = useQuery(
-    trpc.wallet.models.queryOptions(
+    endpoint.queryOptions(
       { range },
-      { refetchOnMount: 'always', refetchInterval: 10000, placeholderData: (previous) => previous },
+      {
+        refetchOnMount: 'always',
+        refetchInterval: scope === 'platform' ? 60_000 : 10_000,
+        placeholderData: (previous) => previous,
+      },
     ),
   );
-  const total = usage.data?.reduce((sum, row) => sum + micros(row.chargedAmount), 0n) ?? 0n;
+  const total = usage.data?.reduce((sum, row) => sum + shareOf[scope](row), 0n) ?? 0n;
   return (
     <Panel>
       <Stack gap="5">
         <HStack justify="space-between" gap="4" flexWrap="wrap">
           <Heading as="h2" id={titleId} fontSize="lg" fontWeight="600">
-            按模型统计
+            {scope === 'platform' ? '模型调用排行' : '按模型统计'}
           </Heading>
           <HStack gap="1" aria-label="统计范围">
             {ranges.map((item) => (
@@ -76,16 +87,22 @@ export default function ModelUsage({ currency }: { currency?: string }) {
                     <Table.ColumnHeader>模型</Table.ColumnHeader>
                     {columns.map((column) => (
                       <Table.ColumnHeader key={column.key} textAlign="end" whiteSpace="nowrap">
-                        {column.key === 'charged' && currency ? `${column.label}（${currency}）` : column.label}
+                        {column.key === 'charged' && currency
+                          ? `${column.label}（${currency}）`
+                          : column.key === 'share'
+                            ? scope === 'platform'
+                              ? '请求占比'
+                              : '消费占比'
+                            : column.label}
                       </Table.ColumnHeader>
                     ))}
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
                   {usage.data.map((row) => (
-                    <Table.Row key={row.modelId ?? 'unknown'}>
+                    <Table.Row key={row.modelId ?? (row.others ? 'others' : 'unknown')}>
                       <Table.Cell color={row.name ? undefined : 'gray.500'} overflowWrap="anywhere">
-                        {row.name ?? '未识别模型'}
+                        {row.name ?? (row.others ? `其他 ${row.others} 个模型` : '未识别模型')}
                       </Table.Cell>
                       {columns.map((column) => (
                         <Table.Cell
@@ -94,7 +111,7 @@ export default function ModelUsage({ currency }: { currency?: string }) {
                           whiteSpace="nowrap"
                           fontVariantNumeric="tabular-nums"
                         >
-                          {column.value(row, total)}
+                          {column.value(row, total, scope)}
                         </Table.Cell>
                       ))}
                     </Table.Row>
