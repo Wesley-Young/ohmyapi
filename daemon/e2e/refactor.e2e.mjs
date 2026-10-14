@@ -581,6 +581,32 @@ test('模型目录与聚合渠道', async () => {
   });
   assert.deepEqual(fetched, { names: ['e2e-model', 'other-model'], ignored: 1 });
 
+  // 订阅管理：不依赖上游的授权入口与校验
+  const oauth = await admin.mutate('admin.catalog.startSubscriptionOAuth', { provider: 'openai' });
+  assert.match(oauth.url, /^https:\/\/auth\.openai\.com\/oauth\/authorize\?/);
+  await rejects(
+    admin.mutate('admin.catalog.saveChannel', {
+      name: 'e2e-sub',
+      type: 'subscription',
+      enabled: true,
+      timeoutMs: 30_000,
+      endpoints: ['/v1/responses'],
+      subscription: { provider: 'openai', credentials: '{}' },
+    }),
+    'BAD_REQUEST',
+    '凭据格式无效，需要 access_token、账号 ID 和有效期；支持 Codex auth.json',
+  );
+  await rejects(
+    admin.query('admin.catalog.openAIQuota', { channelId: state.channelId }),
+    'NOT_FOUND',
+    '订阅渠道不存在',
+  );
+  await rejects(
+    admin.query('admin.catalog.subscriptionCycleUsage', { channelId: state.channelId }),
+    'NOT_FOUND',
+    '订阅渠道不存在',
+  );
+
   // 修改模型上限
   const model = (await admin.query('admin.catalog.list')).models.find((m) => m.name === 'e2e-model');
   await admin.mutate('admin.catalog.saveModel', {

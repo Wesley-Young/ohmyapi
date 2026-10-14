@@ -1,12 +1,12 @@
 import { GatewayError } from '../../../core/errors.js';
 import type { ChannelAdapter } from '../../gateway/adapters.js';
 import { forwardResponse } from '../../gateway/response.js';
-import type { SubscriptionService } from '../service.js';
+import type { SubscriptionRuntime } from '../runtime.js';
 import { claudeBaseUrl } from './client.js';
 import { prepareClaudeRequest, validateClaudeRequest } from './request.js';
 import { forwardClaudeResponse } from './response.js';
 
-export function claudeAdapter(service: SubscriptionService): ChannelAdapter {
+export function claudeAdapter(service: SubscriptionRuntime): ChannelAdapter {
   return {
     async prepareRequest({ channel, endpoint, parsed, request, signal, vault, userId }) {
       if (endpoint !== '/v1/messages')

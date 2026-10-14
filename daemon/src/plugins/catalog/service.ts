@@ -101,7 +101,7 @@ export class CatalogService {
               errorCode: c.subscription.errorCode,
               cooldownUntil: c.subscription.cooldownUntil?.toISOString() ?? null,
               modelCooldowns: c.subscription.modelCooldowns,
-              active: this.subscription.concurrency.active(c.subscription.id),
+              active: this.subscription.activeRequests(c.subscription.id),
             }
           : null,
         members: members

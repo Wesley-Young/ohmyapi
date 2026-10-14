@@ -1,35 +1,27 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
-import { and, eq, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { AppError, GatewayError } from '../../core/errors.js';
+import { AppError } from '../../core/errors.js';
 import type { CredentialVault } from '../../core/vault.js';
 import { recordAudit } from '../auth/audit.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import type { Database, Transaction } from '../database/client.js';
-import { channels, type Endpoint, subscriptionAccounts } from '../database/schema/index.js';
-import type { ChannelAdapter, SubscriptionChannels } from '../gateway/adapters.js';
+import { channels, subscriptionAccounts } from '../database/schema/index.js';
 import { channelProxy } from '../outbound/channel-proxy.js';
 import type { OutboundHttp } from '../outbound/index.js';
-import { claudeAdapter } from './claude/adapter.js';
 import { fetchClaudeModels } from './claude/catalog.js';
 import { importClaudeCredentials } from './claude/client.js';
 import { type ClaudeCredentials, claudeCredentialsSchema } from './claude/credentials.js';
 import { ClaudeOAuth } from './claude/oauth.js';
 import { ClaudeQuota } from './claude/quota.js';
-import { claudeRateLimit } from './claude/ratelimit.js';
-import { ClaudeSessions } from './claude/session.js';
-import { ClaudeTokens } from './claude/tokens.js';
-import { SubscriptionConcurrency } from './concurrency.js';
 import { estimateCycleUsage } from './cycle.js';
-import { openAIAdapter } from './openai/adapter.js';
 import { accountHeaders, codexBaseUrl, latestCodexClientVersion, readJson } from './openai/client.js';
 import { credentialsSchema, type OpenAICredentials, parseCredentials } from './openai/credentials.js';
 import { OpenAIOAuth } from './openai/oauth.js';
 import { OpenAIQuota } from './openai/quota.js';
 import { OpenAIResetCredits } from './openai/reset-credits.js';
-import { OpenAITokens } from './openai/tokens.js';
-import { providerSupports } from './providers.js';
+import type { SubscriptionRuntime } from './runtime.js';
 import type {
   ConsumeResetCreditInput,
   CredentialInput,
@@ -37,38 +29,44 @@ import type {
   SetCycleResetInput,
 } from './schemas.js';
 
-export class SubscriptionService implements Disposable, SubscriptionChannels {
+/** 订阅账号管理：接入与授权、额度和重置卡查询、周期用量，以及拉取可用模型。 */
+export class SubscriptionService implements Disposable {
   static readonly token = serviceToken<SubscriptionService>('ohmyapi/subscription');
-  readonly concurrency = new SubscriptionConcurrency();
-  readonly tokens: OpenAITokens;
-  readonly claudeTokens: ClaudeTokens;
-  readonly claudeSessions = new ClaudeSessions();
   private readonly oauth = new OpenAIOAuth();
   private readonly claudeOAuth = new ClaudeOAuth();
   private readonly openaiQuota = new OpenAIQuota();
   private readonly claudeQuota = new ClaudeQuota();
   private readonly openaiResetCredits = new OpenAIResetCredits();
-  private refreshing = false;
-  private stopped = false;
 
   private readonly db: Database;
   private readonly auth: AuthService;
   private readonly vault: CredentialVault;
   private readonly outbound: OutboundHttp;
-  constructor(deps: { db: Database; auth: AuthService; vault: CredentialVault; outbound: OutboundHttp }) {
+  private readonly runtime: SubscriptionRuntime;
+  constructor(deps: {
+    db: Database;
+    auth: AuthService;
+    vault: CredentialVault;
+    outbound: OutboundHttp;
+    runtime: SubscriptionRuntime;
+  }) {
     this.db = deps.db;
     this.auth = deps.auth;
     this.vault = deps.vault;
     this.outbound = deps.outbound;
-    this.tokens = new OpenAITokens(deps.db, deps.vault, deps.outbound);
-    this.claudeTokens = new ClaudeTokens(deps.db, deps.vault, deps.outbound);
+    this.runtime = deps.runtime;
   }
 
   /** 定期清理过期的授权会话，并提前刷新即将过期的订阅令牌。 */
   async maintain() {
     this.oauth.prune();
     this.claudeOAuth.prune();
-    await this.refreshExpiring().catch(() => {});
+    await this.runtime.refreshExpiringTokens().catch(() => {});
+  }
+
+  /** 订阅账号当前正在执行的请求数，供管理页面展示。 */
+  activeRequests(accountId: string) {
+    return this.runtime.activeRequests(accountId);
   }
 
   accountEmail(encrypted: string, provider = 'openai'): string | null {
@@ -213,15 +211,33 @@ export class SubscriptionService implements Disposable, SubscriptionChannels {
     return row.id;
   }
 
+  async removeAccount(tx: Transaction, id: string) {
+    const [row] = await tx
+      .select()
+      .from(subscriptionAccounts)
+      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)))
+      .for('update');
+    if (!row) throw new AppError('not_found', '订阅账号不存在');
+    if (this.runtime.concurrency.active(id)) throw new AppError('conflict', '请等待该渠道请求结束后再删除');
+    await tx
+      .update(subscriptionAccounts)
+      .set({ deletedAt: new Date(), enabled: false })
+      .where(eq(subscriptionAccounts.id, id));
+  }
+
   async startOAuth(principal: Principal, provider: 'openai' | 'claude' = 'openai') {
     return this.auth.authorized(principal, { admin: true }, async () =>
       (provider === 'claude' ? this.claudeOAuth : this.oauth).start(principal.user.id),
     );
   }
+
   async refresh(principal: Principal, channelId: string) {
     const id = await this.accountForChannel(principal, channelId);
     try {
-      await ((await this.provider(id)) === 'claude' ? this.claudeTokens : this.tokens).get(id, true);
+      await ((await this.runtime.provider(id)) === 'claude' ? this.runtime.claudeTokens : this.runtime.tokens).get(
+        id,
+        true,
+      );
       this.openaiQuota.invalidate(id);
       this.claudeQuota.invalidate(id);
     } catch {
@@ -229,22 +245,31 @@ export class SubscriptionService implements Disposable, SubscriptionChannels {
     }
     return { success: true };
   }
+
   async openAIQuota(principal: Principal, channelId: string, force = false) {
     const id = await this.providerAccountForChannel(principal, channelId, 'openai');
-    return this.openaiQuota.get(this.tokens, id, force);
+    return this.openaiQuota.get(this.runtime.tokens, id, force);
   }
+
   async claudeUsage(principal: Principal, channelId: string, force = false) {
     const id = await this.providerAccountForChannel(principal, channelId, 'claude');
-    return this.claudeQuota.get(this.claudeTokens, id, force);
+    return this.claudeQuota.get(this.runtime.claudeTokens, id, force);
   }
+
   async listOpenAIResetCredits(principal: Principal, channelId: string) {
     const id = await this.providerAccountForChannel(principal, channelId, 'openai');
-    return this.openaiResetCredits.list(this.tokens, id);
+    return this.openaiResetCredits.list(this.runtime.tokens, id);
   }
+
   async consumeOpenAIResetCredit(principal: Principal, input: ConsumeResetCreditInput) {
     const id = await this.providerAccountForChannel(principal, input.channelId, 'openai');
     try {
-      const result = await this.openaiResetCredits.consume(this.tokens, id, input.creditId, input.redeemRequestId);
+      const result = await this.openaiResetCredits.consume(
+        this.runtime.tokens,
+        id,
+        input.creditId,
+        input.redeemRequestId,
+      );
       // 上游已完成的兑换不因本地状态更新失败而被报告为使用失败。
       const cooldownCleared =
         result.windowsReset > 0
@@ -262,6 +287,7 @@ export class SubscriptionService implements Disposable, SubscriptionChannels {
       this.openaiQuota.invalidate(id);
     }
   }
+
   /**
    * 当前 7d 周期的等效 API 费用估算。周期起点取上游 resetsAt − 7d；Claude 续费等提前重置
    * 由管理员填写，落在当前上游周期内时取较晚者。上游额度不可用时退回最近 7 天。
@@ -279,8 +305,8 @@ export class SubscriptionService implements Disposable, SubscriptionChannels {
     if (!account?.enabled || (account.provider !== 'openai' && account.provider !== 'claude'))
       throw new AppError('bad_request', '渠道未启用或已删除');
     const quota = await (account.provider === 'claude'
-      ? this.claudeQuota.get(this.claudeTokens, id)
-      : this.openaiQuota.get(this.tokens, id)
+      ? this.claudeQuota.get(this.runtime.claudeTokens, id)
+      : this.openaiQuota.get(this.runtime.tokens, id)
     ).catch(() => null);
     const now = new Date();
     const week = 7 * 24 * 60 * 60 * 1000;
@@ -311,6 +337,7 @@ export class SubscriptionService implements Disposable, SubscriptionChannels {
       ...usage,
     };
   }
+
   async setCycleReset(principal: Principal, input: SetCycleResetInput) {
     const id = await this.accountForChannel(principal, input.channelId);
     const resetAt = input.resetAt ? new Date(input.resetAt) : null;
@@ -337,205 +364,10 @@ export class SubscriptionService implements Disposable, SubscriptionChannels {
       return { success: true };
     });
   }
-  private async providerAccountForChannel(principal: Principal, channelId: string, provider: 'openai' | 'claude') {
-    const id = await this.accountForChannel(principal, channelId);
-    const [account] = await this.db
-      .select({ provider: subscriptionAccounts.provider, enabled: subscriptionAccounts.enabled })
-      .from(subscriptionAccounts)
-      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
-    if (account?.provider !== provider || !account.enabled)
-      throw new AppError('bad_request', '订阅平台不匹配，或渠道未启用、已删除');
-    return id;
-  }
-  private async accountForChannel(principal: Principal, channelId: string) {
-    return this.auth.authorized(principal, { admin: true }, async (tx) => {
-      const [channel] = await tx
-        .select({ accountId: channels.subscriptionAccountId })
-        .from(channels)
-        .where(and(eq(channels.id, channelId), eq(channels.type, 'subscription'), isNull(channels.deletedAt)));
-      if (!channel?.accountId) throw new AppError('not_found', '订阅渠道不存在');
-      return channel.accountId;
-    });
-  }
-
-  async removeAccount(tx: Transaction, id: string) {
-    const [row] = await tx
-      .select()
-      .from(subscriptionAccounts)
-      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)))
-      .for('update');
-    if (!row) throw new AppError('not_found', '订阅账号不存在');
-    if (this.concurrency.active(id)) throw new AppError('conflict', '请等待该渠道请求结束后再删除');
-    await tx
-      .update(subscriptionAccounts)
-      .set({ deletedAt: new Date(), enabled: false })
-      .where(eq(subscriptionAccounts.id, id));
-  }
-
-  async acquire(id: string, signal: AbortSignal) {
-    const [row] = await this.db
-      .select()
-      .from(subscriptionAccounts)
-      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
-    if (this.stopped || !row?.enabled || row.provider !== 'openai' || row.errorCode)
-      throw new GatewayError(503, 'subscription_unavailable', 'The subscription account is unavailable');
-    if (row.cooldownUntil && row.cooldownUntil.getTime() > Date.now())
-      throw new GatewayError(429, 'subscription_rate_limited', 'The subscription account is cooling down');
-    const release = this.concurrency.acquire(id, row.maxConcurrent);
-    const cancelled = () => new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
-    let onAbort = () => {};
-    try {
-      if (signal.aborted) throw cancelled();
-      const credentials = await Promise.race([
-        this.tokens.get(id),
-        new Promise<never>((_resolve, reject) => {
-          onAbort = () => reject(cancelled());
-          signal.addEventListener('abort', onAbort, { once: true });
-        }),
-      ]);
-      return { credentials, release };
-    } catch (error) {
-      release();
-      throw error;
-    } finally {
-      signal.removeEventListener('abort', onAbort);
-    }
-  }
-
-  async adapterFor(channel: typeof channels.$inferSelect): Promise<ChannelAdapter> {
-    if (!channel.subscriptionAccountId)
-      throw new GatewayError(503, 'subscription_unavailable', 'Bind a subscription account first');
-    const provider = await this.provider(channel.subscriptionAccountId);
-    if (provider === 'claude') return claudeAdapter(this);
-    if (provider === 'openai') return openAIAdapter(this);
-    throw new GatewayError(503, 'subscription_unavailable', 'Unsupported subscription provider');
-  }
-
-  supportsEndpoint(provider: string, endpoint: Endpoint) {
-    return providerSupports(provider, endpoint);
-  }
-
-  activeRequests(accountId: string) {
-    return this.concurrency.active(accountId);
-  }
-
-  async provider(id: string) {
-    const [row] = await this.db
-      .select({ provider: subscriptionAccounts.provider })
-      .from(subscriptionAccounts)
-      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
-    if (!row) throw new GatewayError(503, 'subscription_unavailable', 'The subscription account is unavailable');
-    return row.provider;
-  }
-
-  async acquireClaude(id: string, signal: AbortSignal, model: string, proxyUrl: string | null) {
-    const [row] = await this.db
-      .select()
-      .from(subscriptionAccounts)
-      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
-    if (this.stopped || !row?.enabled || row.provider !== 'claude' || row.errorCode)
-      throw new GatewayError(503, 'subscription_unavailable', 'The Claude account is unavailable');
-    if ((row.cooldownUntil?.getTime() ?? 0) > Date.now() || Date.parse(row.modelCooldowns[model] ?? '') > Date.now())
-      throw new GatewayError(429, 'subscription_rate_limited', 'The Claude account or model is cooling down');
-    const release = this.concurrency.acquire(id, row.maxConcurrent);
-    const cancelled = () => new GatewayError(400, 'request_cancelled', 'Request cancelled before forwarding');
-    let onAbort = () => {};
-    try {
-      if (signal.aborted) throw cancelled();
-      const credentials = await Promise.race([
-        this.claudeTokens.get(id, false, proxyUrl),
-        new Promise<never>((_resolve, reject) => {
-          onAbort = () => reject(cancelled());
-          signal.addEventListener('abort', onAbort, { once: true });
-        }),
-      ]);
-      return { credentials, release };
-    } catch (error) {
-      release();
-      throw error;
-    } finally {
-      signal.removeEventListener('abort', onAbort);
-    }
-  }
-
-  async reportClaudeStatus(id: string, model: string, response: Response, accessToken: string) {
-    let errorBody = '';
-    if (response.status === 429) {
-      const reader = response.clone().body?.getReader();
-      if (reader) {
-        const chunks: Uint8Array[] = [];
-        let size = 0;
-        try {
-          while (size < 16_384) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            const part = value.subarray(0, 16_384 - size);
-            chunks.push(part);
-            size += part.byteLength;
-          }
-          errorBody = Buffer.concat(chunks).toString('utf8');
-        } finally {
-          // tee 的另一个分支由响应转发消费，不能等待此分支取消完成。
-          void reader.cancel().catch(() => {});
-          reader.releaseLock();
-        }
-      }
-    }
-    const limit = claudeRateLimit(response.headers, response.status, errorBody);
-    if (response.status !== 401 && !limit) return;
-    const [row] = await this.db.select().from(subscriptionAccounts).where(eq(subscriptionAccounts.id, id));
-    if (
-      row?.provider !== 'claude' ||
-      claudeCredentialsSchema.parse(JSON.parse(this.vault.decrypt(row.credentialEncrypted))).accessToken !== accessToken
-    )
-      return;
-    const values =
-      response.status === 401
-        ? { errorCode: 'subscription_reauthorization_required' }
-        : limit?.modelOnly
-          ? {
-              modelCooldowns: sql`jsonb_set(${subscriptionAccounts.modelCooldowns}, ARRAY[${model}]::text[], to_jsonb(greatest(${subscriptionAccounts.modelCooldowns}->>${model}, ${limit.until.toISOString()}::text)))`,
-            }
-          : {
-              cooldownUntil: sql`greatest(${subscriptionAccounts.cooldownUntil}, ${limit?.until.toISOString()}::timestamptz)`,
-            };
-    await this.db
-      .update(subscriptionAccounts)
-      .set(values)
-      .where(
-        and(eq(subscriptionAccounts.id, id), eq(subscriptionAccounts.credentialEncrypted, row.credentialEncrypted)),
-      );
-  }
-
-  async reportStatus(id: string, status: number, headers: Headers, accessToken: string) {
-    if (status !== 401 && status !== 429) return;
-    const [current] = await this.db.select().from(subscriptionAccounts).where(eq(subscriptionAccounts.id, id));
-    if (
-      !current ||
-      credentialsSchema.parse(JSON.parse(this.vault.decrypt(current.credentialEncrypted))).accessToken !== accessToken
-    )
-      return;
-    const raw = headers.get('retry-after');
-    const seconds = raw && /^\d+$/.test(raw) ? Number(raw) : raw ? (Date.parse(raw) - Date.now()) / 1000 : 60;
-    await this.db
-      .update(subscriptionAccounts)
-      .set(
-        status === 401
-          ? { errorCode: 'subscription_reauthorization_required' }
-          : {
-              cooldownUntil: new Date(
-                Date.now() + (Number.isFinite(seconds) ? Math.max(1, Math.min(seconds, 86400)) : 60) * 1000,
-              ),
-            },
-      )
-      .where(
-        and(eq(subscriptionAccounts.id, id), eq(subscriptionAccounts.credentialEncrypted, current.credentialEncrypted)),
-      );
-  }
 
   async models(principal: Principal, input: FetchSubscriptionModelsInput) {
     const id = input.channelId ? await this.accountForChannel(principal, input.channelId) : undefined;
-    const provider = id ? await this.provider(id) : input.provider;
+    const provider = id ? await this.runtime.provider(id) : input.provider;
     if (provider !== input.provider) throw new AppError('bad_request', '订阅平台与已保存渠道不匹配');
     const proxyUrl = await channelProxy(this.auth, this.vault, principal, input.channelId, input.proxyUrl);
     const request = this.outbound.forProxy(proxyUrl);
@@ -544,7 +376,7 @@ export class SubscriptionService implements Disposable, SubscriptionChannels {
     if (provided && new Date(provided.expiresAt).getTime() <= Date.now())
       throw new AppError('bad_request', '凭据已过期，请重新授权或导入新凭据');
     try {
-      const tokens = provider === 'claude' ? this.claudeTokens : this.tokens;
+      const tokens = provider === 'claude' ? this.runtime.claudeTokens : this.runtime.tokens;
       const credentials = provided ?? (id ? await tokens.get(id, false, proxyUrl) : undefined);
       if (!credentials) throw new Error('缺少订阅凭据');
       if (provider === 'claude') return await fetchClaudeModels(claudeCredentialsSchema.parse(credentials), request);
@@ -575,36 +407,32 @@ export class SubscriptionService implements Disposable, SubscriptionChannels {
     }
   }
 
-  private async refreshExpiring() {
-    if (this.refreshing || this.stopped) return;
-    this.refreshing = true;
-    try {
-      const rows = await this.db
-        .select({ id: subscriptionAccounts.id, provider: subscriptionAccounts.provider })
-        .from(subscriptionAccounts)
-        .where(
-          and(
-            eq(subscriptionAccounts.enabled, true),
-            isNull(subscriptionAccounts.deletedAt),
-            isNull(subscriptionAccounts.errorCode),
-            lt(subscriptionAccounts.expiresAt, new Date(Date.now() + 60_000)),
-          ),
-        )
-        .limit(100);
-      for (const row of rows) {
-        if (this.stopped) break;
-        await (row.provider === 'claude' ? this.claudeTokens : this.tokens).get(row.id).catch(() => {});
-      }
-    } finally {
-      this.refreshing = false;
-    }
+  private async providerAccountForChannel(principal: Principal, channelId: string, provider: 'openai' | 'claude') {
+    const id = await this.accountForChannel(principal, channelId);
+    const [account] = await this.db
+      .select({ provider: subscriptionAccounts.provider, enabled: subscriptionAccounts.enabled })
+      .from(subscriptionAccounts)
+      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
+    if (account?.provider !== provider || !account.enabled)
+      throw new AppError('bad_request', '订阅平台不匹配，或渠道未启用、已删除');
+    return id;
   }
-  async dispose() {
-    this.stopped = true;
+
+  private async accountForChannel(principal: Principal, channelId: string) {
+    return this.auth.authorized(principal, { admin: true }, async (tx) => {
+      const [channel] = await tx
+        .select({ accountId: channels.subscriptionAccountId })
+        .from(channels)
+        .where(and(eq(channels.id, channelId), eq(channels.type, 'subscription'), isNull(channels.deletedAt)));
+      if (!channel?.accountId) throw new AppError('not_found', '订阅渠道不存在');
+      return channel.accountId;
+    });
+  }
+
+  dispose() {
     this.oauth.dispose();
     this.claudeOAuth.dispose();
     this.openaiQuota.dispose();
     this.claudeQuota.dispose();
-    await Promise.all([this.tokens.dispose(), this.claudeTokens.dispose()]);
   }
 }
