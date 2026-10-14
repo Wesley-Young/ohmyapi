@@ -97,8 +97,8 @@ export default function ModelPlaza() {
               <Table.Header>
                 <Table.Row>
                   <Table.ColumnHeader>模型</Table.ColumnHeader>
-                  <Table.ColumnHeader>价格</Table.ColumnHeader>
-                  <Table.ColumnHeader>缓存</Table.ColumnHeader>
+                  <Table.ColumnHeader>输入 / 输出</Table.ColumnHeader>
+                  <Table.ColumnHeader>缓存读取 / 缓存写入</Table.ColumnHeader>
                   <Table.ColumnHeader textAlign="end">操作</Table.ColumnHeader>
                 </Table.Row>
               </Table.Header>
@@ -136,9 +136,13 @@ export default function ModelPlaza() {
                       </Table.Cell>
                       <Table.Cell>
                         <Stack gap="0.5" lineHeight="1.35">
-                          <Text fontSize="sm" aria-label="缓存读取价格">
+                          <HStack gap="2" fontSize="sm" flexWrap="wrap" aria-label="缓存读取 / 写入价格">
                             <Price value={model.lowestPrice?.cacheReadPrice} symbol={symbol} />
-                          </Text>
+                            <Text as="span" color="gray.300" aria-hidden="true">
+                              /
+                            </Text>
+                            <Price value={model.lowestPrice?.cacheWritePrice} symbol={symbol} />
+                          </HStack>
                           <Text fontSize="xs" color="gray.500">
                             / 1M tokens
                           </Text>
