@@ -11,7 +11,7 @@ import {
   priceRules,
   userChannelGrants,
 } from '../database/schema/index.ts';
-import type { KeyIdentity } from './identity.ts';
+import type { KeyIdentity } from '../keys/access.ts';
 
 type ModelEntry = { name: string; createdAt: Date };
 

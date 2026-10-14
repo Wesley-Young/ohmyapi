@@ -92,6 +92,7 @@
                     "group": [
                       "**/plugins/**",
                       "**/trpc/**",
+                      "**/openapi/**",
                       "**/kernel.ts",
                       "**/app.ts",
                       "**/config.ts"
@@ -117,6 +118,10 @@
                   {
                     "group": ["@trpc/server", "@trpc/server/*", "**/trpc/**"],
                     "message": "\u4e1a\u52a1\u4ee3\u7801\u4e0d\u4f9d\u8d56 tRPC\uff0c\u4f20\u8f93\u5c42\u6620\u5c04\u653e\u5728\u6a21\u5757\u7684 router.ts \u4e2d\u3002"
+                  },
+                  {
+                    "group": ["@hono/zod-openapi", "**/openapi/**"],
+                    "message": "\u4e1a\u52a1\u4ee3\u7801\u4e0d\u4f9d\u8d56\u516c\u5f00 API \u7684\u4f20\u8f93\u5c42\uff0c\u6620\u5c04\u653e\u5728\u6a21\u5757\u7684 api.ts \u4e2d\u3002"
                   }
                 ]
               }
@@ -137,6 +142,10 @@
                   {
                     "group": ["@trpc/server", "@trpc/server/*", "**/trpc/**"],
                     "message": "\u4e1a\u52a1\u4ee3\u7801\u4e0d\u4f9d\u8d56 tRPC\uff0c\u4f20\u8f93\u5c42\u6620\u5c04\u653e\u5728\u6a21\u5757\u7684 router.ts \u4e2d\u3002"
+                  },
+                  {
+                    "group": ["@hono/zod-openapi", "**/openapi/**"],
+                    "message": "\u4e1a\u52a1\u4ee3\u7801\u4e0d\u4f9d\u8d56\u516c\u5f00 API \u7684\u4f20\u8f93\u5c42\uff0c\u6620\u5c04\u653e\u5728\u6a21\u5757\u7684 api.ts \u4e2d\u3002"
                   },
                   {
                     "group": [
@@ -176,6 +185,10 @@
                     "message": "\u4e1a\u52a1\u4ee3\u7801\u4e0d\u4f9d\u8d56 tRPC\uff0c\u4f20\u8f93\u5c42\u6620\u5c04\u653e\u5728\u6a21\u5757\u7684 router.ts \u4e2d\u3002"
                   },
                   {
+                    "group": ["@hono/zod-openapi", "**/openapi/**"],
+                    "message": "\u4e1a\u52a1\u4ee3\u7801\u4e0d\u4f9d\u8d56\u516c\u5f00 API \u7684\u4f20\u8f93\u5c42\uff0c\u6620\u5c04\u653e\u5728\u6a21\u5757\u7684 api.ts \u4e2d\u3002"
+                  },
+                  {
                     "group": ["**/gateway/**"],
                     "message": "\u8ba1\u8d39\u4e0d\u4f9d\u8d56\u7f51\u5173\uff1b\u5171\u4eab\u7684\u7528\u91cf\u4e0e\u8def\u7531\u903b\u8f91\u5f52\u5c5e\u8ba1\u8d39\u6a21\u5757\u3002"
                   }
@@ -200,6 +213,10 @@
                     "message": "\u4e1a\u52a1\u4ee3\u7801\u4e0d\u4f9d\u8d56 tRPC\uff0c\u4f20\u8f93\u5c42\u6620\u5c04\u653e\u5728\u6a21\u5757\u7684 router.ts \u4e2d\u3002"
                   },
                   {
+                    "group": ["@hono/zod-openapi", "**/openapi/**"],
+                    "message": "\u4e1a\u52a1\u4ee3\u7801\u4e0d\u4f9d\u8d56\u516c\u5f00 API \u7684\u4f20\u8f93\u5c42\uff0c\u6620\u5c04\u653e\u5728\u6a21\u5757\u7684 api.ts \u4e2d\u3002"
+                  },
+                  {
                     "group": ["**/subscription/**"],
                     "message": "\u7f51\u5173\u901a\u8fc7 SubscriptionChannels \u63a5\u53e3\u4f7f\u7528\u8ba2\u9605\u6e20\u9053\u3002"
                   }
@@ -214,6 +231,7 @@
       "includes": [
         "daemon/src/plugins/*/index.ts",
         "daemon/src/plugins/*/router.ts",
+        "daemon/src/plugins/*/api.ts",
         "daemon/src/plugins/http/**"
       ],
       "linter": {

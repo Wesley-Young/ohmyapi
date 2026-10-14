@@ -1,7 +1,8 @@
 import type { inferRouterInputs, inferRouterOutputs } from '@trpc/server';
 
-import { authRoutes } from '../plugins/auth/router.ts';
+import { adminTokenRoutes, authRoutes } from '../plugins/auth/router.ts';
 import type { AuthService } from '../plugins/auth/service.ts';
+import type { AdminTokens } from '../plugins/auth/tokens.ts';
 import type { BillingRecords } from '../plugins/billing/records.ts';
 import type { BillingReview } from '../plugins/billing/review.ts';
 import { billingRoutes } from '../plugins/billing/router.ts';
@@ -28,6 +29,7 @@ import { publicProcedure, router } from './procedures.ts';
 export interface RouterServices {
   startedAt: string;
   auth: AuthService;
+  adminTokens: AdminTokens;
   users: UserService;
   groups: GroupService;
   keys: KeyService;
@@ -70,6 +72,7 @@ export function createAppRouter(services: RouterServices) {
       users: userAdminRoutes(services.users),
       groups: groupAdminRoutes(services.groups),
       wallet: wallet.admin,
+      tokens: adminTokenRoutes(services.adminTokens),
     },
   });
 }

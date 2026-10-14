@@ -1,7 +1,23 @@
 import { and, eq } from 'drizzle-orm';
 
 import type { Database, Transaction } from '../database/client.ts';
-import { apiKeyModelGrants, userChannelGrants } from '../database/schema/index.ts';
+import { activeApiKey, activeUser } from '../database/query.ts';
+import { apiKeyChannels, apiKeyModelGrants, apiKeys, userChannelGrants, users } from '../database/schema/index.ts';
+
+export const apiKeyPattern = /^sk-[A-Za-z0-9_-]{43}$/;
+
+/** 查找有效的 API Key、所属用户及绑定渠道；Key 无效、过期或用户已停用时返回 undefined。 */
+export async function findKeyIdentity(db: Database, token: string) {
+  const [identity] = await db
+    .select({ key: apiKeys, user: users, channelId: apiKeyChannels.channelId })
+    .from(apiKeys)
+    .innerJoin(users, eq(apiKeys.userId, users.id))
+    .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
+    .where(and(eq(apiKeys.key, token), activeApiKey(), activeUser()));
+  return identity;
+}
+
+export type KeyIdentity = NonNullable<Awaited<ReturnType<typeof findKeyIdentity>>>;
 
 /** 管理员和公开渠道无需授权，其余渠道需要为用户单独授权。 */
 export async function canUseChannel(

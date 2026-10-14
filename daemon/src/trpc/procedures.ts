@@ -3,13 +3,13 @@ import { z } from 'zod';
 
 import { AppError, type AppErrorKind } from '../core/errors.ts';
 import { type EventLogger, formatEvent } from '../core/logging.ts';
-import type { Principal } from '../plugins/auth/service.ts';
+import type { SessionPrincipal } from '../plugins/auth/service.ts';
 
 /** 单次 RPC 请求的上下文；服务实例在创建路由时注入，不经过请求上下文传递。 */
 export interface RpcContext {
   requestId: string;
   logger: EventLogger;
-  principal: Principal | null;
+  principal: SessionPrincipal | null;
   token?: string;
   setSession(token: string, expiresAt: Date): void;
   clearSession(): void;

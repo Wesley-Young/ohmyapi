@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { adminScopes } from '../database/schema/index.ts';
+
 export const usernameInput = z
   .string()
   .trim()
@@ -14,3 +16,12 @@ const currentPassword = z.string().min(1, '请填写密码').max(1024, '密码�
 
 export const loginInput = z.object({ username: usernameInput, password: currentPassword });
 export const changePasswordInput = z.object({ currentPassword, newPassword: passwordInput });
+
+export const adminTokenIdInput = z.object({ tokenId: z.uuid() });
+export const createAdminTokenInput = z.object({
+  name: z.string().trim().min(1, '请填写名称').max(64, '名称最多 64 个字符'),
+  scopes: z.array(z.enum(adminScopes)).min(1, '至少选择一项权限').max(adminScopes.length),
+  expiresAt: z.iso.datetime().optional(),
+});
+
+export type CreateAdminTokenInput = z.infer<typeof createAdminTokenInput>;

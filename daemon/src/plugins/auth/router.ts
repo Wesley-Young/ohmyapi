@@ -1,6 +1,7 @@
-import { publicProcedure, signedInProcedure } from '../../trpc/procedures.ts';
-import { changePasswordInput, loginInput } from './schemas.ts';
+import { adminProcedure, publicProcedure, signedInProcedure } from '../../trpc/procedures.ts';
+import { adminTokenIdInput, changePasswordInput, createAdminTokenInput, loginInput } from './schemas.ts';
 import type { AuthService } from './service.ts';
+import type { AdminTokens } from './tokens.ts';
 
 export function authRoutes(auth: AuthService) {
   return {
@@ -20,5 +21,18 @@ export function authRoutes(auth: AuthService) {
       ctx.setSession(session.token, session.expiresAt);
       return { success: true };
     }),
+  };
+}
+
+/** 当前管理员自己的管理令牌。 */
+export function adminTokenRoutes(tokens: AdminTokens) {
+  return {
+    list: adminProcedure.query(({ ctx }) => tokens.list(ctx.principal)),
+    create: adminProcedure
+      .input(createAdminTokenInput)
+      .mutation(({ ctx, input }) => tokens.create(ctx.principal, input)),
+    revoke: adminProcedure
+      .input(adminTokenIdInput)
+      .mutation(({ ctx, input }) => tokens.revoke(ctx.principal, input.tokenId)),
   };
 }

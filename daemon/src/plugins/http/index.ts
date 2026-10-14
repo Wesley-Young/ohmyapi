@@ -6,8 +6,10 @@ import { serialize } from 'hono/utils/cookie';
 
 import { errorDetails, formatEvent } from '../../core/logging.ts';
 import { definePlugin } from '../../kernel.ts';
+import { createPublicApi } from '../../openapi/router.ts';
 import { createAppRouter } from '../../trpc/router.ts';
 import { AuthService } from '../auth/service.ts';
+import { AdminTokens } from '../auth/tokens.ts';
 import { BillingRecords } from '../billing/records.ts';
 import { BillingReview } from '../billing/review.ts';
 import { BillingService } from '../billing/service.ts';
@@ -32,6 +34,7 @@ export const HttpPlugin = definePlugin({
     hono: HonoService,
     database: DatabaseService,
     auth: AuthService,
+    adminTokens: AdminTokens,
     catalog: CatalogService,
     modelCatalog: ModelCatalog,
     channelGrants: ChannelGrants,
@@ -52,6 +55,7 @@ export const HttpPlugin = definePlugin({
     const appRouter = createAppRouter({
       startedAt: new Date().toISOString(),
       auth: ctx.auth,
+      adminTokens: ctx.adminTokens,
       users: ctx.users,
       groups: ctx.groups,
       keys: ctx.keys,
@@ -128,6 +132,13 @@ export const HttpPlugin = definePlugin({
         return c.json({ name: 'ohmyapi', status: 'unavailable' }, 503);
       }
     });
+    app.route(
+      '/',
+      createPublicApi(
+        { keys: ctx.keys, adminTokens: ctx.adminTokens, users: ctx.users, wallet: ctx.wallet },
+        { logger: ctx.logger, requestId: (req: Request) => requestInfo(req).requestId },
+      ),
+    );
     app.all('/api/trpc/*', (c) =>
       fetchRequestHandler({
         endpoint: '/api/trpc',

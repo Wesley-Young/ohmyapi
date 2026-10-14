@@ -12,10 +12,9 @@ import {
   models,
   subscriptionAccounts,
 } from '../database/schema/index.ts';
-import { canUseChannel, keyAllowsModel } from '../keys/access.ts';
+import { canUseChannel, type KeyIdentity, keyAllowsModel } from '../keys/access.ts';
 import type { SubscriptionChannels } from './adapters.ts';
 import type { AffinitySelection, ChannelAffinity } from './affinity.ts';
-import type { KeyIdentity } from './identity.ts';
 import { requestSession } from './session.ts';
 
 type Channel = typeof channels.$inferSelect;

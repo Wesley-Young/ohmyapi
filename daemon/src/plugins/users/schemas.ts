@@ -27,3 +27,9 @@ export const createUserInput = z.object({
 export const setRoleInput = userIdInput.extend({ role: z.enum(['admin', 'user']) });
 export const setStatusInput = userIdInput.extend({ status: z.enum(['active', 'disabled']) });
 export const resetPasswordInput = userIdInput.extend({ password: passwordInput });
+
+/** PostgreSQL 输出的 timestamptz 文本，保留微秒精度。 */
+export const userCursor = z.object({
+  createdAt: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/),
+  id: z.uuid(),
+});

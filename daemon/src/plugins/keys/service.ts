@@ -21,6 +21,7 @@ import {
   requests,
   userChannelGrants,
 } from '../database/schema/index.ts';
+import { findKeyIdentity, type KeyIdentity } from './access.ts';
 import type { CreateKeyInput, UpdateKeyInput } from './schemas.ts';
 
 import { randomBytes } from 'node:crypto';
@@ -32,6 +33,31 @@ export class KeyService {
   constructor({ db, auth }: { db: Database; auth: AuthService }) {
     this.db = db;
     this.auth = auth;
+  }
+
+  /** 按令牌查找有效的 API Key。 */
+  identify(token: string) {
+    return findKeyIdentity(this.db, token);
+  }
+
+  /** API Key 所属用户和 Key 自身的信息；渠道已删除时返回 null。 */
+  async describe({ key, user, channelId }: KeyIdentity) {
+    const [channel] = channelId
+      ? await this.db
+          .select({ id: channels.id, name: channels.name })
+          .from(channels)
+          .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)))
+      : [];
+    return {
+      user: { id: user.id, username: user.username, role: user.role },
+      key: {
+        id: key.id,
+        name: key.name,
+        createdAt: key.createdAt.toISOString(),
+        expiresAt: key.expiresAt?.toISOString() ?? null,
+        channel: channel ?? null,
+      },
+    };
   }
 
   async availableModels(principal: Principal) {

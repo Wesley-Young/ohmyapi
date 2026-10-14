@@ -6,15 +6,17 @@ import { userIdInput } from '../users/schemas.ts';
 
 export const statsRangeInput = z.object({ range: z.enum(['24h', '30d']) });
 export const userLedgerInput = userIdInput.extend({ page: pageInput });
+export const adjustmentAmount = z.string().refine((value) => {
+  try {
+    return parseMoney(value) !== 0n;
+  } catch {
+    return false;
+  }
+}, '请输入非零金额，最多六位小数');
+export const adjustmentReason = z.string().trim().max(300, '原因最多 300 个字符').default('');
 export const adjustWalletInput = userIdInput.extend({
-  amount: z.string().refine((value) => {
-    try {
-      return parseMoney(value) !== 0n;
-    } catch {
-      return false;
-    }
-  }, '请输入非零金额，最多六位小数'),
-  reason: z.string().trim().max(300, '原因最多 300 个字符').default(''),
+  amount: adjustmentAmount,
+  reason: adjustmentReason,
   idempotencyKey: z.uuid(),
 });
 

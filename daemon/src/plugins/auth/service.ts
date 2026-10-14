@@ -5,7 +5,8 @@ import { AppError } from '../../core/errors.ts';
 import { createLogSampler, type EventLogger, formatEvent } from '../../core/logging.ts';
 import type { Database, Transaction } from '../database/client.ts';
 import { activeUser } from '../database/query.ts';
-import { sessions, users } from '../database/schema/index.ts';
+import { type AdminScope, adminTokens, sessions, users } from '../database/schema/index.ts';
+import { attributeAudit } from './audit.ts';
 import { hashPassword, verifyPassword } from './password.ts';
 
 import { createHash, randomBytes } from 'node:crypto';
@@ -17,7 +18,12 @@ export const publicUser = (user: User) => ({
   role: user.role,
   status: user.status,
 });
-export type Principal = { user: ReturnType<typeof publicUser>; sessionId: string };
+export type PublicUser = ReturnType<typeof publicUser>;
+/** 控制台登录会话的身份。 */
+export type SessionPrincipal = { user: PublicUser; sessionId: string };
+/** 公开 API 管理令牌的身份，以所属管理员的身份操作。 */
+export type TokenPrincipal = { user: PublicUser; tokenId: string; scopes: AdminScope[] };
+export type Principal = SessionPrincipal | TokenPrincipal;
 export const digestToken = (token: string) => createHash('sha256').update(token).digest('hex');
 const sessionLifetimeMs = 7 * 24 * 60 * 60 * 1000;
 
@@ -61,7 +67,7 @@ export class AuthService {
     }
   }
 
-  async resolve(token: string | undefined): Promise<Principal | null> {
+  async resolve(token: string | undefined): Promise<SessionPrincipal | null> {
     if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
     const [row] = await this.db
       .select({ user: users, sessionId: sessions.id })
@@ -78,7 +84,10 @@ export class AuthService {
     return row ? { user: publicUser(row.user), sessionId: row.sessionId } : null;
   }
 
-  /** Recheck identity while holding its user lock, serializing mutations with disable/reset. */
+  /**
+   * Recheck identity while holding its user lock, serializing mutations with disable/reset.
+   * 管理令牌须仍有效且所属用户仍是管理员；事务内的审计记录会标注令牌。
+   */
   async authorized<T>(
     principal: Principal,
     options: { admin?: boolean },
@@ -86,19 +95,35 @@ export class AuthService {
   ) {
     return this.db.transaction(async (tx) => {
       const [user] = await tx.select().from(users).where(eq(users.id, principal.user.id)).for('update');
-      const [session] = await tx
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(
-          and(
-            eq(sessions.id, principal.sessionId),
-            eq(sessions.userId, principal.user.id),
-            isNull(sessions.revokedAt),
-            gt(sessions.expiresAt, new Date()),
-          ),
-        );
-      if (user?.status !== 'active' || user.deletedAt || !session)
-        throw new AppError('unauthorized', '登录已失效，请重新登录');
+      const active = user?.status === 'active' && !user.deletedAt;
+      if ('tokenId' in principal) {
+        const [token] = await tx
+          .select({ id: adminTokens.id })
+          .from(adminTokens)
+          .where(
+            and(
+              eq(adminTokens.id, principal.tokenId),
+              eq(adminTokens.userId, principal.user.id),
+              isNull(adminTokens.revokedAt),
+              or(isNull(adminTokens.expiresAt), gt(adminTokens.expiresAt, new Date())),
+            ),
+          );
+        if (!active || user.role !== 'admin' || !token) throw new AppError('unauthorized', '管理令牌无效或已过期');
+        attributeAudit(tx, { adminTokenId: token.id });
+      } else {
+        const [session] = await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(
+            and(
+              eq(sessions.id, principal.sessionId),
+              eq(sessions.userId, principal.user.id),
+              isNull(sessions.revokedAt),
+              gt(sessions.expiresAt, new Date()),
+            ),
+          );
+        if (!active || !session) throw new AppError('unauthorized', '登录已失效，请重新登录');
+      }
       if (options.admin && user.role !== 'admin') throw new AppError('forbidden', '需要管理员权限');
       return work(tx, user);
     });
@@ -137,7 +162,7 @@ export class AuthService {
         .where(eq(sessions.tokenHash, digestToken(token)));
   }
 
-  async changePassword(principal: Principal, currentPassword: string, newPassword: string) {
+  async changePassword(principal: SessionPrincipal, currentPassword: string, newPassword: string) {
     const [candidate] = await this.db.select().from(users).where(eq(users.id, principal.user.id));
     if (!candidate || !(await verifyPassword(currentPassword, candidate.passwordHash)))
       throw new AppError('bad_request', '当前密码错误');

@@ -1,9 +1,7 @@
-import { and, eq } from 'drizzle-orm';
-
 import { GatewayError } from '../../core/errors.ts';
 import type { Database } from '../database/client.ts';
-import { activeApiKey, activeUser } from '../database/query.ts';
-import { apiKeyChannels, apiKeys, type Endpoint, users } from '../database/schema/index.ts';
+import type { Endpoint } from '../database/schema/index.ts';
+import { apiKeyPattern, findKeyIdentity } from '../keys/access.ts';
 
 /** 从 Authorization 或 x-api-key 解析 API Key，返回有效的 Key、所属用户及绑定渠道。 */
 export async function identifyApiKey(db: Database, req: Request, endpoint: Endpoint | '/v1/models') {
@@ -14,16 +12,8 @@ export async function identifyApiKey(db: Database, req: Request, endpoint: Endpo
   if ((authorization && !bearer) || (bearer && headerKey && bearer !== headerKey))
     throw new GatewayError(401, 'invalid_api_key', 'Invalid API Key');
   const token = bearer ?? headerKey;
-  if (!token || !/^sk-[A-Za-z0-9_-]{43}$/.test(token))
-    throw new GatewayError(401, 'invalid_api_key', 'An API Key is required');
-  const [identity] = await db
-    .select({ key: apiKeys, user: users, channelId: apiKeyChannels.channelId })
-    .from(apiKeys)
-    .innerJoin(users, eq(apiKeys.userId, users.id))
-    .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
-    .where(and(eq(apiKeys.key, token), activeApiKey(), activeUser()));
+  if (!token || !apiKeyPattern.test(token)) throw new GatewayError(401, 'invalid_api_key', 'An API Key is required');
+  const identity = await findKeyIdentity(db, token);
   if (!identity) throw new GatewayError(401, 'invalid_api_key', 'Invalid or expired API Key');
   return identity;
 }
-
-export type KeyIdentity = Awaited<ReturnType<typeof identifyApiKey>>;

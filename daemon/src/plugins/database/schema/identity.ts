@@ -100,6 +100,36 @@ export const apiKeys = pgTable(
   (table) => [index('api_keys_user_idx').on(table.userId), unique('api_keys_owner_unique').on(table.id, table.userId)],
 );
 
+/** 管理令牌的权限范围，顺序即界面展示顺序。 */
+export const adminScopes = ['users:read', 'users:write', 'wallet:read', 'wallet:write'] as const;
+export type AdminScope = (typeof adminScopes)[number];
+export const adminScope = pgEnum('admin_scope', adminScopes);
+
+/** 公开 API 的管理令牌，以所属管理员的身份调用；只保存哈希。 */
+export const adminTokens = pgTable(
+  'admin_tokens',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    /** 令牌末尾几位，用于在界面上辨认。 */
+    hint: text('hint').notNull(),
+    scopes: adminScope('scopes').array().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index('admin_tokens_user_idx').on(table.userId),
+    check('admin_tokens_name_length', sql`char_length(${table.name}) between 1 and 64`),
+    check('admin_tokens_scopes_not_empty', sql`cardinality(${table.scopes}) > 0`),
+  ],
+);
+
 export const systemSettings = pgTable(
   'system_settings',
   {

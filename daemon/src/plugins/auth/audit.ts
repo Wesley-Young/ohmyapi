@@ -8,6 +8,7 @@ export type AuditAction =
   | `group.${'create' | 'rename' | 'delete' | 'members' | 'channels'}`
   | 'wallet.adjust'
   | 'key.delete'
+  | `admin_token.${'create' | 'revoke'}`
   | 'price.save'
   | `billing.${'resolve' | 'correct'}`
   | `channel.${'save' | 'delete' | 'users'}`
@@ -17,11 +18,20 @@ export type AuditAction =
 export type AuditTargetType =
   | 'user'
   | 'api_key'
+  | 'admin_token'
   | 'model'
   | 'catalog'
   | 'request'
   | 'subscription_account'
   | 'user_group';
+
+/** 事务中操作的来源，记录在该事务所有审计条目的 metadata 中。 */
+type AuditAttribution = { adminTokenId: string };
+const attributions = new WeakMap<Transaction, AuditAttribution>();
+
+export function attributeAudit(tx: Transaction, attribution: AuditAttribution) {
+  attributions.set(tx, attribution);
+}
 
 export async function recordAudit(
   tx: Transaction,
@@ -33,5 +43,8 @@ export async function recordAudit(
     metadata?: Record<string, unknown>;
   },
 ) {
-  await tx.insert(adminAuditLogs).values(entry);
+  const attribution = attributions.get(tx);
+  await tx
+    .insert(adminAuditLogs)
+    .values(attribution ? { ...entry, metadata: { ...entry.metadata, ...attribution } } : entry);
 }

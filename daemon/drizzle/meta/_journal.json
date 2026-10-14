@@ -113,6 +113,13 @@
       "when": 1791975106052,
       "tag": "0015_user_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791997180781,
+      "tag": "0016_admin_tokens",
+      "breakpoints": true
     }
   ]
 }

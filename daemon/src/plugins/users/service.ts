@@ -3,15 +3,24 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import { AppError } from '../../core/errors.ts';
 import { formatMoney, parseMoney } from '../../core/money.ts';
-import { toPage } from '../../core/pagination.ts';
+import { decodeCursor, toCursorPage, toPage } from '../../core/pagination.ts';
 import { recordAudit } from '../auth/audit.ts';
 import { generatePassword, hashPassword } from '../auth/password.ts';
 import { type AuthService, type Principal, publicUser } from '../auth/service.ts';
 import type { Database } from '../database/client.ts';
 import { containsText, paginate } from '../database/query.ts';
-import { apiKeys, sessions, systemSettings, userGroupMembers, users, wallets } from '../database/schema/index.ts';
+import {
+  adminTokens,
+  apiKeys,
+  sessions,
+  systemSettings,
+  userGroupMembers,
+  users,
+  wallets,
+} from '../database/schema/index.ts';
 import type { GroupService } from '../groups/service.ts';
 import { postLedgerEntry } from '../wallet/ledger.ts';
+import { userCursor } from './schemas.ts';
 
 export class UserService {
   static readonly token = serviceToken<UserService>('ohmyapi/users');
@@ -53,6 +62,30 @@ export class UserService {
         balance: formatMoney(wallet.balanceMicros),
       })),
       hasMore,
+    };
+  }
+
+  /** 按创建时间倒序的游标分页，可按用户名精确查找；不含已删除的用户。 */
+  async page({ cursor, limit, username }: { cursor?: string; limit: number; username?: string }) {
+    const after = cursor ? decodeCursor(cursor, userCursor) : undefined;
+    const rows = await this.db
+      .select({ user: users, position: sql<string>`${users.createdAt}::text` })
+      .from(users)
+      .where(
+        and(
+          isNull(users.deletedAt),
+          username === undefined ? undefined : eq(users.username, username),
+          after
+            ? sql`(${users.createdAt}, ${users.id}) < (${after.createdAt}::timestamptz, ${after.id}::uuid)`
+            : undefined,
+        ),
+      )
+      .orderBy(desc(users.createdAt), desc(users.id))
+      .limit(limit + 1);
+    const { items, nextCursor } = toCursorPage(rows, limit, (row) => ({ createdAt: row.position, id: row.user.id }));
+    return {
+      items: items.map(({ user }) => ({ ...publicUser(user), createdAt: user.createdAt.toISOString() })),
+      nextCursor,
     };
   }
 
@@ -149,6 +182,12 @@ export class UserService {
         .update(sessions)
         .set({ revokedAt: new Date() })
         .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+      // 管理令牌只属于管理员；降级后吊销，重新提升也不会恢复。
+      if (role === 'user')
+        await tx
+          .update(adminTokens)
+          .set({ revokedAt: new Date() })
+          .where(and(eq(adminTokens.userId, userId), isNull(adminTokens.revokedAt)));
       await recordAudit(tx, {
         actorId: actor.id,
         action: 'user.set_role',
