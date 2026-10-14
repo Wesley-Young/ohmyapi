@@ -4,6 +4,8 @@ import { AuthService } from '../auth/service.js';
 import { DatabaseService } from '../database/index.js';
 import { OutboundHttp } from '../outbound/index.js';
 import { SubscriptionService } from '../subscription/service.js';
+import { ChannelGrants } from './grants.js';
+import { ModelCatalog } from './models.js';
 import { CatalogService } from './service.js';
 
 export const CatalogPlugin = definePlugin({
@@ -15,7 +17,7 @@ export const CatalogPlugin = definePlugin({
     subscription: SubscriptionService,
     outbound: OutboundHttp,
   },
-  provides: [CatalogService],
+  provides: [CatalogService, ModelCatalog, ChannelGrants],
   apply(ctx) {
     ctx.provide(
       CatalogService,
@@ -28,5 +30,7 @@ export const CatalogPlugin = definePlugin({
         logger: ctx.logger,
       }),
     );
+    ctx.provide(ModelCatalog, new ModelCatalog({ auth: ctx.auth }));
+    ctx.provide(ChannelGrants, new ChannelGrants({ db: ctx.database.db, auth: ctx.auth }));
   },
 });

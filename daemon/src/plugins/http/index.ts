@@ -11,6 +11,8 @@ import { AuthService } from '../auth/service.js';
 import { BillingRecords } from '../billing/records.js';
 import { BillingReviewService } from '../billing/review.js';
 import { BillingService } from '../billing/service.js';
+import { ChannelGrants } from '../catalog/grants.js';
+import { ModelCatalog } from '../catalog/models.js';
 import { CatalogService } from '../catalog/service.js';
 import { DatabaseService } from '../database/index.js';
 import { endpoints } from '../database/schema/index.js';
@@ -30,6 +32,8 @@ export const HttpPlugin = definePlugin({
     database: DatabaseService,
     auth: AuthService,
     catalog: CatalogService,
+    modelCatalog: ModelCatalog,
+    channelGrants: ChannelGrants,
     gateway: GatewayService,
     requestHistory: RequestHistory,
     pricing: PricingService,
@@ -53,6 +57,8 @@ export const HttpPlugin = definePlugin({
       billingRecords: ctx.billingRecords,
       billingReview: ctx.billingReview,
       catalog: ctx.catalog,
+      modelCatalog: ctx.modelCatalog,
+      channelGrants: ctx.channelGrants,
       subscription: ctx.subscription,
       requestHistory: ctx.requestHistory,
     });

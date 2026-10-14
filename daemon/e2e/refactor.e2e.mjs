@@ -82,6 +82,20 @@ const upstream = createServer(async (req, res) => {
   const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
   upstreamCalls.push({ url: req.url, headers: req.headers, body });
   const prompt = JSON.stringify(body.messages ?? '');
+  if (req.url.startsWith('/v1/models')) {
+    assert.equal(req.headers.authorization, 'Bearer upstream-secret');
+    const second = req.url.includes('after_id=page-1');
+    res
+      .writeHead(200, { 'content-type': 'application/json' })
+      .end(
+        JSON.stringify(
+          second
+            ? { data: [{ id: 'other-model' }], has_more: false }
+            : { data: [{ id: 'e2e-model' }, { id: 'bad name!' }], has_more: true, last_id: 'page-1' },
+        ),
+      );
+    return;
+  }
   if (req.url === '/v1/chat/completions' && req.headers.authorization !== 'Bearer upstream-secret') {
     res.writeHead(401, { 'content-type': 'application/json' }).end('{"error":{"message":"bad key"}}');
     return;
@@ -557,4 +571,68 @@ test('进程中断后的计费恢复与人工核对', async () => {
   });
   assert.equal(revoked.status, 403);
   assert.equal((await revoked.json()).error.code, 'channel_forbidden');
+});
+
+test('模型目录与聚合渠道', async () => {
+  // 从上游分页拉取模型，跳过名称无效的模型
+  const fetched = await admin.mutate('admin.catalog.fetchChannelModels', {
+    id: state.channelId,
+    baseUrl: state.upstreamUrl,
+  });
+  assert.deepEqual(fetched, { names: ['e2e-model', 'other-model'], ignored: 1 });
+
+  // 修改模型上限
+  const model = (await admin.query('admin.catalog.list')).models.find((m) => m.name === 'e2e-model');
+  await admin.mutate('admin.catalog.saveModel', {
+    id: model.id,
+    name: 'e2e-model',
+    enabled: true,
+    inputTokenLimit: 500_000,
+    outputTokenLimit: 64_000,
+  });
+  const updated = (await admin.query('admin.catalog.list')).models.find((m) => m.id === model.id);
+  assert.deepEqual([updated.inputTokenLimit, updated.outputTokenLimit, updated.priced], [500_000, 64_000, true]);
+
+  // 公开的聚合渠道继承子渠道的共同模型和端点
+  const aggregate = await admin.mutate('admin.catalog.saveChannel', {
+    name: 'e2e-aggregate',
+    type: 'aggregate',
+    enabled: true,
+    isPublic: true,
+    timeoutMs: 30_000,
+    members: [{ channelId: state.channelId }],
+  });
+  assert.deepEqual(aggregate.unpricedModels, []);
+  const listed = (await admin.query('admin.catalog.list')).channels.find((c) => c.id === aggregate.id);
+  assert.deepEqual(listed.availableModels, [{ modelId: model.id, multiplier: null }]);
+  assert.deepEqual(listed.endpoints, ['/v1/chat/completions', '/v1/messages']);
+  assert.deepEqual(listed.members, [{ channelId: state.channelId, priority: 0, weight: 1 }]);
+  const key = await user.mutate('keys.create', { name: 'aggregate', channelId: aggregate.id });
+  const chat = await gateway('/v1/chat/completions', key.token, {
+    model: 'e2e-model',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 100,
+  });
+  assert.equal(chat.status, 200);
+  const requestId = chat.headers.get('x-request-id');
+  let detail;
+  for (let i = 0; i < 50; i++) {
+    detail = await admin.query('requestDetail', { requestId });
+    if (detail.status === 'settled') break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(detail.status, 'settled');
+  assert.equal(detail.charged, '0.001900');
+  assert.equal(detail.channelId, aggregate.id);
+  assert.deepEqual(
+    detail.attempts.map((a) => a.channelId),
+    [state.channelId],
+  );
+
+  // 删除聚合渠道后，绑定的 Key 不再可用
+  await admin.mutate('admin.catalog.deleteChannel', { channelId: aggregate.id });
+  const gone = await gateway('/v1/chat/completions', key.token, { model: 'e2e-model', messages: [] });
+  assert.equal(gone.status, 503);
+  assert.equal((await gone.json()).error.code, 'channel_unavailable');
+  assert.equal((await admin.query('admin.billing.reconcile', { userId: state.userId })).consistent, true);
 });
