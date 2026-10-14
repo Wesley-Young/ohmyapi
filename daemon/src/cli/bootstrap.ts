@@ -1,10 +1,11 @@
 import { eq, sql } from 'drizzle-orm';
 
 import { billingConventions } from '../core/money.js';
+import { recordAudit } from '../plugins/auth/audit.js';
 import { hashPassword, validatePassword } from '../plugins/auth/password.js';
 import type { Database } from '../plugins/database/client.js';
 import { assertMigrationsCurrent } from '../plugins/database/migrate.js';
-import { adminAuditLogs, systemSettings, users, wallets } from '../plugins/database/schema/index.js';
+import { systemSettings, users, wallets } from '../plugins/database/schema/index.js';
 
 export interface BootstrapOptions {
   currency: string;
@@ -56,7 +57,7 @@ export async function initializeDatabase(db: Database, options: BootstrapOptions
       missingUsage: billingConventions.missingUsage,
       bootstrapAdminId: admin.id,
     });
-    await tx.insert(adminAuditLogs).values({
+    await recordAudit(tx, {
       actorId: admin.id,
       action: 'system.bootstrap',
       targetType: 'user',

@@ -1,7 +1,8 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import { GatewayError } from '../../core/errors.js';
 import type { Database, Transaction } from '../database/client.js';
+import { activeChannel } from '../database/query.js';
 import type { Endpoint } from '../database/schema/index.js';
 import {
   aggregateChannelMembers,
@@ -41,14 +42,7 @@ export async function selectExecutionChannel(
     .from(aggregateChannelMembers)
     .innerJoin(channels, eq(channels.id, aggregateChannelMembers.memberChannelId))
     .leftJoin(subscriptionAccounts, eq(subscriptionAccounts.id, channels.subscriptionAccountId))
-    .where(
-      and(
-        eq(aggregateChannelMembers.aggregateChannelId, entry.id),
-        eq(channels.enabled, true),
-        isNull(channels.deletedAt),
-        availableSubscription(),
-      ),
-    )
+    .where(and(eq(aggregateChannelMembers.aggregateChannelId, entry.id), activeChannel(), availableSubscription()))
     .orderBy(desc(aggregateChannelMembers.priority), channels.id);
   // 只按端点筛选成员；订阅不支持的参数由适配器删除或改写，不影响路由。
   const compatible = rows.filter(
@@ -102,8 +96,7 @@ export async function lockExecutionRoute(
     .where(
       and(
         eq(channels.id, input.channelId),
-        eq(channels.enabled, true),
-        isNull(channels.deletedAt),
+        activeChannel(),
         eq(effectiveChannelModels.modelId, input.modelId),
         eq(effectiveChannelEndpoints.endpoint, input.endpoint),
       ),
@@ -134,8 +127,7 @@ export async function lockExecutionRoute(
     .where(
       and(
         eq(channels.id, selected.id),
-        eq(channels.enabled, true),
-        isNull(channels.deletedAt),
+        activeChannel(),
         eq(effectiveChannelModels.modelId, input.modelId),
         eq(effectiveChannelEndpoints.endpoint, input.endpoint),
         availableSubscription(),

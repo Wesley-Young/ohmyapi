@@ -4,10 +4,10 @@ import { z } from 'zod';
 
 import { AppError, GatewayError } from '../../core/errors.js';
 import { formatMoney, parseMoney } from '../../core/money.js';
+import { recordAudit } from '../auth/audit.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import type { Database } from '../database/client.js';
 import {
-  adminAuditLogs,
   channelModelPrices,
   channels,
   models,
@@ -206,7 +206,7 @@ export class PricingService {
       // Replace the complete set atomically; requests read either the old or the new set.
       await tx.delete(priceRules).where(eq(priceRules.modelId, input.modelId));
       if (expanded.length) await tx.insert(priceRules).values(expanded.map((r) => ({ ...r, modelId: input.modelId })));
-      await tx.insert(adminAuditLogs).values({
+      await recordAudit(tx, {
         actorId: actor.id,
         action: 'price.save',
         targetType: 'model',

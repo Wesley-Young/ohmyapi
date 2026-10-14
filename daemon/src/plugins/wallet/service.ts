@@ -3,11 +3,12 @@ import { and, desc, eq, gte, lte, type SQL, sql } from 'drizzle-orm';
 
 import { AppError } from '../../core/errors.js';
 import { formatMoney, parseMoney } from '../../core/money.js';
-import { pageSize } from '../../core/pagination.js';
+import { toPage } from '../../core/pagination.js';
+import { recordAudit } from '../auth/audit.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import type { Database } from '../database/client.js';
+import { paginate } from '../database/query.js';
 import {
-  adminAuditLogs,
   models,
   requests,
   requestUsage,
@@ -16,15 +17,13 @@ import {
   walletLedger,
   wallets,
 } from '../database/schema/index.js';
+import { type LedgerEntry, ledgerAmounts, lockWallet, postLedgerEntry } from './ledger.js';
 import type { AdjustWalletInput, StatsRange } from './schemas.js';
 
-const ledgerDto = (entry: typeof walletLedger.$inferSelect) => ({
+const ledgerDto = (entry: LedgerEntry) => ({
   id: entry.id,
   kind: entry.kind,
-  amount: formatMoney(entry.balanceDeltaMicros),
-  reservedAmount: formatMoney(entry.reservedDeltaMicros),
-  balanceAfter: formatMoney(entry.balanceAfterMicros),
-  reservedAfter: formatMoney(entry.reservedAfterMicros),
+  ...ledgerAmounts(entry),
   reason: entry.reason,
   actorId: entry.actorId,
   requestId: entry.requestId,
@@ -183,18 +182,18 @@ export class WalletService {
   }
 
   async ledger(userId: string, page: number) {
-    const rows = await this.db
-      .select({ entry: walletLedger, actorName: users.username })
-      .from(walletLedger)
-      .leftJoin(users, eq(walletLedger.actorId, users.id))
-      .where(eq(walletLedger.userId, userId))
-      .orderBy(desc(walletLedger.createdAt), desc(walletLedger.id))
-      .limit(pageSize + 1)
-      .offset(page * pageSize);
-    return {
-      items: rows.slice(0, pageSize).map(({ entry, actorName }) => ({ ...ledgerDto(entry), actorName })),
-      hasMore: rows.length > pageSize,
-    };
+    const rows = await paginate(
+      this.db
+        .select({ entry: walletLedger, actorName: users.username })
+        .from(walletLedger)
+        .leftJoin(users, eq(walletLedger.actorId, users.id))
+        .where(eq(walletLedger.userId, userId))
+        .orderBy(desc(walletLedger.createdAt), desc(walletLedger.id))
+        .$dynamic(),
+      page,
+    );
+    const { items, hasMore } = toPage(rows);
+    return { items: items.map(({ entry, actorName }) => ({ ...ledgerDto(entry), actorName })), hasMore };
   }
 
   async adjust(principal: Principal, input: AdjustWalletInput) {
@@ -215,28 +214,21 @@ export class WalletService {
       }
       const [target] = await tx.select().from(users).where(eq(users.id, input.userId)).for('update');
       if (!target || target.deletedAt) throw new AppError('not_found', '用户不存在或已删除');
-      const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, input.userId)).for('update');
+      const wallet = await lockWallet(tx, input.userId);
       if (!wallet) throw new AppError('not_found', '钱包不存在');
       const next = wallet.balanceMicros + delta;
       if (delta < 0n && next < wallet.reservedMicros) throw new AppError('bad_request', '扣减金额超过可用余额');
       if (next < -9223372036854775808n || next > 9223372036854775807n)
         throw new AppError('bad_request', '调整后的余额超出范围');
-      await tx.update(wallets).set({ balanceMicros: next }).where(eq(wallets.userId, input.userId));
-      const [entry] = await tx
-        .insert(walletLedger)
-        .values({
-          userId: input.userId,
-          kind: 'adjustment',
-          idempotencyKey: key,
-          balanceDeltaMicros: delta,
-          reservedDeltaMicros: 0n,
-          balanceAfterMicros: next,
-          reservedAfterMicros: wallet.reservedMicros,
-          actorId: actor.id,
-          reason: input.reason,
-        })
-        .returning();
-      await tx.insert(adminAuditLogs).values({
+      const entry = await postLedgerEntry(tx, wallet, {
+        kind: 'adjustment',
+        idempotencyKey: key,
+        balanceDeltaMicros: delta,
+        reservedDeltaMicros: 0n,
+        actorId: actor.id,
+        reason: input.reason,
+      });
+      await recordAudit(tx, {
         actorId: actor.id,
         action: 'wallet.adjust',
         targetType: 'user',

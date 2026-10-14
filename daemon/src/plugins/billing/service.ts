@@ -1,17 +1,17 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
-import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { Client } from 'pg';
 
 import type { DatabaseConfig } from '../../config.js';
 import { AppError, GatewayError, requestErrorMessage } from '../../core/errors.js';
 import { type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '../../core/logging.js';
 import { formatMoney, parseMoney } from '../../core/money.js';
+import { recordAudit } from '../auth/audit.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import type { Database, Transaction } from '../database/client.js';
+import { activeApiKey, activeChannel, activeModel } from '../database/query.js';
 import {
-  adminAuditLogs,
   apiKeyChannels,
-  apiKeyModelGrants,
   apiKeys,
   effectiveChannelModels as channelAvailableModels,
   effectiveChannelEndpoints as channelEndpoints,
@@ -21,7 +21,6 @@ import {
   requests,
   requestUsage,
   type UsageEstimate,
-  userChannelGrants,
   users,
   walletLedger,
   wallets,
@@ -29,7 +28,9 @@ import {
 import { cacheReadForDisplay, reportedCacheReadTokens } from '../gateway/cache-usage.js';
 import { lockExecutionRoute } from '../gateway/routing.js';
 import type { Usage } from '../gateway/usage.js';
+import { canUseChannel, keyAllowsModel } from '../keys/access.js';
 import { type LockedPrice, type PricingService, publicPricingSnapshot } from '../pricing/service.js';
+import { ledgerAmounts, lockWallet, postLedgerEntry } from '../wallet/ledger.js';
 import { reservationAmount } from './admission.js';
 import { estimateReservation } from './estimation.js';
 import type { CorrectBillInput, ResolveBillInput, ResolveZeroBillsInput } from './schemas.js';
@@ -69,10 +70,6 @@ const usageDto = (u: typeof requestUsage.$inferSelect) => ({
   webSearchCalls: u.webSearchCalls.toString(),
   webSearchPreviewCalls: u.webSearchPreviewCalls.toString(),
 });
-const bounds = (n: bigint) => {
-  if (n < -9_223_372_036_854_775_808n || n > 9_223_372_036_854_775_807n) throw new Error('Wallet amount out of range');
-  return n;
-};
 
 function canonical(value: unknown): string {
   const normalize = (v: unknown): unknown =>
@@ -236,7 +233,7 @@ export class BillingService implements Disposable {
       await this.db.transaction(async (tx) => {
         const [user] = await tx.select().from(users).where(eq(users.id, input.userId)).for('update');
         const [key] = await tx
-          .select({ restricted: apiKeys.restrictModels })
+          .select({ restrictModels: apiKeys.restrictModels })
           .from(apiKeys)
           .innerJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
           .where(
@@ -244,9 +241,7 @@ export class BillingService implements Disposable {
               eq(apiKeys.id, input.keyId),
               eq(apiKeys.userId, input.userId),
               eq(apiKeyChannels.channelId, input.channelId),
-              isNull(apiKeys.revokedAt),
-              isNull(apiKeys.deletedAt),
-              or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
+              activeApiKey(),
             ),
           );
         if (user?.status !== 'active' || user.deletedAt || !key)
@@ -261,40 +256,21 @@ export class BillingService implements Disposable {
             and(
               eq(channels.id, input.channelId),
               eq(models.id, input.modelId),
-              eq(channels.enabled, true),
-              eq(models.enabled, true),
-              isNull(channels.deletedAt),
-              isNull(models.deletedAt),
+              activeChannel(),
+              activeModel(),
               eq(channelEndpoints.endpoint, input.endpoint),
             ),
           )
           .for('share', { of: [channels, models] });
         if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
         await lockExecutionRoute(tx, input);
-        if (
-          user.role !== 'admin' &&
-          !channel.isPublic &&
-          !(
-            await tx
-              .select()
-              .from(userChannelGrants)
-              .where(and(eq(userChannelGrants.userId, user.id), eq(userChannelGrants.channelId, input.channelId)))
-          ).length
-        )
+        if (!(await canUseChannel(tx, user, channel)))
           throw new GatewayError(403, 'channel_forbidden', 'Channel authorization was revoked');
-        if (
-          key.restricted &&
-          !(
-            await tx
-              .select()
-              .from(apiKeyModelGrants)
-              .where(and(eq(apiKeyModelGrants.apiKeyId, input.keyId), eq(apiKeyModelGrants.modelId, input.modelId)))
-          ).length
-        )
+        if (!(await keyAllowsModel(tx, { id: input.keyId, restrictModels: key.restrictModels }, input.modelId)))
           throw new GatewayError(403, 'model_forbidden', 'API Key does not authorize this model');
         const [r] = await tx.select().from(requests).where(eq(requests.id, input.requestId)).for('update');
         if (r?.status !== 'received' || r.userId !== user.id) throw new Error('Request admission state changed');
-        const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, user.id)).for('update');
+        const wallet = await lockWallet(tx, user.id);
         if (!wallet) throw new Error('Wallet missing');
         if (wallet.balanceMicros < 0n || wallet.balanceMicros - wallet.reservedMicros < amount)
           throw new GatewayError(
@@ -302,8 +278,6 @@ export class BillingService implements Disposable {
             'insufficient_balance',
             'Available balance is insufficient for this request reservation',
           );
-        const reserved = bounds(wallet.reservedMicros + amount);
-        await tx.update(wallets).set({ reservedMicros: reserved }).where(eq(wallets.userId, user.id));
         const snapshot = {
           multiplier: formatMoney(input.price.multiplierMicros),
           multiplierSource: input.price.multiplierSource,
@@ -337,15 +311,12 @@ export class BillingService implements Disposable {
           })
           .where(eq(requests.id, r.id));
         if (amount > 0n)
-          await tx.insert(walletLedger).values({
-            userId: user.id,
+          await postLedgerEntry(tx, wallet, {
             requestId: r.id,
             kind: 'reserve',
             idempotencyKey: `reserve:${r.id}`,
             balanceDeltaMicros: 0n,
             reservedDeltaMicros: amount,
-            balanceAfterMicros: wallet.balanceMicros,
-            reservedAfterMicros: reserved,
             reason: '预占',
             metadata: {
               pricing: snapshot,
@@ -564,20 +535,15 @@ export class BillingService implements Disposable {
   }
 
   private async release(tx: Transaction, r: RequestRow, actorId: string | undefined, reason: string) {
-    const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, r.userId)).for('update');
+    const wallet = await lockWallet(tx, r.userId);
     if (!wallet || wallet.reservedMicros < r.heldMicros) throw new Error('Wallet reservation mismatch');
-    const reserved = wallet.reservedMicros - r.heldMicros;
-    await tx.update(wallets).set({ reservedMicros: reserved }).where(eq(wallets.userId, r.userId));
     if (r.heldMicros > 0n)
-      await tx.insert(walletLedger).values({
-        userId: r.userId,
+      await postLedgerEntry(tx, wallet, {
         requestId: r.id,
         kind: 'release',
         idempotencyKey: `release:${r.id}`,
         balanceDeltaMicros: 0n,
         reservedDeltaMicros: -r.heldMicros,
-        balanceAfterMicros: wallet.balanceMicros,
-        reservedAfterMicros: reserved,
         actorId,
         reason,
         metadata: { released: formatMoney(r.heldMicros), upstreamRequestId: r.upstreamRequestId },
@@ -596,23 +562,14 @@ export class BillingService implements Disposable {
     actorId?: string,
     reason = '结算',
   ) {
-    const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, r.userId)).for('update');
+    const wallet = await lockWallet(tx, r.userId);
     if (!wallet || wallet.reservedMicros < r.heldMicros) throw new Error('Wallet reservation mismatch');
-    const balance = bounds(wallet.balanceMicros - amount);
-    const reserved = wallet.reservedMicros - r.heldMicros;
-    await tx
-      .update(wallets)
-      .set({ balanceMicros: balance, reservedMicros: reserved })
-      .where(eq(wallets.userId, r.userId));
-    await tx.insert(walletLedger).values({
-      userId: r.userId,
+    await postLedgerEntry(tx, wallet, {
       requestId: r.id,
       kind: 'settlement',
       idempotencyKey: `settle:${r.id}`,
       balanceDeltaMicros: -amount,
       reservedDeltaMicros: -r.heldMicros,
-      balanceAfterMicros: balance,
-      reservedAfterMicros: reserved,
       actorId,
       reason,
       metadata: { pricing: snapshot, exceededReservation: amount > r.reservedMicros },
@@ -875,10 +832,7 @@ export class BillingService implements Disposable {
       ledger: ledger.map(({ entry: e, actor }) => ({
         id: e.id,
         kind: e.kind,
-        amount: formatMoney(e.balanceDeltaMicros),
-        reservedAmount: formatMoney(e.reservedDeltaMicros),
-        balanceAfter: formatMoney(e.balanceAfterMicros),
-        reservedAfter: formatMoney(e.reservedAfterMicros),
+        ...ledgerAmounts(e),
         reason: e.reason,
         actor: actor ?? '系统',
         createdAt: e.createdAt.toISOString(),
@@ -987,7 +941,7 @@ export class BillingService implements Disposable {
       await this.charge(tx, r, amount, snapshot, actorId, input.reason);
     }
     await tx.update(requests).set({ resolutionKey: key, resolutionPayload: payload }).where(eq(requests.id, r.id));
-    await tx.insert(adminAuditLogs).values({
+    await recordAudit(tx, {
       actorId,
       action: 'billing.resolve',
       targetType: 'request',
@@ -1023,28 +977,20 @@ export class BillingService implements Disposable {
         throw new AppError('conflict', '仅对已结算计费请求追加修正');
       const delta = r.chargedMicros - target;
       if (delta === 0n) throw new AppError('bad_request', '费用没有变化');
-      const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, r.userId)).for('update');
+      const wallet = await lockWallet(tx, r.userId);
       if (!wallet) throw new Error('Wallet missing');
-      const balance = bounds(wallet.balanceMicros + delta);
-      await tx.update(wallets).set({ balanceMicros: balance }).where(eq(wallets.userId, r.userId));
-      const [entry] = await tx
-        .insert(walletLedger)
-        .values({
-          userId: r.userId,
-          requestId: r.id,
-          kind: 'correction',
-          idempotencyKey: key,
-          balanceDeltaMicros: delta,
-          reservedDeltaMicros: 0n,
-          balanceAfterMicros: balance,
-          reservedAfterMicros: wallet.reservedMicros,
-          actorId: actor.id,
-          reason: input.reason,
-          metadata: { previousCharged: formatMoney(r.chargedMicros), targetCharged: formatMoney(target) },
-        })
-        .returning({ id: walletLedger.id });
+      const entry = await postLedgerEntry(tx, wallet, {
+        requestId: r.id,
+        kind: 'correction',
+        idempotencyKey: key,
+        balanceDeltaMicros: delta,
+        reservedDeltaMicros: 0n,
+        actorId: actor.id,
+        reason: input.reason,
+        metadata: { previousCharged: formatMoney(r.chargedMicros), targetCharged: formatMoney(target) },
+      });
       await tx.update(requests).set({ chargedMicros: target }).where(eq(requests.id, r.id));
-      await tx.insert(adminAuditLogs).values({
+      await recordAudit(tx, {
         actorId: actor.id,
         action: 'billing.correct',
         targetType: 'request',

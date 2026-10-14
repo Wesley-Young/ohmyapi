@@ -279,6 +279,20 @@ test('认证、目录配置、Key 与网关结算主流程', async () => {
     '渠道不可用、未授权或没有可用模型',
   );
   await admin.mutate('admin.catalog.setGrants', { userId: state.userId, channelIds: [channel.id] });
+  // 分页与搜索：LIKE 通配符按字面匹配
+  const found = await admin.query('admin.users.list', { page: 0, search: 'lic' });
+  assert.deepEqual(
+    found.items.map((u) => u.username),
+    ['alice'],
+  );
+  assert.equal(found.hasMore, false);
+  assert.equal((await admin.query('admin.users.list', { page: 0, search: 'a_i' })).items.length, 0);
+  assert.equal((await admin.query('admin.users.list', { page: 1, search: '' })).items.length, 0);
+  const grants = await admin.query('admin.catalog.channelGrants', { channelId: channel.id, page: 0, search: 'ali' });
+  assert.deepEqual(grants, {
+    items: [{ id: state.userId, username: 'alice', status: 'active', granted: true }],
+    hasMore: false,
+  });
   assert.deepEqual(
     (await user.query('keys.channels')).map((c) => c.id),
     [channel.id],
@@ -513,4 +527,13 @@ test('进程中断后的计费恢复与人工核对', async () => {
   assert.equal(wallet.balance, '9.993550');
   assert.equal(wallet.reserved, '0.000000');
   assert.equal((await admin.query('admin.billing.reconcile', { userId: state.userId })).consistent, true);
+
+  // 撤销渠道授权后，已有 Key 立即失去调用权限
+  await admin.mutate('admin.catalog.setGrants', { userId: state.userId, channelIds: [] });
+  const revoked = await gateway('/v1/chat/completions', state.key, {
+    model: 'e2e-model',
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+  assert.equal(revoked.status, 403);
+  assert.equal((await revoked.json()).error.code, 'channel_forbidden');
 });

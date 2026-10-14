@@ -3,11 +3,12 @@ import { and, desc, eq, gt, inArray, isNull, or, type SQL, sql } from 'drizzle-o
 
 import { AppError } from '../../core/errors.js';
 import { formatMoney } from '../../core/money.js';
-import { pageSize } from '../../core/pagination.js';
+import { toPage } from '../../core/pagination.js';
+import { recordAudit } from '../auth/audit.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import type { Database, Transaction } from '../database/client.js';
+import { activeApiKey, activeChannel, activeModel, paginate } from '../database/query.js';
 import {
-  adminAuditLogs,
   apiKeyChannels,
   apiKeyModelGrants,
   apiKeys,
@@ -39,7 +40,7 @@ export class KeyService {
       return this.db
         .select({ id: models.id, name: models.name })
         .from(models)
-        .where(and(eq(models.enabled, true), isNull(models.deletedAt)))
+        .where(activeModel())
         .orderBy(models.name);
     const offerings = await this.offerings(principal.user);
     return [...new Map(offerings.map((row) => [row.modelId, { id: row.modelId, name: row.modelName }])).values()].sort(
@@ -75,16 +76,7 @@ export class KeyService {
         userChannelGrants,
         and(eq(userChannelGrants.channelId, channels.id), eq(userChannelGrants.userId, userId)),
       )
-      .where(
-        and(
-          eq(channels.enabled, true),
-          availableSubscription(),
-          eq(models.enabled, true),
-          isNull(channels.deletedAt),
-          isNull(models.deletedAt),
-          allowed,
-        ),
-      )
+      .where(and(activeChannel(), availableSubscription(), activeModel(), allowed))
       .orderBy(channels.name, models.name);
     const rows = await base;
     const ranges = new Map<string, (typeof rows)[number] & { maxMultiplierMicros: bigint }>();
@@ -144,15 +136,11 @@ export class KeyService {
       .where(
         and(
           eq(apiKeys.userId, principal.user.id),
-          isNull(apiKeys.deletedAt),
-          isNull(apiKeys.revokedAt),
-          or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
+          activeApiKey(),
           inArray(channelEndpoints.endpoint, ['/v1/chat/completions', '/v1/responses', '/v1/messages']),
-          eq(channels.enabled, true),
+          activeChannel(),
           availableSubscription(),
-          isNull(channels.deletedAt),
-          eq(models.enabled, true),
-          isNull(models.deletedAt),
+          activeModel(),
           or(eq(apiKeys.restrictModels, false), eq(apiKeyModelGrants.apiKeyId, apiKeys.id)),
           principal.user.role === 'admin'
             ? undefined
@@ -218,28 +206,30 @@ export class KeyService {
     const userId = principal.user.id;
     const [offerings, rows] = await Promise.all([
       this.offerings(principal.user),
-      this.db
-        .select({
-          id: apiKeys.id,
-          name: apiKeys.name,
-          token: apiKeys.key,
-          expiresAt: apiKeys.expiresAt,
-          revokedAt: apiKeys.revokedAt,
-          createdAt: apiKeys.createdAt,
-          restrictModels: apiKeys.restrictModels,
-          channelId: apiKeyChannels.channelId,
-          channelName: channels.name,
-          channelDeleted: sql<boolean>`${channels.deletedAt} is not null`,
-        })
-        .from(apiKeys)
-        .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
-        .leftJoin(channels, eq(channels.id, apiKeyChannels.channelId))
-        .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.deletedAt)))
-        .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
-        .limit(pageSize + 1)
-        .offset(page * pageSize),
+      paginate(
+        this.db
+          .select({
+            id: apiKeys.id,
+            name: apiKeys.name,
+            token: apiKeys.key,
+            expiresAt: apiKeys.expiresAt,
+            revokedAt: apiKeys.revokedAt,
+            createdAt: apiKeys.createdAt,
+            restrictModels: apiKeys.restrictModels,
+            channelId: apiKeyChannels.channelId,
+            channelName: channels.name,
+            channelDeleted: sql<boolean>`${channels.deletedAt} is not null`,
+          })
+          .from(apiKeys)
+          .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
+          .leftJoin(channels, eq(channels.id, apiKeyChannels.channelId))
+          .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.deletedAt)))
+          .orderBy(desc(apiKeys.createdAt), desc(apiKeys.id))
+          .$dynamic(),
+        page,
+      ),
     ]);
-    const items = rows.slice(0, pageSize);
+    const { items, hasMore } = toPage(rows);
     const keyIds = items.map((key) => key.id);
     const settled = (window: SQL) =>
       sql<string>`coalesce(sum(${requests.chargedMicros}) filter (where ${requests.status} = 'settled' and ${requests.receivedAt} >= now() - ${window}), 0)::text`;
@@ -284,7 +274,7 @@ export class KeyService {
         chargedAmount24h: formatMoney(BigInt(usageByKey.get(key.id)?.last24Hours ?? 0)),
         chargedAmount30d: formatMoney(BigInt(usageByKey.get(key.id)?.last30Days ?? 0)),
       })),
-      hasMore: rows.length > pageSize,
+      hasMore,
     };
   }
 
@@ -295,14 +285,7 @@ export class KeyService {
       const [{ count }] = await tx
         .select({ count: sql<number>`count(*)::integer` })
         .from(apiKeys)
-        .where(
-          and(
-            eq(apiKeys.userId, user.id),
-            isNull(apiKeys.revokedAt),
-            isNull(apiKeys.deletedAt),
-            or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
-          ),
-        );
+        .where(and(eq(apiKeys.userId, user.id), activeApiKey()));
       if (count >= 100) throw new AppError('bad_request', '最多保留 100 个有效 Key');
       const modelIds = [...new Set(input.modelIds ?? [])];
       const offerings = (await this.offerings(user, tx)).filter((o) => o.channelId === input.channelId);
@@ -400,7 +383,7 @@ export class KeyService {
         .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, user.id), isNull(apiKeys.deletedAt)))
         .returning({ id: apiKeys.id, name: apiKeys.name });
       if (!key) throw new AppError('not_found', 'Key 不存在或已删除');
-      await tx.insert(adminAuditLogs).values({
+      await recordAudit(tx, {
         actorId: user.id,
         action: 'key.delete',
         targetType: 'api_key',

@@ -4,10 +4,11 @@ import { z } from 'zod';
 
 import { AppError, GatewayError } from '../../core/errors.js';
 import type { CredentialVault } from '../../core/vault.js';
+import { recordAudit } from '../auth/audit.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import { channelProxy } from '../catalog/proxy.js';
 import type { Database, Transaction } from '../database/client.js';
-import { adminAuditLogs, channels, subscriptionAccounts } from '../database/schema/index.js';
+import { channels, subscriptionAccounts } from '../database/schema/index.js';
 import type { OutboundHttp } from '../outbound/index.js';
 import { fetchClaudeModels } from './claude/catalog.js';
 import { importClaudeCredentials } from './claude/client.js';
@@ -319,7 +320,7 @@ export class SubscriptionService implements Disposable {
         .for('update');
       if (account?.provider !== 'claude') throw new AppError('bad_request', '仅 Claude 订阅需要手动填写重置时刻');
       await tx.update(subscriptionAccounts).set({ cycleResetAt: resetAt }).where(eq(subscriptionAccounts.id, id));
-      await tx.insert(adminAuditLogs).values({
+      await recordAudit(tx, {
         actorId: actor.id,
         action: 'subscription.cycle_reset',
         targetType: 'subscription_account',

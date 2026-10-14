@@ -1,16 +1,17 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
-import { and, asc, desc, eq, gt, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
 import type { GatewayConfig } from '../../config.js';
 import { GatewayError } from '../../core/errors.js';
 import { createLogSampler, type EventLogger, errorDetails, formatEvent } from '../../core/logging.js';
 import { formatMoney } from '../../core/money.js';
-import { pageSize } from '../../core/pagination.js';
+import { toPage } from '../../core/pagination.js';
 import type { CredentialVault } from '../../core/vault.js';
 import { validateBillableRequest } from '../billing/admission.js';
 import { searchRequest } from '../billing/search.js';
 import type { BillingService } from '../billing/service.js';
 import type { Database } from '../database/client.js';
+import { activeApiKey, activeChannel, activeModel, activeUser, paginate } from '../database/query.js';
 import type { Endpoint } from '../database/schema/index.js';
 import {
   apiKeyChannels,
@@ -27,6 +28,7 @@ import {
   userChannelGrants,
   users,
 } from '../database/schema/index.js';
+import { canUseChannel, keyAllowsModel } from '../keys/access.js';
 import type { OutboundHttp } from '../outbound/index.js';
 import { type PricingService, publicPricingSnapshot } from '../pricing/service.js';
 import { availableSubscription } from '../subscription/availability.js';
@@ -161,16 +163,7 @@ export class GatewayService implements Disposable {
       .from(apiKeys)
       .innerJoin(users, eq(apiKeys.userId, users.id))
       .leftJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
-      .where(
-        and(
-          eq(apiKeys.key, token),
-          isNull(apiKeys.revokedAt),
-          isNull(apiKeys.deletedAt),
-          or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
-          eq(users.status, 'active'),
-          isNull(users.deletedAt),
-        ),
-      );
+      .where(and(eq(apiKeys.key, token), activeApiKey(), activeUser()));
     if (!identity) throw new GatewayError(401, 'invalid_api_key', 'Invalid or expired API Key');
     return identity;
   }
@@ -186,14 +179,7 @@ export class GatewayService implements Disposable {
       const [channel] = await this.db
         .select()
         .from(channels)
-        .where(
-          and(
-            eq(channels.id, identity.channelId),
-            eq(channels.enabled, true),
-            isNull(channels.deletedAt),
-            availableSubscription(),
-          ),
-        );
+        .where(and(eq(channels.id, identity.channelId), activeChannel(), availableSubscription()));
       if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
       if (channel.type !== 'aggregate') await channelAdapter(channel, this.subscription);
       const available = await this.db
@@ -216,8 +202,7 @@ export class GatewayService implements Disposable {
         .where(
           and(
             eq(channelAvailableModels.channelId, identity.channelId),
-            eq(models.enabled, true),
-            isNull(models.deletedAt),
+            activeModel(),
             identity.key.restrictModels ? eq(apiKeyModelGrants.apiKeyId, identity.key.id) : undefined,
             identity.user.role !== 'admin' && !channel.isPublic
               ? eq(userChannelGrants.userId, identity.user.id)
@@ -347,16 +332,11 @@ export class GatewayService implements Disposable {
         outputTokenLimit: models.outputTokenLimit,
       })
       .from(models)
-      .where(and(eq(models.name, requestedModel), eq(models.enabled, true), isNull(models.deletedAt)));
+      .where(and(eq(models.name, requestedModel), activeModel()));
     if (!model) throw new GatewayError(404, 'model_not_found', 'Unknown or disabled model');
     details.modelName = model.name;
-    const [keyGrant] = !identity.key.restrictModels
-      ? [{ modelId: model.id }]
-      : await this.db
-          .select()
-          .from(apiKeyModelGrants)
-          .where(and(eq(apiKeyModelGrants.apiKeyId, identity.key.id), eq(apiKeyModelGrants.modelId, model.id)));
-    if (!keyGrant) throw new GatewayError(403, 'model_forbidden', 'API Key does not authorize this model');
+    if (!(await keyAllowsModel(this.db, identity.key, model.id)))
+      throw new GatewayError(403, 'model_forbidden', 'API Key does not authorize this model');
 
     if (!identity.channelId)
       throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
@@ -368,8 +348,7 @@ export class GatewayService implements Disposable {
       .where(
         and(
           eq(channels.id, identity.channelId),
-          eq(channels.enabled, true),
-          isNull(channels.deletedAt),
+          activeChannel(),
           eq(channelAvailableModels.modelId, model.id),
           eq(channelEndpoints.endpoint, endpoint),
         ),
@@ -382,13 +361,8 @@ export class GatewayService implements Disposable {
       );
     details.upstreamTimeoutMs = route.channel.timeoutMs;
 
-    if (identity.user.role !== 'admin' && !route.channel.isPublic) {
-      const [grant] = await this.db
-        .select({ channelId: userChannelGrants.channelId })
-        .from(userChannelGrants)
-        .where(and(eq(userChannelGrants.userId, identity.user.id), eq(userChannelGrants.channelId, route.channel.id)));
-      if (!grant) throw new GatewayError(403, 'channel_forbidden', 'Channel is not authorized for this user');
-    }
+    if (!(await canUseChannel(this.db, identity.user, route.channel)))
+      throw new GatewayError(403, 'channel_forbidden', 'Channel is not authorized for this user');
     return { model, ...route };
   }
 
@@ -599,30 +573,32 @@ export class GatewayService implements Disposable {
   }
 
   async list(userId: string | undefined, page: number, reviewOnly = false) {
-    const rows = await this.db
-      .select({
-        request: requests,
-        username: users.username,
-        usage: requestUsage,
-        channelName: channels.name,
-        channelType: channels.type,
-        apiKeyName: apiKeys.name,
-      })
-      .from(requests)
-      .innerJoin(users, eq(requests.userId, users.id))
-      .leftJoin(channels, eq(requests.channelId, channels.id))
-      .leftJoin(apiKeys, eq(requests.apiKeyId, apiKeys.id))
-      .leftJoin(requestUsage, eq(requests.id, requestUsage.requestId))
-      .where(
-        and(
-          userId ? eq(requests.userId, userId) : undefined,
-          reviewOnly ? and(eq(requests.status, 'needs_review'), eq(requests.billingEnabled, true)) : undefined,
-        ),
-      )
-      .orderBy(desc(requests.receivedAt), desc(requests.id))
-      .limit(pageSize + 1)
-      .offset(page * pageSize);
-    const pageRows = rows.slice(0, pageSize);
+    const rows = await paginate(
+      this.db
+        .select({
+          request: requests,
+          username: users.username,
+          usage: requestUsage,
+          channelName: channels.name,
+          channelType: channels.type,
+          apiKeyName: apiKeys.name,
+        })
+        .from(requests)
+        .innerJoin(users, eq(requests.userId, users.id))
+        .leftJoin(channels, eq(requests.channelId, channels.id))
+        .leftJoin(apiKeys, eq(requests.apiKeyId, apiKeys.id))
+        .leftJoin(requestUsage, eq(requests.id, requestUsage.requestId))
+        .where(
+          and(
+            userId ? eq(requests.userId, userId) : undefined,
+            reviewOnly ? and(eq(requests.status, 'needs_review'), eq(requests.billingEnabled, true)) : undefined,
+          ),
+        )
+        .orderBy(desc(requests.receivedAt), desc(requests.id))
+        .$dynamic(),
+      page,
+    );
+    const { items: pageRows, hasMore } = toPage(rows);
     const attempts =
       userId === undefined && pageRows.length > 0
         ? await this.db
@@ -643,7 +619,7 @@ export class GatewayService implements Disposable {
         : [];
     return {
       currency: this.pricing.currency,
-      hasMore: rows.length > pageSize,
+      hasMore,
       items: pageRows.map(({ request: r, username, usage: u, channelName, channelType, apiKeyName }) => ({
         id: r.id,
         username,

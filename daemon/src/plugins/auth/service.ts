@@ -4,6 +4,7 @@ import { and, eq, gt, isNull, lt, or } from 'drizzle-orm';
 import { AppError } from '../../core/errors.js';
 import { createLogSampler, type EventLogger, formatEvent } from '../../core/logging.js';
 import type { Database, Transaction } from '../database/client.js';
+import { activeUser } from '../database/query.js';
 import { sessions, users } from '../database/schema/index.js';
 import { hashPassword, verifyPassword } from './password.js';
 
@@ -71,8 +72,7 @@ export class AuthService {
           eq(sessions.tokenHash, digestToken(token)),
           isNull(sessions.revokedAt),
           gt(sessions.expiresAt, new Date()),
-          eq(users.status, 'active'),
-          isNull(users.deletedAt),
+          activeUser(),
         ),
       );
     return row ? { user: publicUser(row.user), sessionId: row.sessionId } : null;

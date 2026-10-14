@@ -1,16 +1,17 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { and, asc, eq, inArray, isNull, like, notInArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { AppError } from '../../core/errors.js';
 import { type EventLogger, errorDetails, formatEvent } from '../../core/logging.js';
 import { formatMoney, parseMoney } from '../../core/money.js';
-import { pageSize } from '../../core/pagination.js';
+import { toPage } from '../../core/pagination.js';
 import type { CredentialVault } from '../../core/vault.js';
+import { type AuditAction, recordAudit } from '../auth/audit.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import type { Database, Transaction } from '../database/client.js';
+import { containsText, paginate } from '../database/query.js';
 import {
-  adminAuditLogs,
   aggregateChannelMembers,
   channelAvailableModels,
   channelEndpoints,
@@ -141,11 +142,11 @@ export class CatalogService {
   private async audit(
     tx: Transaction,
     actorId: string,
-    action: string,
+    action: AuditAction,
     targetId: string,
     metadata: Record<string, unknown>,
   ) {
-    await tx.insert(adminAuditLogs).values({ actorId, action, targetType: 'catalog', targetId, metadata });
+    await recordAudit(tx, { actorId, action, targetType: 'catalog', targetId, metadata });
   }
 
   async fetchChannelModels(principal: Principal, input: FetchChannelModelsInput) {
@@ -627,29 +628,25 @@ export class CatalogService {
       .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)));
     if (!channel) throw new AppError('not_found', '渠道不存在或已删除');
     if (channel.isPublic) throw new AppError('bad_request', '公开渠道默认对所有用户开放');
-    const rows = await this.db
-      .select({
-        id: users.id,
-        username: users.username,
-        status: users.status,
-        granted: sql<boolean>`${userChannelGrants.userId} is not null`,
-      })
-      .from(users)
-      .leftJoin(
-        userChannelGrants,
-        and(eq(userChannelGrants.userId, users.id), eq(userChannelGrants.channelId, channelId)),
-      )
-      .where(
-        and(
-          eq(users.role, 'user'),
-          isNull(users.deletedAt),
-          search ? like(users.username, `%${search.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`) : undefined,
-        ),
-      )
-      .orderBy(asc(users.username), asc(users.id))
-      .limit(pageSize + 1)
-      .offset(page * pageSize);
-    return { items: rows.slice(0, pageSize), hasMore: rows.length > pageSize };
+    const rows = await paginate(
+      this.db
+        .select({
+          id: users.id,
+          username: users.username,
+          status: users.status,
+          granted: sql<boolean>`${userChannelGrants.userId} is not null`,
+        })
+        .from(users)
+        .leftJoin(
+          userChannelGrants,
+          and(eq(userChannelGrants.userId, users.id), eq(userChannelGrants.channelId, channelId)),
+        )
+        .where(and(eq(users.role, 'user'), isNull(users.deletedAt), containsText(users.username, search)))
+        .orderBy(asc(users.username), asc(users.id))
+        .$dynamic(),
+      page,
+    );
+    return toPage(rows);
   }
 
   async setChannelGrants(principal: Principal, channelId: string, grants: { userId: string; granted: boolean }[]) {

@@ -1,13 +1,15 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import { AppError } from '../../core/errors.js';
 import { formatMoney } from '../../core/money.js';
-import { pageSize } from '../../core/pagination.js';
+import { toPage } from '../../core/pagination.js';
+import { recordAudit } from '../auth/audit.js';
 import { generatePassword, hashPassword } from '../auth/password.js';
 import { type AuthService, type Principal, publicUser } from '../auth/service.js';
 import type { Database } from '../database/client.js';
-import { adminAuditLogs, apiKeys, sessions, systemSettings, users, wallets } from '../database/schema/index.js';
+import { containsText, paginate } from '../database/query.js';
+import { apiKeys, sessions, systemSettings, users, wallets } from '../database/schema/index.js';
 
 export class UserService {
   static readonly token = serviceToken<UserService>('ohmyapi/users');
@@ -20,27 +22,25 @@ export class UserService {
 
   async list(page: number, search: string) {
     const [settings] = await this.db.select({ currency: systemSettings.currency }).from(systemSettings);
-    const rows = await this.db
-      .select({ user: users, wallet: wallets })
-      .from(users)
-      .innerJoin(wallets, eq(users.id, wallets.userId))
-      .where(
-        and(
-          isNull(users.deletedAt),
-          search ? like(users.username, `%${search.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`) : undefined,
-        ),
-      )
-      .orderBy(desc(users.createdAt), desc(users.id))
-      .limit(pageSize + 1)
-      .offset(page * pageSize);
+    const rows = await paginate(
+      this.db
+        .select({ user: users, wallet: wallets })
+        .from(users)
+        .innerJoin(wallets, eq(users.id, wallets.userId))
+        .where(and(isNull(users.deletedAt), containsText(users.username, search)))
+        .orderBy(desc(users.createdAt), desc(users.id))
+        .$dynamic(),
+      page,
+    );
+    const { items, hasMore } = toPage(rows);
     return {
       currency: settings.currency,
-      items: rows.slice(0, pageSize).map(({ user, wallet }) => ({
+      items: items.map(({ user, wallet }) => ({
         ...publicUser(user),
         createdAt: user.createdAt.toISOString(),
         balance: formatMoney(wallet.balanceMicros),
       })),
-      hasMore: rows.length > pageSize,
+      hasMore,
     };
   }
 
@@ -60,7 +60,7 @@ export class UserService {
         .returning();
       if (!user) throw new AppError('conflict', '用户名已存在');
       await tx.insert(wallets).values({ userId: user.id });
-      await tx.insert(adminAuditLogs).values({
+      await recordAudit(tx, {
         actorId: actor.id,
         action: 'user.create',
         targetType: 'user',
@@ -88,7 +88,7 @@ export class UserService {
         .update(sessions)
         .set({ revokedAt: new Date() })
         .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
-      await tx.insert(adminAuditLogs).values({
+      await recordAudit(tx, {
         actorId: actor.id,
         action: 'user.set_role',
         targetType: 'user',
@@ -136,7 +136,7 @@ export class UserService {
           .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
       if (action === 'reset_password')
         await tx.update(apiKeys).set({ revokedAt: new Date() }).where(eq(apiKeys.userId, userId));
-      await tx.insert(adminAuditLogs).values({
+      await recordAudit(tx, {
         actorId: actor.id,
         action: `user.${action}`,
         targetType: 'user',
