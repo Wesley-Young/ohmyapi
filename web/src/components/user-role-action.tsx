@@ -4,7 +4,7 @@ import { ShieldCheck, ShieldMinus } from 'lucide-react';
 import { useState } from 'react';
 
 import { useAuth } from '../lib/auth';
-import { invalidateUser } from '../lib/cache';
+import { refreshUser } from '../lib/cache';
 import { formError } from '../lib/format';
 import { trpc } from '../lib/trpc';
 import { IconButton } from './icon-button';
@@ -25,7 +25,7 @@ export function UserRoleAction({
   const task = useMutation(
     trpc.admin.users.setRole.mutationOptions({
       onSuccess: async () => {
-        await invalidateUser(user.id);
+        await refreshUser(user.id);
         setOpen(false);
       },
     }),

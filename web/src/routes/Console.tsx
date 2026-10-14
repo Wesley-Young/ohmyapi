@@ -10,7 +10,7 @@ import {
   UserRound,
   Users,
 } from 'lucide-react';
-import { Navigate, NavLink, Outlet, Link as RouterLink, useMatch } from 'react-router';
+import { NavLink, Outlet, Link as RouterLink, useMatch } from 'react-router';
 
 import { Tooltip } from '../components/icon-button';
 import { Logo } from '../components/logo';
@@ -160,9 +160,4 @@ export default function Console() {
       </Flex>
     </Flex>
   );
-}
-
-export function AdminOnly() {
-  const { data: user } = useAuth();
-  return user?.role === 'admin' ? <Outlet /> : <Navigate to="/console" replace />;
 }

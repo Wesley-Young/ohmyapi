@@ -17,7 +17,7 @@ import {
 import { UserRoleAction } from '../components/user-role-action';
 import { Ledger, WalletSummary } from '../components/wallet';
 import { WalletReconciliation } from '../components/wallet-reconciliation';
-import { invalidateUser } from '../lib/cache';
+import { refreshUser } from '../lib/cache';
 import { formError } from '../lib/format';
 import { trpc, trpcClient } from '../lib/trpc';
 
@@ -27,7 +27,7 @@ function ResetPassword({ userId }: { userId: string }) {
     trpc.admin.users.resetPassword.mutationOptions({
       onSuccess: async () => {
         setPassword('');
-        await invalidateUser(userId);
+        await refreshUser(userId);
       },
     }),
   );
@@ -108,7 +108,7 @@ export default function UserDetail() {
                           description="该用户需要重新登录，API Key 不受影响。"
                           action={async () => {
                             await trpcClient.admin.users.revokeSessions.mutate({ userId });
-                            await invalidateUser(userId);
+                            await refreshUser(userId);
                           }}
                         />
                       )}
@@ -124,7 +124,7 @@ export default function UserDetail() {
                             userId,
                             status: user.data?.status === 'active' ? 'disabled' : 'active',
                           });
-                          await invalidateUser(userId);
+                          await refreshUser(userId);
                         }}
                       />
                       <ConfirmAction
@@ -133,7 +133,7 @@ export default function UserDetail() {
                         description={`删除用户「${user.data.username}」后，其会话和所有 API Key 将失效。余额、历史请求与流水保留。`}
                         action={() => trpcClient.admin.users.delete.mutate({ userId })}
                         onSuccess={async () => {
-                          await invalidateUser(userId);
+                          await refreshUser(userId);
                           navigate('/console/users', { replace: true });
                         }}
                       />

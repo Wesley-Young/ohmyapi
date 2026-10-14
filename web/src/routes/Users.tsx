@@ -18,7 +18,7 @@ import {
 } from '../components/ui';
 import { UserRoleAction } from '../components/user-role-action';
 import { WalletAdjustmentDialog } from '../components/wallet-adjustment';
-import { invalidateUser } from '../lib/cache';
+import { refreshUser } from '../lib/cache';
 import { displayMoney, formError, localDate } from '../lib/format';
 import { queryClient, trpc, trpcClient } from '../lib/trpc';
 
@@ -269,7 +269,7 @@ export default function Users() {
                                 onSuccess={async () => {
                                   if (credentials?.user.id === user.id) task.reset();
                                   setPage(0);
-                                  await invalidateUser(user.id);
+                                  await refreshUser(user.id);
                                 }}
                               />
                             )}

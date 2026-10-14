@@ -16,7 +16,7 @@ import { ErrorText, FormDialog, FormInput, PrimaryButton } from './ui';
 
 type CatalogData = RouterOutputs['admin']['catalog']['list'];
 
-export function EndpointFields({
+function EndpointFields({
   value,
   onChange,
   subscription = false,

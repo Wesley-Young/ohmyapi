@@ -15,6 +15,12 @@
 - 依赖单向，不形成循环；分层规则由 Biome 的 `noImportCycles` 和 `noRestrictedImports` 强制。业务代码抛 `AppError`，不依赖 tRPC；网关通过 `SubscriptionChannels` 接口使用订阅渠道。
 - 钱包余额只通过 `wallet/ledger.ts` 的 `postLedgerEntry` 变更；管理操作通过 `recordAudit` 留痕；计费请求的状态流转见 `billing/requests.ts`。
 
+## 前端结构
+
+- `web/src/routes/` 只放页面，由 `main.tsx` 装配，页面之间不互相导入；共享或嵌入的界面放在 `components/`；`lib/` 只放数据与工具函数，不依赖界面。这些规则由 Biome 的 `noRestrictedImports` 强制。
+- 变更后的缓存刷新集中在 `lib/cache.ts`；格式化使用 `lib/format.ts`；品牌色使用 `lib/theme.ts` 的常量，不写死色值。
+- 与后端对应的枚举（端点、订阅平台、状态等）从 `RouterOutputs` 派生类型，文案表用 `satisfies Record<..., string>` 保证穷尽。
+
 ## 测试约定
 
 - 仅在开发者显式要求时增加测试脚本或测试命令；功能修复或验证需要本身不构成新增测试脚本的授权。

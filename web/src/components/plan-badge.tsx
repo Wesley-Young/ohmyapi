@@ -50,7 +50,7 @@ const claudePlans: Record<string, { label: string; tier: Tier }> = {
 };
 
 /** 识别不出的套餐原样显示为灰色。 */
-export function planInfo(provider: SubscriptionProvider, raw: string): { label: string; tier: Tier } {
+function planInfo(provider: SubscriptionProvider, raw: string): { label: string; tier: Tier } {
   if (provider === 'openai') return openAIPlans[raw.replace(/[\s_-]+/g, '')] ?? { label: raw, tier: 'free' };
   // Max 的倍数只出现在 rate_limit_tier（如 default_claude_max_5x），按数字归档以兼容新倍数。
   const multiple = raw.match(/max_(\d+)x/)?.[1];
@@ -71,7 +71,7 @@ export function PlanBadge({
   return plan ? <PlanLabel provider={provider} plan={plan} /> : null;
 }
 
-export function PlanLabel({ provider, plan }: { provider: SubscriptionProvider; plan: string }) {
+function PlanLabel({ provider, plan }: { provider: SubscriptionProvider; plan: string }) {
   const { label, tier } = planInfo(provider, plan);
   return (
     <Tooltip content={`上游套餐标识：${plan}`}>

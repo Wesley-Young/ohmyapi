@@ -1,7 +1,7 @@
 import { queryClient, trpc } from './trpc';
 
 /** 用户的账号、钱包或授权变化后，刷新相关的管理与个人数据。 */
-export function invalidateUser(userId: string) {
+export function refreshUser(userId: string) {
   return Promise.all([
     queryClient.invalidateQueries(trpc.admin.users.get.queryFilter({ userId })),
     queryClient.invalidateQueries(trpc.admin.users.list.pathFilter()),
@@ -31,7 +31,7 @@ export const refreshCatalog = () =>
 /** 人工核对或修正某个请求的计费后，刷新请求列表、详情、对账与待核对计数。 */
 export const refreshRequestBilling = (userId: string, requestId: string) =>
   Promise.all([
-    invalidateUser(userId),
+    refreshUser(userId),
     queryClient.invalidateQueries(trpc.requests.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.requests.pathFilter()),
     queryClient.invalidateQueries(trpc.requestDetail.queryFilter({ requestId })),

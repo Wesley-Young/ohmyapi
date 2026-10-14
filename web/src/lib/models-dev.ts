@@ -3,7 +3,7 @@ import type { RouterInputs } from '@ohmyapi/daemon/trpc';
 type ImportEntry = RouterInputs['admin']['catalog']['importModels']['models'][number];
 export type ImportPreset = ImportEntry['preset'];
 type Rule = ImportEntry['rules'][number];
-export type ImportPrices = Pick<Rule, 'inputPrice' | 'outputPrice' | 'cacheReadPrice' | 'cacheWritePrice'>;
+type ImportPrices = Pick<Rule, 'inputPrice' | 'outputPrice' | 'cacheReadPrice' | 'cacheWritePrice'>;
 export type SourceModel = {
   key: string;
   providerId: string;

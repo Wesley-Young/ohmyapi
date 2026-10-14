@@ -4,7 +4,7 @@ import { TRPCClientError } from '@trpc/client';
 import { useRef, useState } from 'react';
 
 import { useAuth } from '../lib/auth';
-import { invalidateUser } from '../lib/cache';
+import { refreshUser } from '../lib/cache';
 import { displayMoney, formError } from '../lib/format';
 import { trpc } from '../lib/trpc';
 import { ErrorText, FormDialog, FormInput, PrimaryButton } from './ui';
@@ -59,7 +59,7 @@ export function WalletAdjustmentDialog({
         sessionStorage.removeItem(storageKey);
         setAmount('');
         setReason('');
-        await invalidateUser(userId);
+        await refreshUser(userId);
         onClose();
       },
     }),

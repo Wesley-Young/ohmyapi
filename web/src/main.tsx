@@ -5,12 +5,12 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Route, Routes } from 'react-router';
 
 import App from './App';
+import { AdminOnly, Authenticated } from './components/route-guards';
 import { Loading } from './components/ui';
-import { Authenticated } from './lib/auth';
 import { queryClient } from './lib/trpc';
 import Catalog from './routes/Catalog';
 import ChangePassword from './routes/ChangePassword';
-import Console, { AdminOnly } from './routes/Console';
+import Console from './routes/Console';
 import Keys from './routes/Keys';
 import Landing from './routes/Landing';
 import Login from './routes/Login';

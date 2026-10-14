@@ -3,7 +3,7 @@ import { type ChatTransport, streamText, toUIMessageStream, type UIMessage } fro
 
 export type PlaygroundKey = RouterOutputs['keys']['playgroundOptions'][number];
 export type PlaygroundModel = PlaygroundKey['models'][number];
-export type PlaygroundEndpoint = PlaygroundKey['endpoints'][number];
+type PlaygroundEndpoint = PlaygroundKey['endpoints'][number];
 
 const endpointOrder: PlaygroundEndpoint[] = ['/v1/responses', '/v1/messages', '/v1/chat/completions'];
 

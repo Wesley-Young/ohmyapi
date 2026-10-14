@@ -5,7 +5,7 @@ import { TRPCClientError } from '@trpc/client';
 import { useRef, useState } from 'react';
 
 import { useAuth } from '../lib/auth';
-import { invalidateUser, refreshRequestBilling } from '../lib/cache';
+import { refreshRequestBilling, refreshUser } from '../lib/cache';
 import { formError } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './fields';
@@ -58,7 +58,7 @@ export function BulkZeroBilling({
         sessionStorage.removeItem(storageKey);
         onSuccess(result.count);
         await Promise.all([
-          ...result.userIds.map(invalidateUser),
+          ...result.userIds.map(refreshUser),
           queryClient.invalidateQueries(trpc.requests.pathFilter()),
           queryClient.invalidateQueries(trpc.admin.requests.pathFilter()),
           queryClient.invalidateQueries(trpc.requestDetail.pathFilter()),

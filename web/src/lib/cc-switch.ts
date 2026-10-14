@@ -3,7 +3,7 @@ export const ccSwitchApps = [
   { id: 'codex', label: 'Codex', endpoint: '/v1/responses' },
 ] as const;
 
-export type CCSwitchApp = (typeof ccSwitchApps)[number]['id'];
+type CCSwitchApp = (typeof ccSwitchApps)[number]['id'];
 
 const primaryModel = { key: 'model', label: '主模型', required: true } as const;
 const claudeModels = [

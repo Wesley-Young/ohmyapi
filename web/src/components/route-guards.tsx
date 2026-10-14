@@ -1,22 +1,11 @@
 import { Button, Stack } from '@chakra-ui/react';
-import { useQuery } from '@tanstack/react-query';
 import { Navigate, Outlet } from 'react-router';
 
-import { Centered, ErrorText, Loading } from '../components/ui';
-import { formError } from './format';
-import { trpc } from './trpc';
+import { useAuth } from '../lib/auth';
+import { formError } from '../lib/format';
+import { Centered, ErrorText, Loading } from './ui';
 
-export function useAuth() {
-  return useQuery(
-    trpc.auth.me.queryOptions(undefined, {
-      meta: { session: true },
-      staleTime: 0,
-      retry: false,
-      refetchOnWindowFocus: 'always',
-    }),
-  );
-}
-
+/** 仅登录用户可访问；切换账号时重新挂载子路由。 */
 export function Authenticated() {
   const auth = useAuth();
   if (auth.isPending)
@@ -35,4 +24,10 @@ export function Authenticated() {
       </Centered>
     );
   return auth.data ? <Outlet key={auth.data.id} /> : <Navigate to="/login" replace />;
+}
+
+/** 仅管理员可访问，其他用户回到控制台首页。 */
+export function AdminOnly() {
+  const { data: user } = useAuth();
+  return user?.role === 'admin' ? <Outlet /> : <Navigate to="/console" replace />;
 }
