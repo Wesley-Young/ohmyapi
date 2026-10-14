@@ -9,6 +9,14 @@ export const UsersPlugin = definePlugin({
   inject: { database: DatabaseService, auth: AuthService, groups: GroupService },
   provides: [UserService],
   apply(ctx) {
-    ctx.provide(UserService, new UserService({ db: ctx.database.db, auth: ctx.auth, groups: ctx.groups }));
+    ctx.provide(
+      UserService,
+      new UserService({
+        db: ctx.database.db,
+        auth: ctx.auth,
+        groups: ctx.groups,
+        initialBalanceMicros: ctx.config.userInitialBalanceMicros,
+      }),
+    );
   },
 });

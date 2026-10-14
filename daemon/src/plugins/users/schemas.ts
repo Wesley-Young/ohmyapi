@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { parseMoney } from '../../core/money.js';
 import { pageInput, searchInput } from '../../core/pagination.js';
 import { passwordInput, usernameInput } from '../auth/schemas.js';
 
@@ -10,6 +11,18 @@ export const createUserInput = z.object({
   password: passwordInput.optional(),
   groupIds: z.array(z.uuid()).max(100).default([]),
   sync: z.boolean().default(true),
+  /** 留空时使用 USER_INITIAL_BALANCE。 */
+  initialBalance: z
+    .string()
+    .trim()
+    .refine((value) => {
+      try {
+        return parseMoney(value) >= 0n;
+      } catch {
+        return false;
+      }
+    }, '请输入不小于零的金额，最多六位小数')
+    .optional(),
 });
 export const setRoleInput = userIdInput.extend({ role: z.enum(['admin', 'user']) });
 export const setStatusInput = userIdInput.extend({ status: z.enum(['active', 'disabled']) });

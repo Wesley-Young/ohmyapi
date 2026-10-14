@@ -11,6 +11,7 @@ import {
   FormDialog,
   FormInput,
   Loading,
+  NameAction,
   PageControls,
   Panel,
   PrimaryButton,
@@ -34,6 +35,9 @@ export default function Users() {
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [sync, setSync] = useState(true);
   const groups = useQuery({ ...trpc.admin.groups.list.queryOptions(), enabled: creating });
+  const defaults = useQuery({ ...trpc.admin.users.createDefaults.queryOptions(), enabled: creating });
+  const [initialBalance, setInitialBalance] = useState<string>();
+  const balanceValue = initialBalance ?? (defaults.data ? displayMoney(defaults.data.initialBalance) : '');
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string>();
   const task = useMutation(
@@ -46,6 +50,7 @@ export default function Users() {
         setUsername('');
         setGroupIds([]);
         setSync(true);
+        setInitialBalance(undefined);
         setPage(0);
         await Promise.all([queryClient.invalidateQueries(trpc.admin.users.list.pathFilter()), refreshGrants()]);
       },
@@ -90,6 +95,9 @@ export default function Users() {
               </Text>
               <Badge colorPalette="green">已创建</Badge>
               {credentials.joined > 0 && <Badge colorPalette="gray">加入 {credentials.joined} 个用户组</Badge>}
+              {Number(credentials.initialBalance) > 0 && (
+                <Badge colorPalette="gray">初始余额 {displayMoney(credentials.initialBalance)}</Badge>
+              )}
               {credentials.syncedChannels > 0 && (
                 <Badge colorPalette="gray">同步 {credentials.syncedChannels} 个渠道</Badge>
               )}
@@ -142,6 +150,7 @@ export default function Users() {
             setPassword('');
             setGroupIds([]);
             setSync(true);
+            setInitialBalance(undefined);
             task.reset();
           }}
           busy={task.isPending}
@@ -156,6 +165,7 @@ export default function Users() {
                     password: password || undefined,
                     groupIds,
                     sync: groupIds.length > 0 && sync,
+                    initialBalance: balanceValue.trim() || undefined,
                   });
               }}
             >
@@ -180,6 +190,15 @@ export default function Users() {
                   onChange={(event) => setPassword(event.target.value)}
                   error={error?.fields.password?.[0]}
                   helper="留空自动生成 16 字符密码"
+                />
+                <FormInput
+                  label={`初始余额${defaults.data ? `（${defaults.data.currency}）` : ''}`}
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={balanceValue}
+                  disabled={defaults.isPending}
+                  onChange={(event) => setInitialBalance(event.target.value)}
+                  error={error?.fields.initialBalance?.[0] ?? formError(defaults.error)?.message}
                 />
                 <Stack gap="3" as="fieldset">
                   <Text as="legend" fontSize="sm" fontWeight="500" mb="3">
@@ -240,6 +259,7 @@ export default function Users() {
                       setPassword('');
                       setGroupIds([]);
                       setSync(true);
+                      setInitialBalance(undefined);
                       task.reset();
                     }}
                   >
@@ -293,7 +313,11 @@ export default function Users() {
                   <Table.Body>
                     {data.data.items.map((user) => (
                       <Table.Row key={user.id}>
-                        <Table.Cell fontWeight="500">{user.username}</Table.Cell>
+                        <Table.Cell>
+                          <NameAction asChild>
+                            <RouterLink to={`/console/users/${user.id}`}>{user.username}</RouterLink>
+                          </NameAction>
+                        </Table.Cell>
                         <Table.Cell whiteSpace="nowrap">
                           <Badge>{user.role === 'admin' ? '管理员' : '普通用户'}</Badge>
                         </Table.Cell>

@@ -10,7 +10,7 @@ import { ChannelUsersDialog } from '../components/channel-grants';
 import { IconButton } from '../components/icon-button';
 import { PlanBadge } from '../components/plan-badge';
 import { SubscriptionQuota } from '../components/subscription-quota';
-import { ConfirmAction, ErrorText, Loading, PrimaryButton, Title } from '../components/ui';
+import { ConfirmAction, ErrorText, Loading, NameAction, PrimaryButton, Title } from '../components/ui';
 import { refreshCatalog } from '../lib/cache';
 import { formError, localDateTime } from '../lib/format';
 import { brandColor } from '../lib/theme';
@@ -105,7 +105,9 @@ export default function Channels() {
                   {data.data.channels.map((c) => (
                     <Table.Row key={c.id}>
                       <Table.Cell>
-                        <Text>{c.name}</Text>
+                        <NameAction aria-haspopup="dialog" onClick={() => setEdit({ id: c.id })}>
+                          {c.name}
+                        </NameAction>
                       </Table.Cell>
                       <Table.Cell>
                         <HStack gap="2" flexWrap="wrap">

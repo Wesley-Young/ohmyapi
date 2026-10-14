@@ -2,7 +2,7 @@ import { serviceToken } from '@fraqjs/kernel';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import { AppError } from '../../core/errors.js';
-import { formatMoney } from '../../core/money.js';
+import { formatMoney, parseMoney } from '../../core/money.js';
 import { toPage } from '../../core/pagination.js';
 import { recordAudit } from '../auth/audit.js';
 import { generatePassword, hashPassword } from '../auth/password.js';
@@ -11,16 +11,25 @@ import type { Database } from '../database/client.js';
 import { containsText, paginate } from '../database/query.js';
 import { apiKeys, sessions, systemSettings, userGroupMembers, users, wallets } from '../database/schema/index.js';
 import type { GroupService } from '../groups/service.js';
+import { postLedgerEntry } from '../wallet/ledger.js';
 
 export class UserService {
   static readonly token = serviceToken<UserService>('ohmyapi/users');
   private readonly db: Database;
   private readonly auth: AuthService;
   private readonly groups: GroupService;
-  constructor({ db, auth, groups }: { db: Database; auth: AuthService; groups: GroupService }) {
-    this.db = db;
-    this.auth = auth;
-    this.groups = groups;
+  private readonly initialBalanceMicros: bigint;
+  constructor(deps: { db: Database; auth: AuthService; groups: GroupService; initialBalanceMicros: bigint }) {
+    this.db = deps.db;
+    this.auth = deps.auth;
+    this.groups = deps.groups;
+    this.initialBalanceMicros = deps.initialBalanceMicros;
+  }
+
+  /** 创建用户表单的预填值。 */
+  async createDefaults() {
+    const [settings] = await this.db.select({ currency: systemSettings.currency }).from(systemSettings);
+    return { currency: settings.currency, initialBalance: formatMoney(this.initialBalanceMicros) };
   }
 
   async list(page: number, search: string) {
@@ -53,7 +62,10 @@ export class UserService {
     return { ...publicUser(user), createdAt: user.createdAt.toISOString(), deleted: user.deletedAt !== null };
   }
 
-  /** 创建普通用户，可同时加入用户组；sync 时授予各组原有成员共有的渠道。 */
+  /**
+   * 创建普通用户，可同时加入用户组；sync 时授予各组原有成员共有的渠道。
+   * 钱包以零余额创建，非零的初始余额再作为一笔余额调整记入流水，与其他余额变动一样可追溯。
+   */
   async create(
     principal: Principal,
     {
@@ -61,8 +73,11 @@ export class UserService {
       password = generatePassword(),
       groupIds = [],
       sync = true,
-    }: { username: string; password?: string; groupIds?: string[]; sync?: boolean },
+      initialBalance,
+    }: { username: string; password?: string; groupIds?: string[]; sync?: boolean; initialBalance?: string },
   ) {
+    const initialMicros = initialBalance === undefined ? this.initialBalanceMicros : parseMoney(initialBalance);
+    if (initialMicros < 0n) throw new AppError('bad_request', '初始余额不能为负数');
     const passwordHash = await hashPassword(password);
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [user] = await tx
@@ -71,7 +86,7 @@ export class UserService {
         .onConflictDoNothing({ target: users.username, where: isNull(users.deletedAt) })
         .returning();
       if (!user) throw new AppError('conflict', '用户名已存在');
-      await tx.insert(wallets).values({ userId: user.id });
+      const [wallet] = await tx.insert(wallets).values({ userId: user.id }).returning();
       await recordAudit(tx, {
         actorId: actor.id,
         action: 'user.create',
@@ -80,7 +95,32 @@ export class UserService {
         metadata: { username },
       });
       const groups = await this.groups.addNewUser(tx, actor.id, user.id, groupIds, sync);
-      return { user: publicUser(user), password, ...groups };
+      if (initialMicros > 0n) {
+        // 新钱包在事务提交前对其他事务不可见，无需再锁定。
+        const entry = await postLedgerEntry(tx, wallet, {
+          kind: 'adjustment',
+          idempotencyKey: `initial:${user.id}`,
+          balanceDeltaMicros: initialMicros,
+          reservedDeltaMicros: 0n,
+          actorId: actor.id,
+          reason: '初始余额',
+          metadata: { source: 'user.create' },
+        });
+        await recordAudit(tx, {
+          actorId: actor.id,
+          action: 'wallet.adjust',
+          targetType: 'user',
+          targetId: user.id,
+          metadata: {
+            ledgerId: entry.id,
+            amount: formatMoney(initialMicros),
+            balanceBefore: formatMoney(wallet.balanceMicros),
+            balanceAfter: formatMoney(entry.balanceAfterMicros),
+            reason: '初始余额',
+          },
+        });
+      }
+      return { user: publicUser(user), password, ...groups, initialBalance: formatMoney(initialMicros) };
     });
   }
 

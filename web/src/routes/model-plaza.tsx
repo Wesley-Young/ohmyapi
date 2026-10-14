@@ -1,12 +1,13 @@
-import { Badge, Box, Button, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
+import { Eye } from 'lucide-react';
 import { useState } from 'react';
 
-import { ErrorText, FormDialog, Loading, Title } from '../components/ui';
+import { IconButton } from '../components/icon-button';
+import { ErrorText, FormDialog, Loading, NameAction, Title } from '../components/ui';
 import { displayMoney, displayRange, formatCount, formError } from '../lib/format';
 import { minuteText } from '../lib/pricing';
-import { brandColor } from '../lib/theme';
 import { trpc } from '../lib/trpc';
 
 type Model = RouterOutputs['modelPlaza']['models'][number];
@@ -98,6 +99,7 @@ export default function ModelPlaza() {
                   <Table.ColumnHeader>模型</Table.ColumnHeader>
                   <Table.ColumnHeader>价格</Table.ColumnHeader>
                   <Table.ColumnHeader>缓存</Table.ColumnHeader>
+                  <Table.ColumnHeader textAlign="end">操作</Table.ColumnHeader>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -107,24 +109,9 @@ export default function ModelPlaza() {
                   return (
                     <Table.Row key={model.id}>
                       <Table.Cell minW="220px">
-                        <Button
-                          variant="plain"
-                          h="auto"
-                          p="0"
-                          maxW="full"
-                          fontSize="sm"
-                          fontWeight="500"
-                          textAlign="start"
-                          whiteSpace="normal"
-                          overflowWrap="anywhere"
-                          aria-label={`查看 ${model.name} 定价详情`}
-                          aria-haspopup="dialog"
-                          onClick={() => setSelectedId(model.id)}
-                          _hover={{ color: brandColor }}
-                          _focusVisible={{ outline: `2px solid ${brandColor}`, outlineOffset: '4px' }}
-                        >
+                        <NameAction aria-haspopup="dialog" onClick={() => setSelectedId(model.id)}>
                           {model.name}
-                        </Button>
+                        </NameAction>
                       </Table.Cell>
                       <Table.Cell>
                         <Stack gap="0.5" lineHeight="1.35">
@@ -156,6 +143,18 @@ export default function ModelPlaza() {
                             / 1M tokens
                           </Text>
                         </Stack>
+                      </Table.Cell>
+                      <Table.Cell textAlign="end">
+                        <IconButton
+                          aria-label={`查看「${model.name}」定价详情`}
+                          title="查看详情"
+                          aria-haspopup="dialog"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedId(model.id)}
+                        >
+                          <Eye size={16} aria-hidden="true" />
+                        </IconButton>
                       </Table.Cell>
                     </Table.Row>
                   );

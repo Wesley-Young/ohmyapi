@@ -9,7 +9,7 @@ import { queryClient, trpc } from '../lib/trpc';
 import { IconButton } from './icon-button';
 import { PricingPreview } from './pricing-preview';
 import { RuleForm } from './pricing-rule-form';
-import { ErrorText, Loading, PrimaryButton } from './ui';
+import { ErrorText, Loading, NameAction, PrimaryButton } from './ui';
 
 export function ModelPricing({
   modelId,
@@ -123,7 +123,18 @@ export function ModelPricing({
               <Table.Body>
                 {data.data.rules.map((r, index) => (
                   <Table.Row key={r.id}>
-                    <Table.Cell>{r.label}</Table.Cell>
+                    <Table.Cell>
+                      <NameAction
+                        aria-haspopup="dialog"
+                        disabled={save.isPending}
+                        onClick={() => {
+                          save.reset();
+                          setEditingRule({ index, rule: currentRules[index] });
+                        }}
+                      >
+                        {r.label}
+                      </NameAction>
+                    </Table.Cell>
                     <Table.Cell>
                       <Text fontWeight="500">{kinds[r.kind]}</Text>
                       {r.contextMin !== null && (

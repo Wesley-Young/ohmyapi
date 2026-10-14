@@ -35,6 +35,28 @@ export function PrimaryButton(props: ButtonProps) {
     />
   );
 }
+/** Clickable name cell that triggers the row's primary action; use `asChild` for navigation links. */
+export function NameAction(props: ButtonProps) {
+  return (
+    <Button
+      variant="plain"
+      h="auto"
+      minW="0"
+      maxW="full"
+      p="0"
+      color="inherit"
+      fontSize="sm"
+      fontWeight="500"
+      textAlign="start"
+      whiteSpace="normal"
+      overflowWrap="anywhere"
+      textDecoration="none"
+      _hover={{ color: brandColor, textDecoration: 'none' }}
+      _focusVisible={{ outline: `2px solid ${brandColor}`, outlineOffset: '4px' }}
+      {...props}
+    />
+  );
+}
 export function Centered({ children }: { children: ReactNode }) {
   return (
     <Flex minH="100dvh" align="center" justify="center" px="6" py="10">

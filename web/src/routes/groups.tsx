@@ -6,7 +6,7 @@ import { Link as RouterLink, useNavigate } from 'react-router';
 
 import { GroupForm } from '../components/group-form';
 import { IconButton } from '../components/icon-button';
-import { ConfirmAction, ErrorText, Loading, PrimaryButton, Title } from '../components/ui';
+import { ConfirmAction, ErrorText, Loading, NameAction, PrimaryButton, Title } from '../components/ui';
 import { refreshGrants } from '../lib/cache';
 import { formError, localDate } from '../lib/format';
 import { trpc, trpcClient } from '../lib/trpc';
@@ -54,8 +54,10 @@ export default function Groups() {
               <Table.Body>
                 {data.data.map((group) => (
                   <Table.Row key={group.id}>
-                    <Table.Cell fontWeight="500" overflowWrap="anywhere">
-                      {group.name}
+                    <Table.Cell>
+                      <NameAction asChild>
+                        <RouterLink to={`/console/groups/${group.id}`}>{group.name}</RouterLink>
+                      </NameAction>
                     </Table.Cell>
                     <Table.Cell>{group.memberCount}</Table.Cell>
                     <Table.Cell whiteSpace="nowrap">{localDate(group.createdAt)}</Table.Cell>

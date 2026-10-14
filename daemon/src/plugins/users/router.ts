@@ -13,6 +13,7 @@ export function userAdminRoutes(users: UserService) {
   return {
     list: adminProcedure.input(listUsersInput).query(({ input }) => users.list(input.page, input.search)),
     get: adminProcedure.input(userIdInput).query(({ input }) => users.get(input.userId)),
+    createDefaults: adminProcedure.query(() => users.createDefaults()),
     delete: adminProcedure
       .input(userIdInput)
       .mutation(({ ctx, input }) => users.manage(ctx.principal, input.userId, 'delete')),

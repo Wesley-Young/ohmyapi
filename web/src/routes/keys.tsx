@@ -8,7 +8,7 @@ import { CCSwitchDialog } from '../components/cc-switch-dialog';
 import { IconButton } from '../components/icon-button';
 import { KeyForm } from '../components/key-form';
 import { KeyUsageDialog } from '../components/key-usage-dialog';
-import { ErrorText, Loading, PageControls, PrimaryButton, Title } from '../components/ui';
+import { ErrorText, Loading, NameAction, PageControls, PrimaryButton, Title } from '../components/ui';
 import { displayMoney, formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 
@@ -102,7 +102,22 @@ export default function Keys() {
                     const expired = key.expiresAt !== null && new Date(key.expiresAt).getTime() <= Date.now();
                     return (
                       <Table.Row key={key.id}>
-                        <Table.Cell>{key.name}</Table.Cell>
+                        <Table.Cell>
+                          {key.revokedAt ? (
+                            <Text overflowWrap="anywhere">{key.name}</Text>
+                          ) : (
+                            <NameAction
+                              aria-haspopup="dialog"
+                              disabled={deletion.isPending}
+                              onClick={() => {
+                                close();
+                                setEditing(key);
+                              }}
+                            >
+                              {key.name}
+                            </NameAction>
+                          )}
+                        </Table.Cell>
                         <Table.Cell whiteSpace="nowrap">
                           <HStack gap="2">
                             <Text as="span" fontFamily="mono">

@@ -1,3 +1,5 @@
+import { parseMoney } from './core/money.js';
+
 type Environment = Record<string, string | undefined>;
 
 function integerSetting(env: Environment, name: string, fallback: number, max: number) {
@@ -37,6 +39,19 @@ export function readBillingCurrency(env: Environment = process.env) {
   const currency = env.BILLING_CURRENCY ?? 'USD';
   if (!['USD', 'CNY'].includes(currency)) throw new Error('BILLING_CURRENCY must be USD or CNY');
   return currency;
+}
+
+/** 新用户的默认初始余额，单位为百万分之一货币单位。 */
+function readUserInitialBalance(env: Environment) {
+  const raw = env.USER_INITIAL_BALANCE || '0';
+  let micros: bigint;
+  try {
+    micros = parseMoney(raw);
+  } catch {
+    throw new Error('USER_INITIAL_BALANCE must be a decimal amount with at most six decimal places');
+  }
+  if (micros < 0n) throw new Error('USER_INITIAL_BALANCE must not be negative');
+  return micros;
 }
 
 function readServerConfig(env: Environment) {
@@ -85,6 +100,7 @@ export function loadConfig(env: Environment = process.env) {
     server: readServerConfig(env),
     database: readDatabaseConfig(env),
     currency: readBillingCurrency(env),
+    userInitialBalanceMicros: readUserInitialBalance(env),
     session: readSessionConfig(env),
     encryptionKey: readEncryptionKey(env),
     gateway: readGatewayConfig(env),
