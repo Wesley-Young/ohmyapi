@@ -7,8 +7,6 @@ import {
   aggregateChannelMembers,
   apiKeyChannels,
   apiKeys,
-  effectiveChannelModels as channelAvailableModels,
-  effectiveChannelEndpoints as channelEndpoints,
   channels,
   type Endpoint,
   effectiveChannelEndpoints,
@@ -61,16 +59,16 @@ export async function lockAdmission(tx: Transaction, input: ReservationInput) {
   const [channel] = await tx
     .select({ id: channels.id, isPublic: channels.isPublic })
     .from(channels)
-    .innerJoin(channelAvailableModels, eq(channelAvailableModels.channelId, channels.id))
-    .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
-    .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
+    .innerJoin(effectiveChannelModels, eq(effectiveChannelModels.channelId, channels.id))
+    .innerJoin(models, eq(models.id, effectiveChannelModels.modelId))
+    .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, channels.id))
     .where(
       and(
         eq(channels.id, input.channelId),
         eq(models.id, input.modelId),
         activeChannel(),
         activeModel(),
-        eq(channelEndpoints.endpoint, input.endpoint),
+        eq(effectiveChannelEndpoints.endpoint, input.endpoint),
       ),
     )
     .for('share', { of: [channels, models] });

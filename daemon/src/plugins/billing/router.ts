@@ -1,10 +1,10 @@
 import { adminProcedure, protectedProcedure } from '../../trpc/procedures.js';
 import { userIdInput } from '../users/schemas.js';
 import type { BillingRecords } from './records.js';
-import type { BillingReviewService } from './review.js';
+import type { BillingReview } from './review.js';
 import { correctBillInput, requestIdInput, resolveBillInput, resolveZeroBillsInput } from './schemas.js';
 
-export function billingRoutes(records: BillingRecords, review: BillingReviewService) {
+export function billingRoutes(records: BillingRecords, review: BillingReview) {
   return {
     requestDetail: protectedProcedure
       .input(requestIdInput)

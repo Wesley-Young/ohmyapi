@@ -30,8 +30,8 @@ function canonical(value: unknown): string {
 }
 
 /** 管理员核对：处理待核对请求，并对已结算的费用追加修正。所有操作幂等并留有审计记录。 */
-export class BillingReviewService {
-  static readonly token = serviceToken<BillingReviewService>('ohmyapi/billing-review');
+export class BillingReview {
+  static readonly token = serviceToken<BillingReview>('ohmyapi/billing-review');
   private readonly auth: AuthService;
   private readonly pricing: PricingService;
   private readonly billing: BillingService;

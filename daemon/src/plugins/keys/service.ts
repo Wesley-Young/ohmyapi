@@ -12,10 +12,10 @@ import {
   apiKeyChannels,
   apiKeyModelGrants,
   apiKeys,
-  effectiveChannelModels as channelAvailableModels,
-  effectiveChannelEndpoints as channelEndpoints,
   channelModelPrices,
   channels,
+  effectiveChannelEndpoints,
+  effectiveChannelModels,
   models,
   priceRules,
   requests,
@@ -57,20 +57,20 @@ export class KeyService {
         channelName: channels.name,
         multiplierMicros: channelModelPrices.multiplierMicros,
         pricingMode: channels.pricingMode,
-        endpoint: channelEndpoints.endpoint,
+        endpoint: effectiveChannelEndpoints.endpoint,
         inputTokenLimit: models.inputTokenLimit,
         outputTokenLimit: models.outputTokenLimit,
         modelId: models.id,
         modelName: models.name,
       })
       .from(channels)
-      .innerJoin(channelAvailableModels, eq(channels.id, channelAvailableModels.channelId))
-      .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
+      .innerJoin(effectiveChannelModels, eq(channels.id, effectiveChannelModels.channelId))
+      .innerJoin(models, eq(models.id, effectiveChannelModels.modelId))
       .innerJoin(
         channelModelPrices,
         and(eq(channelModelPrices.channelId, channels.id), eq(channelModelPrices.modelId, models.id)),
       )
-      .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
+      .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, channels.id))
       .leftJoin(
         userChannelGrants,
         and(eq(userChannelGrants.channelId, channels.id), eq(userChannelGrants.userId, userId)),
@@ -112,7 +112,7 @@ export class KeyService {
         token: apiKeys.key,
         expiresAt: apiKeys.expiresAt,
         channelName: channels.name,
-        endpoint: channelEndpoints.endpoint,
+        endpoint: effectiveChannelEndpoints.endpoint,
         modelId: models.id,
         modelName: models.name,
         outputTokenLimit: models.outputTokenLimit,
@@ -120,9 +120,9 @@ export class KeyService {
       .from(apiKeys)
       .innerJoin(apiKeyChannels, eq(apiKeyChannels.apiKeyId, apiKeys.id))
       .innerJoin(channels, eq(channels.id, apiKeyChannels.channelId))
-      .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
-      .innerJoin(channelAvailableModels, eq(channelAvailableModels.channelId, channels.id))
-      .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
+      .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, channels.id))
+      .innerJoin(effectiveChannelModels, eq(effectiveChannelModels.channelId, channels.id))
+      .innerJoin(models, eq(models.id, effectiveChannelModels.modelId))
       .innerJoin(priceRules, and(eq(priceRules.modelId, models.id), eq(priceRules.kind, 'default')))
       .leftJoin(
         apiKeyModelGrants,
@@ -136,7 +136,7 @@ export class KeyService {
         and(
           eq(apiKeys.userId, principal.user.id),
           activeApiKey(),
-          inArray(channelEndpoints.endpoint, ['/v1/chat/completions', '/v1/responses', '/v1/messages']),
+          inArray(effectiveChannelEndpoints.endpoint, ['/v1/chat/completions', '/v1/responses', '/v1/messages']),
           activeChannel(),
           availableSubscription(),
           activeModel(),

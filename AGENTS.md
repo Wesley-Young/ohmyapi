@@ -8,6 +8,13 @@
 - 前端服务端数据状态使用 TanStack Query，优先使用 tRPC 官方的 `queryOptions`、`mutationOptions` 和缓存失效接口，避免自写查询/变更状态 hooks。
 - 仅在开发者显式要求时修改 `README.md`；功能修复或实现本身不构成修改 README 的授权。
 
+## 后端结构
+
+- `daemon/src/plugins/` 按业务模块划分，目录名 `plugins` 是刻意的设计，不要改名。模块内的约定：`index.ts` 装配插件，`service.ts` 是主 service，`schemas.ts` 放 RPC 输入校验，`router.ts` 放 tRPC 路由；主 service 命名为 `XxxService`，拆出的专职 service 用名词命名。
+- `daemon/src/core/` 只放与应用无关的基础代码；配置在启动时由 `loadConfig()` 一次读取，插件通过 `ctx.config` 使用，不直接读 `process.env`。
+- 依赖单向，不形成循环；分层规则由 Biome 的 `noImportCycles` 和 `noRestrictedImports` 强制。业务代码抛 `AppError`，不依赖 tRPC；网关通过 `SubscriptionChannels` 接口使用订阅渠道。
+- 钱包余额只通过 `wallet/ledger.ts` 的 `postLedgerEntry` 变更；管理操作通过 `recordAudit` 留痕；计费请求的状态流转见 `billing/requests.ts`。
+
 ## 测试约定
 
 - 仅在开发者显式要求时增加测试脚本或测试命令；功能修复或验证需要本身不构成新增测试脚本的授权。

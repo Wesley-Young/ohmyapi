@@ -21,6 +21,7 @@ import { credentialsSchema, type OpenAICredentials, parseCredentials } from './o
 import { OpenAIOAuth } from './openai/oauth.js';
 import { OpenAIQuota } from './openai/quota.js';
 import { OpenAIResetCredits } from './openai/reset-credits.js';
+import type { SubscriptionProvider } from './providers.js';
 import type { SubscriptionRuntime } from './runtime.js';
 import type {
   ConsumeResetCreditInput,
@@ -79,7 +80,7 @@ export class SubscriptionService implements Disposable {
     }
   }
 
-  consumeAuthorization(principal: Principal, callbackUrl: string, provider: 'openai' | 'claude') {
+  consumeAuthorization(principal: Principal, callbackUrl: string, provider: SubscriptionProvider) {
     (provider === 'claude' ? this.claudeOAuth : this.oauth).consume(principal.user.id, callbackUrl);
   }
 
@@ -116,7 +117,7 @@ export class SubscriptionService implements Disposable {
 
   async saveAccount(
     tx: Transaction,
-    input: { id?: string; name: string; enabled: boolean; maxConcurrent: number; provider: 'openai' | 'claude' },
+    input: { id?: string; name: string; enabled: boolean; maxConcurrent: number; provider: SubscriptionProvider },
     credentials?: OpenAICredentials | ClaudeCredentials,
   ) {
     const [existing] = input.id
@@ -225,7 +226,7 @@ export class SubscriptionService implements Disposable {
       .where(eq(subscriptionAccounts.id, id));
   }
 
-  async startOAuth(principal: Principal, provider: 'openai' | 'claude' = 'openai') {
+  async startOAuth(principal: Principal, provider: SubscriptionProvider = 'openai') {
     return this.auth.authorized(principal, { admin: true }, async () =>
       (provider === 'claude' ? this.claudeOAuth : this.oauth).start(principal.user.id),
     );
@@ -407,7 +408,7 @@ export class SubscriptionService implements Disposable {
     }
   }
 
-  private async providerAccountForChannel(principal: Principal, channelId: string, provider: 'openai' | 'claude') {
+  private async providerAccountForChannel(principal: Principal, channelId: string, provider: SubscriptionProvider) {
     const id = await this.accountForChannel(principal, channelId);
     const [account] = await this.db
       .select({ provider: subscriptionAccounts.provider, enabled: subscriptionAccounts.enabled })

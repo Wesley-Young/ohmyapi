@@ -3,7 +3,7 @@ import type { inferRouterInputs, inferRouterOutputs } from '@trpc/server';
 import { authRoutes } from '../plugins/auth/router.js';
 import type { AuthService } from '../plugins/auth/service.js';
 import type { BillingRecords } from '../plugins/billing/records.js';
-import type { BillingReviewService } from '../plugins/billing/review.js';
+import type { BillingReview } from '../plugins/billing/review.js';
 import { billingRoutes } from '../plugins/billing/router.js';
 import type { ChannelGrants } from '../plugins/catalog/grants.js';
 import type { ModelCatalog } from '../plugins/catalog/models.js';
@@ -31,7 +31,7 @@ export interface RouterServices {
   wallet: WalletService;
   pricing: PricingService;
   billingRecords: BillingRecords;
-  billingReview: BillingReviewService;
+  billingReview: BillingReview;
   catalog: CatalogService;
   modelCatalog: ModelCatalog;
   channelGrants: ChannelGrants;

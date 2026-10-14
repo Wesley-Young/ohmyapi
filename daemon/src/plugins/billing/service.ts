@@ -27,8 +27,6 @@ import { type ExecutionRoute, lockAdmission, lockExecutionRoute, type Reservatio
 import { searchRequest } from './search.js';
 import { type PricedUsage, priceRequestUsage, releaseRequest, settleRequest } from './settlement.js';
 
-export type { BillingSummary } from './requests.js';
-
 /**
  * 请求计费的运行时流程：预占 → 转发 → 检查点 → 收尾结算。
  * 收尾失败的请求留在内存中定期重试，多次失败后转入人工核对；启动和定时任务会恢复中断的请求。

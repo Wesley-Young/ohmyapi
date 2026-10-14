@@ -6,9 +6,9 @@ import { activeChannel, activeModel, availableSubscription } from '../database/q
 import type { Endpoint } from '../database/schema/index.js';
 import {
   aggregateChannelMembers,
-  effectiveChannelModels as channelAvailableModels,
-  effectiveChannelEndpoints as channelEndpoints,
   channels,
+  effectiveChannelEndpoints,
+  effectiveChannelModels,
   models,
   subscriptionAccounts,
 } from '../database/schema/index.js';
@@ -110,14 +110,14 @@ export async function resolveEntryRoute(
   const [route] = await db
     .select({ channel: channels })
     .from(channels)
-    .innerJoin(channelAvailableModels, eq(channelAvailableModels.channelId, channels.id))
-    .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channels.id))
+    .innerJoin(effectiveChannelModels, eq(effectiveChannelModels.channelId, channels.id))
+    .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, channels.id))
     .where(
       and(
         eq(channels.id, identity.channelId),
         activeChannel(),
-        eq(channelAvailableModels.modelId, model.id),
-        eq(channelEndpoints.endpoint, endpoint),
+        eq(effectiveChannelModels.modelId, model.id),
+        eq(effectiveChannelEndpoints.endpoint, endpoint),
       ),
     );
   if (!route)

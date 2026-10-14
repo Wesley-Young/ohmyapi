@@ -4,9 +4,9 @@ import type { Database } from '../database/client.js';
 import { activeModel } from '../database/query.js';
 import {
   apiKeyModelGrants,
-  effectiveChannelModels as channelAvailableModels,
-  effectiveChannelEndpoints as channelEndpoints,
   type channels,
+  effectiveChannelEndpoints,
+  effectiveChannelModels,
   models,
   priceRules,
   userChannelGrants,
@@ -24,8 +24,8 @@ export function availableModels(
   return db
     .selectDistinct({ name: models.name, createdAt: models.createdAt })
     .from(models)
-    .innerJoin(channelAvailableModels, eq(channelAvailableModels.modelId, models.id))
-    .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channelAvailableModels.channelId))
+    .innerJoin(effectiveChannelModels, eq(effectiveChannelModels.modelId, models.id))
+    .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, effectiveChannelModels.channelId))
     .innerJoin(priceRules, and(eq(priceRules.modelId, models.id), eq(priceRules.kind, 'default')))
     .leftJoin(
       apiKeyModelGrants,
@@ -34,13 +34,13 @@ export function availableModels(
     .leftJoin(
       userChannelGrants,
       and(
-        eq(userChannelGrants.channelId, channelAvailableModels.channelId),
+        eq(userChannelGrants.channelId, effectiveChannelModels.channelId),
         eq(userChannelGrants.userId, identity.user.id),
       ),
     )
     .where(
       and(
-        eq(channelAvailableModels.channelId, identity.channelId),
+        eq(effectiveChannelModels.channelId, identity.channelId),
         activeModel(),
         identity.key.restrictModels ? eq(apiKeyModelGrants.apiKeyId, identity.key.id) : undefined,
         identity.user.role !== 'admin' && !channel.isPublic

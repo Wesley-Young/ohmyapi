@@ -1,9 +1,10 @@
 import { z } from 'zod';
 
 import { proxyUrlInput } from '../outbound/schemas.js';
+import { subscriptionProviders } from './providers.js';
 
 export const credentialInput = z.object({
-  provider: z.enum(['openai', 'claude']).default('openai'),
+  provider: z.enum(subscriptionProviders).default('openai'),
   credentials: z.string().min(1).max(60000).optional(),
   callbackUrl: z.url().max(8192).optional(),
 });
@@ -22,7 +23,7 @@ export const consumeResetCreditInput = z.object({
   redeemRequestId: z.uuid(),
 });
 export const setCycleResetInput = z.object({ channelId, resetAt: z.iso.datetime({ offset: true }).nullable() });
-export const startOAuthInput = z.object({ provider: z.enum(['openai', 'claude']).default('openai') }).optional();
+export const startOAuthInput = z.object({ provider: z.enum(subscriptionProviders).default('openai') }).optional();
 
 export type CredentialInput = z.infer<typeof credentialInput>;
 export type FetchSubscriptionModelsInput = z.infer<typeof fetchSubscriptionModelsInput>;

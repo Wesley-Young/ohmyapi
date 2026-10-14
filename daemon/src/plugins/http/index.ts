@@ -9,7 +9,7 @@ import { definePlugin } from '../../kernel.js';
 import { createAppRouter } from '../../trpc/router.js';
 import { AuthService } from '../auth/service.js';
 import { BillingRecords } from '../billing/records.js';
-import { BillingReviewService } from '../billing/review.js';
+import { BillingReview } from '../billing/review.js';
 import { BillingService } from '../billing/service.js';
 import { ChannelGrants } from '../catalog/grants.js';
 import { ModelCatalog } from '../catalog/models.js';
@@ -39,7 +39,7 @@ export const HttpPlugin = definePlugin({
     pricing: PricingService,
     billing: BillingService,
     billingRecords: BillingRecords,
-    billingReview: BillingReviewService,
+    billingReview: BillingReview,
     keys: KeyService,
     subscription: SubscriptionService,
     users: UserService,
