@@ -8,22 +8,22 @@ import App from './App';
 import { AdminOnly, Authenticated } from './components/route-guards';
 import { Loading } from './components/ui';
 import { queryClient } from './lib/trpc';
-import Catalog from './routes/Catalog';
-import ChangePassword from './routes/ChangePassword';
-import Console from './routes/Console';
-import Keys from './routes/Keys';
-import Landing from './routes/Landing';
-import Login from './routes/Login';
-import ModelPlaza from './routes/ModelPlaza';
-import Models from './routes/Models';
-import NotFound from './routes/NotFound';
-import Overview from './routes/Overview';
-import Profile from './routes/Profile';
-import Requests from './routes/Requests';
-import UserDetail from './routes/UserDetail';
-import Users from './routes/Users';
+import ChangePassword from './routes/change-password';
+import Channels from './routes/channels';
+import Console from './routes/console';
+import Keys from './routes/keys';
+import Landing from './routes/landing';
+import Login from './routes/login';
+import ModelPlaza from './routes/model-plaza';
+import Models from './routes/models';
+import NotFound from './routes/not-found';
+import Overview from './routes/overview';
+import Profile from './routes/profile';
+import Requests from './routes/requests';
+import UserDetail from './routes/user-detail';
+import Users from './routes/users';
 
-const Playground = lazy(() => import('./routes/Playground'));
+const Playground = lazy(() => import('./routes/playground'));
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Missing root element');
@@ -54,7 +54,7 @@ createRoot(root).render(
                   />
                   <Route path="profile" element={<Profile />} />
                   <Route element={<AdminOnly />}>
-                    <Route path="channels" element={<Catalog />} />
+                    <Route path="channels" element={<Channels />} />
                     <Route path="models" element={<Models />} />
                     <Route path="models/:modelId/pricing" element={<Models />} />
                     <Route path="users" element={<Users />} />

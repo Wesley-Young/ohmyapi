@@ -27,7 +27,7 @@ const providerLabels = {
   claude: 'Claude',
 } satisfies Record<NonNullable<CatalogData['channels'][number]['subscription']>['provider'], string>;
 
-export default function Catalog() {
+export default function Channels() {
   const data = useQuery(trpc.admin.catalog.list.queryOptions());
   const [edit, setEdit] = useState<{ id?: string }>();
   const [grantChannel, setGrantChannel] = useState<{ id: string; name: string }>();

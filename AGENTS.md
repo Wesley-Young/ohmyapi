@@ -17,7 +17,7 @@
 
 ## 前端结构
 
-- `web/src/routes/` 只放页面，由 `main.tsx` 装配，页面之间不互相导入；共享或嵌入的界面放在 `components/`；`lib/` 只放数据与工具函数，不依赖界面。这些规则由 Biome 的 `noRestrictedImports` 强制。
+- `web/src/routes/` 只放页面，文件名与路由路径一致（kebab-case），默认导出的组件名为其 PascalCase；没有路径名的 index、动态参数和 `*` 路由使用描述性名称。页面由 `main.tsx` 装配，页面之间不互相导入；共享或嵌入的界面放在 `components/`；`lib/` 只放数据与工具函数，不依赖界面。这些规则由 Biome 的 `noRestrictedImports` 强制。
 - 变更后的缓存刷新集中在 `lib/cache.ts`；格式化使用 `lib/format.ts`；品牌色使用 `lib/theme.ts` 的常量，不写死色值。
 - 与后端对应的枚举（端点、订阅平台、状态等）从 `RouterOutputs` 派生类型，文案表用 `satisfies Record<..., string>` 保证穷尽。
 
