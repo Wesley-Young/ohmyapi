@@ -4,8 +4,8 @@ import type { GatewayConfig } from '../../config.js';
 import { requestErrorMessage } from '../../core/errors.js';
 import { type EventLogger, errorDetails, formatEvent, type LogFields } from '../../core/logging.js';
 import type { BillingService, BillingSummary } from '../billing/service.js';
-import type { Endpoint } from '../catalog/service.js';
 import type { Database } from '../database/client.js';
+import type { Endpoint } from '../database/schema/index.js';
 import { requestAttempts } from '../database/schema/index.js';
 import { UsageCollector } from './usage.js';
 

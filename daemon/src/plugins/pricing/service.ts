@@ -1,9 +1,8 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { TRPCError } from '@trpc/server';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { GatewayError } from '../../core/errors.js';
+import { AppError, GatewayError } from '../../core/errors.js';
 import { formatMoney, parseMoney } from '../../core/money.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import type { Database } from '../database/client.js';
@@ -17,32 +16,10 @@ import {
   pricingModes,
 } from '../database/schema/index.js';
 import type { KeyService } from '../keys/service.js';
-import {
-  expandRules,
-  multiplierInput,
-  type Quantities,
-  quote,
-  type Rule,
-  ruleInput,
-  searchCountInput,
-  tokenInput,
-  validateRules,
-} from './rules.js';
+import { expandRules, type Quantities, quote, type Rule, validateRules } from './rules.js';
+import { multiplierInput, type PreviewInput, type PriceScope, ruleInput, type SavePriceInput } from './schemas.js';
 import { applySearchDefaults, defaultSearchPrices } from './search-defaults.js';
 
-export const priceScope = z.object({ modelId: z.uuid() });
-export const savePriceInput = priceScope.extend({ rules: z.array(ruleInput).max(200) });
-export const previewInput = priceScope.extend({
-  channelId: z.uuid().optional(),
-  at: z.iso.datetime({ offset: true }),
-  inputTokens: tokenInput,
-  outputTokens: tokenInput,
-  cacheReadTokens: tokenInput,
-  cacheWriteTokens: tokenInput,
-  webSearchCalls: searchCountInput.default('0'),
-  webSearchPreviewCalls: searchCountInput.default('0'),
-  multiplier: multiplierInput.optional(),
-});
 const serializeRule = (r: Rule) => ({
   id: r.id,
   label: r.label,
@@ -183,12 +160,12 @@ export class PricingService {
     };
   }
 
-  async list(scope: z.infer<typeof priceScope>) {
+  async list(scope: PriceScope) {
     const [model] = await this.db
       .select({ id: models.id, name: models.name })
       .from(models)
       .where(and(eq(models.id, scope.modelId), isNull(models.deletedAt)));
-    if (!model) throw new TRPCError({ code: 'NOT_FOUND', message: '模型不存在或已删除' });
+    if (!model) throw new AppError('not_found', '模型不存在或已删除');
     const rules = await this.db
       .select()
       .from(priceRules)
@@ -209,14 +186,14 @@ export class PricingService {
     };
   }
 
-  async save(principal: Principal, input: z.infer<typeof savePriceInput>) {
+  async save(principal: Principal, input: SavePriceInput) {
     const expanded = expandRules(input.rules);
-    if (expanded.length > 200) throw new TRPCError({ code: 'BAD_REQUEST', message: '拆分跨午夜时段后最多 200 条规则' });
+    if (expanded.length > 200) throw new AppError('bad_request', '拆分跨午夜时段后最多 200 条规则');
     if (expanded.length) {
       try {
         validateRules(expanded);
       } catch (error) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: (error as Error).message });
+        throw new AppError('bad_request', (error as Error).message);
       }
     }
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
@@ -225,7 +202,7 @@ export class PricingService {
         .from(models)
         .where(and(eq(models.id, input.modelId), isNull(models.deletedAt)))
         .for('update');
-      if (!model) throw new TRPCError({ code: 'NOT_FOUND', message: '模型不存在' });
+      if (!model) throw new AppError('not_found', '模型不存在');
       // Replace the complete set atomically; requests read either the old or the new set.
       await tx.delete(priceRules).where(eq(priceRules.modelId, input.modelId));
       if (expanded.length) await tx.insert(priceRules).values(expanded.map((r) => ({ ...r, modelId: input.modelId })));
@@ -335,7 +312,7 @@ export class PricingService {
     };
   }
 
-  async preview(input: z.infer<typeof previewInput>) {
+  async preview(input: PreviewInput) {
     const at = new Date(input.at);
     let minimum = {
       multiplierMicros: parseMoney(input.multiplier ?? '1'),
@@ -357,13 +334,13 @@ export class PricingService {
         .innerJoin(channels, eq(channels.id, channelModelPrices.channelId))
         .where(and(eq(channelModelPrices.channelId, input.channelId), eq(channelModelPrices.modelId, input.modelId)))
         .orderBy(channelModelPrices.multiplierMicros, channelModelPrices.pricingChannelId);
-      if (!options.length) throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道未提供此模型' });
+      if (!options.length) throw new AppError('bad_request', '渠道未提供此模型');
       minimum = options[0].price;
       maximum = options[options.length - 1].price;
       pricingMode = options[0].mode;
     }
     const locked = await this.lock(input.modelId, at, minimum.multiplierMicros, minimum.multiplierSource);
-    if (!locked) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '模型尚未配置价格' });
+    if (!locked) throw new AppError('precondition_failed', '模型尚未配置价格');
     locked.pricingMode = pricingMode;
     const usage = {
       inputTokens: BigInt(input.inputTokens),
@@ -374,8 +351,7 @@ export class PricingService {
       webSearchPreviewCalls: BigInt(input.webSearchPreviewCalls),
       contextTokens: BigInt(input.inputTokens) + BigInt(input.cacheReadTokens) + BigInt(input.cacheWriteTokens),
     };
-    if (usage.contextTokens > 9_223_372_036_854_775_807n)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '上下文总量超出范围' });
+    if (usage.contextTokens > 9_223_372_036_854_775_807n) throw new AppError('bad_request', '上下文总量超出范围');
     try {
       return {
         ...this.calculate(locked, usage),
@@ -385,7 +361,7 @@ export class PricingService {
         ),
       };
     } catch (error) {
-      throw new TRPCError({ code: 'BAD_REQUEST', message: (error as Error).message });
+      throw new AppError('bad_request', (error as Error).message);
     }
   }
 }

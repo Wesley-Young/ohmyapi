@@ -1,5 +1,4 @@
-import { TRPCError } from '@trpc/server';
-
+import { AppError } from '../../../core/errors.js';
 import type { OutboundFetch } from '../../outbound/index.js';
 import { clientId, completeClaudeOAuthCredentials, exchangeClaudeCode, redirectUri, scope } from './client.js';
 import type { ClaudeCredentials } from './credentials.js';
@@ -9,17 +8,17 @@ import { createHash, randomBytes } from 'node:crypto';
 function parseCallback(callbackUrl: string) {
   const url = new URL(callbackUrl);
   if (`${url.origin}${url.pathname}` !== redirectUri || url.username || url.password)
-    throw new TRPCError({ code: 'BAD_REQUEST', message: '请粘贴完整的 localhost:54545/callback 授权回调地址' });
+    throw new AppError('bad_request', '请粘贴完整的 localhost:54545/callback 授权回调地址');
   const codes = url.searchParams.getAll('code');
   const states = url.searchParams.getAll('state');
   if (url.searchParams.has('error') || codes.length !== 1 || states.length > 1)
-    throw new TRPCError({ code: 'BAD_REQUEST', message: '授权未完成，请重新授权' });
+    throw new AppError('bad_request', '授权未完成，请重新授权');
   // CPA 兼容 code#state；查询参数和片段中的 state 必须指向同一次授权。
   const [code, codeState, ...extra] = codes[0].split('#');
   const candidates = [...states, codeState, decodeURIComponent(url.hash.slice(1))].filter(Boolean);
   const state = candidates[0] ?? '';
   if (!code || !state || extra.length || candidates.some((candidate) => candidate !== state))
-    throw new TRPCError({ code: 'BAD_REQUEST', message: '授权回调不匹配，请粘贴同一次授权的完整回调地址' });
+    throw new AppError('bad_request', '授权回调不匹配，请粘贴同一次授权的完整回调地址');
   return { code, state };
 }
 
@@ -43,8 +42,7 @@ export class ClaudeOAuth {
 
   start(actorId: string) {
     this.prune();
-    if (this.sessions.size >= 500)
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: '授权会话过多，请稍后重试' });
+    if (this.sessions.size >= 500) throw new AppError('too_many_requests', '授权会话过多，请稍后重试');
     const state = randomBytes(32).toString('base64url');
     const verifier = randomBytes(48).toString('base64url');
     this.sessions.set(state, { actorId, verifier, expiresAt: Date.now() + 30 * 60_000 });
@@ -66,21 +64,21 @@ export class ClaudeOAuth {
     const { code, state } = parseCallback(callbackUrl);
     const entry = this.sessions.get(state);
     if (!entry || entry.actorId !== actorId || entry.expiresAt <= Date.now())
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '授权会话无效或已过期，请重新授权' });
+      throw new AppError('bad_request', '授权会话无效或已过期，请重新授权');
     if (entry.code && entry.code !== code)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '授权回调不匹配，请使用同一次授权的完整回调地址' });
+      throw new AppError('bad_request', '授权回调不匹配，请使用同一次授权的完整回调地址');
     entry.code = code;
     // 授权码只兑换一次；网络结果不确定时要求重新授权，避免重放已消费的授权码。
     entry.tokens ??= exchangeClaudeCode(code, state, entry.verifier, request, this.abort.signal).catch(() => {
       this.sessions.delete(state);
-      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Claude 授权码兑换失败，请检查出站代理并重新授权' });
+      throw new AppError('bad_request', 'Claude 授权码兑换失败，请检查出站代理并重新授权');
     });
     entry.credentials ??= entry.tokens
       .then((tokens) => completeClaudeOAuthCredentials(tokens, request, this.abort.signal))
       .catch((error) => {
         entry.credentials = undefined;
-        if (error instanceof TRPCError) throw error;
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Claude 账户信息获取失败，请检查出站代理后重试保存' });
+        if (error instanceof AppError) throw error;
+        throw new AppError('bad_request', 'Claude 账户信息获取失败，请检查出站代理后重试保存');
       });
     return entry.credentials;
   }

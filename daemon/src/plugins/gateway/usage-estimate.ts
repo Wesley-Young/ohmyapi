@@ -1,5 +1,5 @@
 import { OutputTokenEstimate, type ReservationEstimate } from '../billing/estimation.js';
-import type { Endpoint } from '../catalog/service.js';
+import type { Endpoint } from '../database/schema/index.js';
 
 type Data = Record<string, unknown>;
 const object = (value: unknown): Data | undefined =>

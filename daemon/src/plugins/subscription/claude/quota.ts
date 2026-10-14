@@ -1,6 +1,6 @@
-import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { AppError } from '../../../core/errors.js';
 import { readJson } from '../openai/client.js';
 import type { PlanCache } from '../plan.js';
 import { claudeBaseUrl, fetchClaudePlan } from './client.js';
@@ -85,7 +85,7 @@ export class ClaudeQuota {
         })
         .catch(() => {
           entry.expiresAt = Date.now() + 15_000;
-          throw new TRPCError({ code: 'BAD_GATEWAY', message: '获取 Claude 用量失败，请检查出站代理或账号凭据后重试' });
+          throw new AppError('bad_gateway', '获取 Claude 用量失败，请检查出站代理或账号凭据后重试');
         }),
     };
     this.cache.set(id, entry);

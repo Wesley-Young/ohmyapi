@@ -1,8 +1,8 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { TRPCError } from '@trpc/server';
 import { and, asc, eq, inArray, isNull, like, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { AppError } from '../../core/errors.js';
 import { type EventLogger, errorDetails, formatEvent } from '../../core/logging.js';
 import { formatMoney, parseMoney } from '../../core/money.js';
 import { pageSize } from '../../core/pagination.js';
@@ -15,95 +15,27 @@ import {
   channelAvailableModels,
   channelEndpoints,
   channels,
-  channelTypes,
   effectiveChannelEndpoints,
   effectiveChannelModels,
+  endpoints,
   models,
   priceRules,
-  pricingModes,
   subscriptionAccounts,
   userChannelGrants,
   users,
 } from '../database/schema/index.js';
-import { type OutboundHttp, proxyUrlInput } from '../outbound/index.js';
-import { expandRules, multiplierInput, ruleInput, validateRules } from '../pricing/rules.js';
-import { type SubscriptionService, subscriptionInput } from '../subscription/service.js';
+import type { OutboundHttp } from '../outbound/index.js';
+import { expandRules, validateRules } from '../pricing/rules.js';
+import type { SubscriptionService } from '../subscription/service.js';
 import { channelProxy } from './proxy.js';
+import {
+  type ChannelInput,
+  type FetchChannelModelsInput,
+  type ImportModelsInput,
+  type ModelInput,
+  modelName,
+} from './schemas.js';
 
-export const endpoints = ['/v1/chat/completions', '/v1/responses', '/v1/messages', '/v1/responses/compact'] as const;
-export type Endpoint = (typeof endpoints)[number];
-const name = z.string().trim().min(1).max(128);
-const modelName = name.regex(/^[A-Za-z0-9][A-Za-z0-9_./:-]*$/, '模型名称格式无效');
-export const channelInput = z.object({
-  id: z.uuid().optional(),
-  name,
-  type: z.enum(channelTypes).default('api'),
-  pricingMode: z.enum(pricingModes).optional(),
-  baseUrl: z
-    .url()
-    .refine((value) => {
-      const url = new URL(value);
-      return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
-    }, 'Base URL 需为无凭据、查询参数和片段的 HTTP(S) 地址')
-    .optional(),
-  proxyUrl: proxyUrlInput,
-  subscription: subscriptionInput.optional(),
-  credential: z
-    .string()
-    .min(1)
-    .max(4096)
-    .regex(/^[\x21-\x7e]+$/, '凭据不能包含空格或控制字符')
-    .optional(),
-  enabled: z.boolean(),
-  isPublic: z.boolean().default(true),
-  timeoutMs: z.number().int().min(100).max(600_000),
-  multiplier: multiplierInput.optional(),
-  availableModels: z
-    .array(z.object({ name: modelName, multiplier: multiplierInput.nullable() }))
-    .max(1000, '每个渠道最多添加 1000 个模型')
-    .refine((items) => new Set(items.map((item) => item.name)).size === items.length, '模型不能重复')
-    .optional(),
-  members: z
-    .array(
-      z.object({
-        channelId: z.uuid(),
-        priority: z.number().int().min(0).max(1000).default(0),
-        weight: z.number().int().min(1).max(1000).default(1),
-      }),
-    )
-    .max(100)
-    .refine((items) => new Set(items.map((item) => item.channelId)).size === items.length, '子渠道不能重复')
-    .default([]),
-  endpoints: z
-    .array(z.enum(endpoints))
-    .max(4)
-    .refine((v) => new Set(v).size === v.length)
-    .default([]),
-});
-export const fetchChannelModelsInput = channelInput
-  .pick({ id: true, baseUrl: true, credential: true, proxyUrl: true })
-  .required({ baseUrl: true });
-export const modelInput = z.object({
-  id: z.uuid().optional(),
-  name: modelName,
-  enabled: z.boolean(),
-  inputTokenLimit: z.number().int().min(1).default(1_000_000),
-  outputTokenLimit: z.number().int().min(1).default(128_000),
-});
-export const importModelsInput = z.object({
-  models: z
-    .array(
-      z.object({
-        model: modelInput.omit({ id: true }),
-        providerId: z.string().min(1).max(128),
-        preset: z.enum(['none', 'gpt', 'deepseek']),
-        rules: z.array(ruleInput).min(1).max(3),
-      }),
-    )
-    .min(1, '至少选择一个模型')
-    .max(100, '每次最多导入 100 个模型')
-    .refine((rows) => new Set(rows.map((row) => row.model.name)).size === rows.length, '不能导入同名模型的多个来源'),
-});
 export class CatalogService {
   static readonly token = serviceToken<CatalogService>('ohmyapi/catalog');
   private readonly db: Database;
@@ -216,7 +148,7 @@ export class CatalogService {
     await tx.insert(adminAuditLogs).values({ actorId, action, targetType: 'catalog', targetId, metadata });
   }
 
-  async fetchChannelModels(principal: Principal, input: z.infer<typeof fetchChannelModelsInput>) {
+  async fetchChannelModels(principal: Principal, input: FetchChannelModelsInput) {
     const credential = await this.auth.authorized(principal, { admin: true }, async (tx) => {
       const [existing] = input.id
         ? await tx
@@ -224,12 +156,11 @@ export class CatalogService {
             .from(channels)
             .where(and(eq(channels.id, input.id), isNull(channels.deletedAt)))
         : [];
-      if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在' });
-      if (existing && existing.type !== 'api')
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '该渠道类型暂不支持拉取模型' });
+      if (input.id && !existing) throw new AppError('not_found', '渠道不存在');
+      if (existing && existing.type !== 'api') throw new AppError('bad_request', '该渠道类型暂不支持拉取模型');
       if (input.credential) return input.credential;
       if (existing?.credentialEncrypted) return this.vault.decrypt(existing.credentialEncrypted);
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '请先填写上游凭据' });
+      throw new AppError('bad_request', '请先填写上游凭据');
     });
     const proxyUrl = await channelProxy(this.auth, this.vault, principal, input.id, input.proxyUrl);
     const request = this.outbound.forProxy(proxyUrl);
@@ -259,17 +190,16 @@ export class CatalogService {
         if (!response.ok) {
           stage = 'http_error';
           await response.body?.cancel();
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message:
-              response.status === 404
-                ? '上游不支持模型列表，请手动添加模型'
-                : `获取模型失败，上游返回 HTTP ${response.status}，请检查地址和凭据`,
-          });
+          throw new AppError(
+            'bad_request',
+            response.status === 404
+              ? '上游不支持模型列表，请手动添加模型'
+              : `获取模型失败，上游返回 HTTP ${response.status}，请检查地址和凭据`,
+          );
         }
         stage = 'read_body';
         const reader = response.body?.getReader();
-        if (!reader) throw new TRPCError({ code: 'BAD_REQUEST', message: '上游返回了空的模型列表' });
+        if (!reader) throw new AppError('bad_request', '上游返回了空的模型列表');
         const chunks: Uint8Array[] = [];
         try {
           for (;;) {
@@ -278,7 +208,7 @@ export class CatalogService {
             bytes += value.byteLength;
             if (bytes > 2 * 1024 * 1024) {
               stage = 'response_too_large';
-              throw new TRPCError({ code: 'BAD_REQUEST', message: '上游模型列表过大' });
+              throw new AppError('bad_request', '上游模型列表过大');
             }
             chunks.push(value);
           }
@@ -294,24 +224,22 @@ export class CatalogService {
             last_id: z.string().optional(),
           })
           .safeParse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-        if (!page.success)
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '上游模型列表格式无效，请手动添加模型' });
+        if (!page.success) throw new AppError('bad_request', '上游模型列表格式无效，请手动添加模型');
         for (const model of page.data.data) {
           const parsed = modelName.safeParse(model.id);
           if (parsed.success) names.add(parsed.data);
           else ignored++;
         }
-        if (names.size > 1000) throw new TRPCError({ code: 'BAD_REQUEST', message: '每个渠道最多添加 1000 个模型' });
+        if (names.size > 1000) throw new AppError('bad_request', '每个渠道最多添加 1000 个模型');
         if (!page.data.has_more) break;
         const cursor = page.data.last_id;
         stage = 'pagination';
-        if (!cursor || cursors.has(cursor))
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '上游模型列表分页无效' });
+        if (!cursor || cursors.has(cursor)) throw new AppError('bad_request', '上游模型列表分页无效');
         cursors.add(cursor);
         url.searchParams.set('after_id', cursor);
       }
       stage = 'empty_models';
-      if (!names.size) throw new TRPCError({ code: 'BAD_REQUEST', message: '上游未返回有效模型，请手动添加模型' });
+      if (!names.size) throw new AppError('bad_request', '上游未返回有效模型，请手动添加模型');
     } catch (error) {
       this.logger.warn(
         formatEvent('上游模型列表获取失败', {
@@ -325,8 +253,8 @@ export class CatalogService {
           ...errorDetails(error),
         }),
       );
-      if (error instanceof TRPCError) throw error;
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '无法获取上游模型，请检查地址、凭据和连接后重试' });
+      if (error instanceof AppError) throw error;
+      throw new AppError('bad_request', '无法获取上游模型，请检查地址、凭据和连接后重试');
     }
     this.logger.info(
       formatEvent('上游模型列表获取完成', {
@@ -340,7 +268,7 @@ export class CatalogService {
     return { names: [...names].sort(), ignored };
   }
 
-  async saveChannel(principal: Principal, input: z.infer<typeof channelInput>) {
+  async saveChannel(principal: Principal, input: ChannelInput) {
     const credentials =
       input.type === 'subscription' && input.subscription
         ? await this.subscription.prepareCredentials(
@@ -357,10 +285,10 @@ export class CatalogService {
             .where(and(eq(channels.id, input.id), isNull(channels.deletedAt)))
             .for('update')
         : [];
-      if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在' });
+      if (input.id && !existing) throw new AppError('not_found', '渠道不存在');
       const pricingMode = input.pricingMode ?? existing?.pricingMode ?? 'unified';
       if (input.type !== 'aggregate' && pricingMode !== 'unified')
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '仅聚合渠道支持透传倍率' });
+        throw new AppError('bad_request', '仅聚合渠道支持透传倍率');
       const passthrough = pricingMode === 'passthrough';
       const previousModels =
         existing && input.availableModels === undefined && !passthrough
@@ -379,15 +307,15 @@ export class CatalogService {
           })));
 
       if (existing && existing.type !== input.type)
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道类型创建后不可更改，请新建渠道' });
+        throw new AppError('bad_request', '渠道类型创建后不可更改，请新建渠道');
       if (input.type !== 'aggregate' && (!input.endpoints.length || input.members.length))
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '普通渠道需配置端点，且不能配置子渠道' });
+        throw new AppError('bad_request', '普通渠道需配置端点，且不能配置子渠道');
       let aggregateModels: { id: string; name: string }[] = [];
       if (input.type === 'aggregate') {
         if (input.baseUrl || input.credential || input.subscription || input.endpoints.length || input.proxyUrl)
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '聚合渠道的连接和端点由子渠道提供' });
+          throw new AppError('bad_request', '聚合渠道的连接和端点由子渠道提供');
         if (!input.members.length || input.members.some((member) => member.channelId === input.id))
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '至少选择一个子渠道，且不能引用自身' });
+          throw new AppError('bad_request', '至少选择一个子渠道，且不能引用自身');
         const memberIds = input.members.map((member) => member.channelId).sort();
         const children = await tx
           .select({ id: channels.id })
@@ -402,7 +330,7 @@ export class CatalogService {
           .orderBy(channels.id)
           .for('share');
         if (children.length !== memberIds.length)
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '子渠道不存在、已删除或属于聚合类型' });
+          throw new AppError('bad_request', '子渠道不存在、已删除或属于聚合类型');
         const childModels = await tx
           .select({ channelId: channelAvailableModels.channelId, id: models.id, name: models.name })
           .from(channelAvailableModels)
@@ -425,36 +353,35 @@ export class CatalogService {
           ),
         );
         if (input.enabled && (!aggregateModels.length || !hasCommonEndpoint))
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '子渠道需至少有一个共同模型和共同端点' });
+          throw new AppError('bad_request', '子渠道需至少有一个共同模型和共同端点');
         if (
           input.availableModels &&
           configuredModels.some((model) => !aggregateModels.some((common) => common.name === model.name))
         )
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '只能为子渠道的共同模型设置倍率，请刷新后重试' });
+          throw new AppError('bad_request', '只能为子渠道的共同模型设置倍率，请刷新后重试');
       } else if (input.type === 'api') {
         if (!input.baseUrl || (!existing && !input.credential))
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写 Base URL 和上游凭据' });
-        if (input.subscription) throw new TRPCError({ code: 'BAD_REQUEST', message: 'API 渠道不能配置订阅凭据' });
+          throw new AppError('bad_request', '请填写 Base URL 和上游凭据');
+        if (input.subscription) throw new AppError('bad_request', 'API 渠道不能配置订阅凭据');
       } else {
-        if (!input.subscription) throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写订阅配置' });
+        if (!input.subscription) throw new AppError('bad_request', '请填写订阅配置');
         if (input.baseUrl || input.credential)
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '订阅渠道使用账号凭据，无需填写 API 连接信息' });
+          throw new AppError('bad_request', '订阅渠道使用账号凭据，无需填写 API 连接信息');
         const allowed =
           input.subscription.provider === 'claude' ? ['/v1/messages'] : ['/v1/responses', '/v1/responses/compact'];
         if (input.endpoints.some((endpoint) => !allowed.includes(endpoint)))
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message:
-              input.subscription.provider === 'claude'
-                ? 'Claude 订阅渠道仅支持 Messages'
-                : 'OpenAI 订阅渠道仅支持 Responses 和 compact',
-          });
+          throw new AppError(
+            'bad_request',
+            input.subscription.provider === 'claude'
+              ? 'Claude 订阅渠道仅支持 Messages'
+              : 'OpenAI 订阅渠道仅支持 Responses 和 compact',
+          );
       }
       const [duplicate] = await tx
         .select({ id: channels.id })
         .from(channels)
         .where(and(eq(channels.name, input.name), isNull(channels.deletedAt)));
-      if (duplicate && duplicate.id !== input.id) throw new TRPCError({ code: 'CONFLICT', message: '渠道名称已存在' });
+      if (duplicate && duplicate.id !== input.id) throw new AppError('conflict', '渠道名称已存在');
       const names = (input.type === 'aggregate' ? aggregateModels : configuredModels).map((m) => m.name).sort();
       if (names.length && input.type !== 'aggregate') {
         const created = await tx
@@ -478,7 +405,7 @@ export class CatalogService {
             .orderBy(models.name)
             .for('share')
         : [];
-      if (resolved.length !== names.length) throw new TRPCError({ code: 'CONFLICT', message: '模型已变更，请重试' });
+      if (resolved.length !== names.length) throw new AppError('conflict', '模型已变更，请重试');
       const available = resolved.map((model) => ({
         modelId: model.id,
         multiplier: configuredModels.find((row) => row.name === model.name)?.multiplier ?? null,
@@ -593,7 +520,7 @@ export class CatalogService {
     return result;
   }
 
-  async saveModel(principal: Principal, input: z.infer<typeof modelInput>) {
+  async saveModel(principal: Principal, input: ModelInput) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [existing] = input.id
         ? await tx
@@ -602,12 +529,12 @@ export class CatalogService {
             .where(and(eq(models.id, input.id), isNull(models.deletedAt)))
             .for('update')
         : [];
-      if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '模型不存在' });
+      if (input.id && !existing) throw new AppError('not_found', '模型不存在');
       const [duplicate] = await tx
         .select({ id: models.id })
         .from(models)
         .where(and(eq(models.name, input.name), isNull(models.deletedAt)));
-      if (duplicate && duplicate.id !== input.id) throw new TRPCError({ code: 'CONFLICT', message: '模型名称已存在' });
+      if (duplicate && duplicate.id !== input.id) throw new AppError('conflict', '模型名称已存在');
       const [row] = existing
         ? await tx
             .update(models)
@@ -638,14 +565,14 @@ export class CatalogService {
     });
   }
 
-  async importModels(principal: Principal, input: z.infer<typeof importModelsInput>) {
+  async importModels(principal: Principal, input: ImportModelsInput) {
     const prepared = input.models
       .map((entry) => {
         const rules = expandRules(entry.rules);
         try {
           validateRules(rules);
         } catch (error) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: `${entry.model.name}：${(error as Error).message}` });
+          throw new AppError('bad_request', `${entry.model.name}：${(error as Error).message}`);
         }
         return { ...entry, rules };
       })
@@ -698,8 +625,8 @@ export class CatalogService {
       .select({ isPublic: channels.isPublic })
       .from(channels)
       .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)));
-    if (!channel) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在或已删除' });
-    if (channel.isPublic) throw new TRPCError({ code: 'BAD_REQUEST', message: '公开渠道默认对所有用户开放' });
+    if (!channel) throw new AppError('not_found', '渠道不存在或已删除');
+    if (channel.isPublic) throw new AppError('bad_request', '公开渠道默认对所有用户开放');
     const rows = await this.db
       .select({
         id: users.id,
@@ -734,15 +661,14 @@ export class CatalogService {
         .where(and(inArray(users.id, userIds), eq(users.role, 'user'), isNull(users.deletedAt)))
         .orderBy(asc(users.id))
         .for('update');
-      if (validUsers.length !== userIds.length)
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '仅为未删除的普通用户设置渠道授权' });
+      if (validUsers.length !== userIds.length) throw new AppError('bad_request', '仅为未删除的普通用户设置渠道授权');
       const [channel] = await tx
         .select({ isPublic: channels.isPublic })
         .from(channels)
         .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)))
         .for('share');
-      if (!channel) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在或已删除' });
-      if (channel.isPublic) throw new TRPCError({ code: 'BAD_REQUEST', message: '公开渠道默认对所有用户开放' });
+      if (!channel) throw new AppError('not_found', '渠道不存在或已删除');
+      if (channel.isPublic) throw new AppError('bad_request', '公开渠道默认对所有用户开放');
       const revokedIds = grants.filter((grant) => !grant.granted).map((grant) => grant.userId);
       if (revokedIds.length)
         await tx
@@ -766,15 +692,14 @@ export class CatalogService {
         .from(channels)
         .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)))
         .for('update');
-      if (!channel) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在或已删除' });
+      if (!channel) throw new AppError('not_found', '渠道不存在或已删除');
       const [reference] = await tx
         .select({ name: channels.name })
         .from(aggregateChannelMembers)
         .innerJoin(channels, eq(channels.id, aggregateChannelMembers.aggregateChannelId))
         .where(and(eq(aggregateChannelMembers.memberChannelId, channelId), isNull(channels.deletedAt)))
         .limit(1);
-      if (reference)
-        throw new TRPCError({ code: 'CONFLICT', message: `请先从聚合渠道「${reference.name}」移除此子渠道` });
+      if (reference) throw new AppError('conflict', `请先从聚合渠道「${reference.name}」移除此子渠道`);
       if (channel.subscriptionAccountId) await this.subscription.removeAccount(tx, channel.subscriptionAccountId);
       await tx.delete(aggregateChannelMembers).where(eq(aggregateChannelMembers.aggregateChannelId, channelId));
       await tx.update(channels).set({ deletedAt: new Date(), enabled: false }).where(eq(channels.id, channel.id));
@@ -790,7 +715,7 @@ export class CatalogService {
         .set({ deletedAt: new Date(), enabled: false })
         .where(and(eq(models.id, modelId), isNull(models.deletedAt)))
         .returning({ id: models.id, name: models.name });
-      if (!model) throw new TRPCError({ code: 'NOT_FOUND', message: '模型不存在或已删除' });
+      if (!model) throw new AppError('not_found', '模型不存在或已删除');
       await this.audit(tx, actor.id, 'model.delete', model.id, { name: model.name });
       return { success: true };
     });
@@ -800,7 +725,7 @@ export class CatalogService {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [user] = await tx.select().from(users).where(eq(users.id, userId)).for('update');
       if (user?.role !== 'user' || user.deletedAt)
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '仅为未删除的普通用户设置渠道授权' });
+        throw new AppError('bad_request', '仅为未删除的普通用户设置渠道授权');
       const ids = [...new Set(channelIds)];
       if (
         ids.length &&
@@ -812,7 +737,7 @@ export class CatalogService {
             .for('share')
         ).length !== ids.length
       )
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道不存在或已公开' });
+        throw new AppError('bad_request', '渠道不存在或已公开');
       await tx.delete(userChannelGrants).where(eq(userChannelGrants.userId, userId));
       if (ids.length) await tx.insert(userChannelGrants).values(ids.map((channelId) => ({ userId, channelId })));
       await this.audit(tx, actor.id, 'user.channels', userId, { channelIds: ids });

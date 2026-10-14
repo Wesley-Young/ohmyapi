@@ -1,7 +1,7 @@
 import type { GatewayConfig } from '../../config.js';
 import { GatewayError } from '../../core/errors.js';
 import { safeErrorMessage } from '../../core/logging.js';
-import type { Endpoint } from '../catalog/service.js';
+import type { Endpoint } from '../database/schema/index.js';
 import type { RequestLifecycle } from './lifecycle.js';
 import { responseHeaders } from './protocol.js';
 import { SseObserver, type UsageCollector } from './usage.js';

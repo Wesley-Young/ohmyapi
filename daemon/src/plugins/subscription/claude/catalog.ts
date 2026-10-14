@@ -1,6 +1,6 @@
-import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { AppError } from '../../../core/errors.js';
 import type { OutboundFetch } from '../../outbound/index.js';
 import { readJson } from '../openai/client.js';
 import { claudeBaseUrl } from './client.js';
@@ -42,18 +42,17 @@ export async function fetchClaudeModels(credentials: ClaudeCredentials, request:
   });
   if (!response.ok) {
     await response.body?.cancel().catch(() => {});
-    throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message:
-        response.status === 404
-          ? 'Claude 模型目录接口不可用（HTTP 404），请手动添加模型'
-          : `获取 Claude 模型失败（HTTP ${response.status}），请检查账号权限和出站代理，或手动添加模型`,
-    });
+    throw new AppError(
+      'bad_request',
+      response.status === 404
+        ? 'Claude 模型目录接口不可用（HTTP 404），请手动添加模型'
+        : `获取 Claude 模型失败（HTTP ${response.status}），请检查账号权限和出站代理，或手动添加模型`,
+    );
   }
   const result = catalogSchema.safeParse(await readJson(response));
-  if (!result.success) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Claude 模型目录格式无效，请手动添加模型' });
+  if (!result.success) throw new AppError('bad_request', 'Claude 模型目录格式无效，请手动添加模型');
   const rows = result.data.model_selector_config.find((surface) => surface.id === 'cc')?.models;
-  if (!rows) throw new TRPCError({ code: 'BAD_REQUEST', message: '该 Claude 账号未下发 CC 模型目录，请手动添加模型' });
+  if (!rows) throw new AppError('bad_request', '该 Claude 账号未下发 CC 模型目录，请手动添加模型');
   const names = new Set<string>();
   let ignored = 0;
   let unavailable = 0;
@@ -70,7 +69,6 @@ export async function fetchClaudeModels(credentials: ClaudeCredentials, request:
     }
     names.add(model.data.id);
   }
-  if (!names.size)
-    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Claude 未返回可选模型，请检查账号权限或手动添加模型' });
+  if (!names.size) throw new AppError('bad_request', 'Claude 未返回可选模型，请检查账号权限或手动添加模型');
   return { names: [...names].sort(), ignored, unavailable };
 }

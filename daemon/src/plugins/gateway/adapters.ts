@@ -1,7 +1,7 @@
 import { GatewayError } from '../../core/errors.js';
 import type { CredentialVault } from '../../core/vault.js';
-import type { Endpoint } from '../catalog/service.js';
 import type { ChannelType, channels } from '../database/schema/catalog.js';
+import type { Endpoint } from '../database/schema/index.js';
 import { claudeAdapter } from '../subscription/claude/adapter.js';
 import { openAIAdapter } from '../subscription/openai/adapter.js';
 import type { SubscriptionService } from '../subscription/service.js';

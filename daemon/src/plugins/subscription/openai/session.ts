@@ -1,4 +1,4 @@
-import type { Endpoint } from '../../catalog/service.js';
+import type { Endpoint } from '../../database/schema/index.js';
 import { requestSession } from '../../gateway/session.js';
 
 import { createHash } from 'node:crypto';

@@ -1,4 +1,4 @@
-import type { Endpoint } from '../catalog/service.js';
+import type { Endpoint } from '../database/schema/index.js';
 
 export function requestSession(request: Request, body: Record<string, unknown>, endpoint: Endpoint) {
   const metadata = endpoint === '/v1/messages' ? body.metadata : body.client_metadata;

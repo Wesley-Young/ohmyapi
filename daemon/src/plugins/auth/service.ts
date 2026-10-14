@@ -1,7 +1,7 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { TRPCError } from '@trpc/server';
 import { and, eq, gt, isNull, lt, or } from 'drizzle-orm';
 
+import { AppError } from '../../core/errors.js';
 import { createLogSampler, type EventLogger, formatEvent } from '../../core/logging.js';
 import type { Database, Transaction } from '../database/client.js';
 import { sessions, users } from '../database/schema/index.js';
@@ -53,7 +53,7 @@ export class AuthService {
               windowMs: scope === 'capacity' ? undefined : window,
             }),
           );
-        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: '登录尝试过于频繁，请稍后再试' });
+        throw new AppError('too_many_requests', '登录尝试过于频繁，请稍后再试');
       }
       attempt.count++;
       this.attempts.set(key, attempt);
@@ -98,8 +98,8 @@ export class AuthService {
           ),
         );
       if (user?.status !== 'active' || user.deletedAt || !session)
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: '登录已失效，请重新登录' });
-      if (options.admin && user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: '需要管理员权限' });
+        throw new AppError('unauthorized', '登录已失效，请重新登录');
+      if (options.admin && user.role !== 'admin') throw new AppError('forbidden', '需要管理员权限');
       return work(tx, user);
     });
   }
@@ -118,12 +118,11 @@ export class AuthService {
       .from(users)
       .where(and(eq(users.username, username), isNull(users.deletedAt)));
     const valid = await verifyPassword(password, candidate?.passwordHash ?? (await this.dummyHash));
-    if (!candidate || !valid || candidate.status !== 'active')
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: '用户名或密码错误' });
+    if (!candidate || !valid || candidate.status !== 'active') throw new AppError('unauthorized', '用户名或密码错误');
     return this.db.transaction(async (tx) => {
       const [user] = await tx.select().from(users).where(eq(users.id, candidate.id)).for('update');
       if (user.status !== 'active' || user.deletedAt || user.passwordHash !== candidate.passwordHash)
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: '用户名或密码错误' });
+        throw new AppError('unauthorized', '用户名或密码错误');
       const session = await this.createSession(tx, user.id);
       this.attempts.delete(username);
       return { ...session, user: publicUser(user) };
@@ -141,13 +140,11 @@ export class AuthService {
   async changePassword(principal: Principal, currentPassword: string, newPassword: string) {
     const [candidate] = await this.db.select().from(users).where(eq(users.id, principal.user.id));
     if (!candidate || !(await verifyPassword(currentPassword, candidate.passwordHash)))
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '当前密码错误' });
-    if (currentPassword === newPassword)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '新密码不能与当前密码相同' });
+      throw new AppError('bad_request', '当前密码错误');
+    if (currentPassword === newPassword) throw new AppError('bad_request', '新密码不能与当前密码相同');
     const passwordHash = await hashPassword(newPassword);
     return this.authorized(principal, {}, async (tx, user) => {
-      if (user.passwordHash !== candidate.passwordHash)
-        throw new TRPCError({ code: 'CONFLICT', message: '密码已变更，请重新登录' });
+      if (user.passwordHash !== candidate.passwordHash) throw new AppError('conflict', '密码已变更，请重新登录');
       await tx.update(users).set({ passwordHash }).where(eq(users.id, user.id));
       await tx.update(sessions).set({ revokedAt: new Date() }).where(eq(sessions.userId, user.id));
       return this.createSession(tx, user.id);

@@ -10,8 +10,8 @@ import type { CredentialVault } from '../../core/vault.js';
 import { validateBillableRequest } from '../billing/admission.js';
 import { searchRequest } from '../billing/search.js';
 import type { BillingService } from '../billing/service.js';
-import type { Endpoint } from '../catalog/service.js';
 import type { Database } from '../database/client.js';
+import type { Endpoint } from '../database/schema/index.js';
 import {
   apiKeyChannels,
   apiKeyModelGrants,

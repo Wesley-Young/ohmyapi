@@ -6,11 +6,12 @@ import { serialize } from 'hono/utils/cookie';
 
 import { errorDetails, formatEvent } from '../../core/logging.js';
 import { definePlugin } from '../../kernel.js';
-import { appRouter } from '../../trpc/router.js';
+import { createAppRouter } from '../../trpc/router.js';
 import { AuthService } from '../auth/service.js';
 import { BillingService } from '../billing/service.js';
-import { CatalogService, endpoints } from '../catalog/service.js';
+import { CatalogService } from '../catalog/service.js';
 import { DatabaseService } from '../database/index.js';
+import { endpoints } from '../database/schema/index.js';
 import { GatewayService } from '../gateway/service.js';
 import { KeyService } from '../keys/service.js';
 import { PricingService } from '../pricing/service.js';
@@ -36,7 +37,18 @@ export const HttpPlugin = definePlugin({
   },
   apply(ctx) {
     const app = ctx.hono.app;
-    const startedAt = new Date().toISOString();
+    const appRouter = createAppRouter({
+      startedAt: new Date().toISOString(),
+      auth: ctx.auth,
+      users: ctx.users,
+      keys: ctx.keys,
+      wallet: ctx.wallet,
+      pricing: ctx.pricing,
+      billing: ctx.billing,
+      catalog: ctx.catalog,
+      subscription: ctx.subscription,
+      gateway: ctx.gateway,
+    });
     const sessionConfig = ctx.config.session;
     const cookieName: string = sessionConfig.secure ? '__Host-ohmyapi_session' : 'ohmyapi_session';
     const cookieOptions = { path: '/', httpOnly: true, sameSite: 'Strict' as const, secure: sessionConfig.secure };
@@ -108,20 +120,10 @@ export const HttpPlugin = definePlugin({
         createContext: async ({ resHeaders }) => {
           const token = getCookie(c, cookieName);
           return {
-            startedAt,
             requestId: requestInfo(c.req.raw).requestId,
             logger: ctx.logger,
             token,
             principal: await ctx.auth.resolve(token),
-            auth: ctx.auth,
-            catalog: ctx.catalog,
-            subscription: ctx.subscription,
-            gateway: ctx.gateway,
-            pricing: ctx.pricing,
-            billing: ctx.billing,
-            keys: ctx.keys,
-            users: ctx.users,
-            wallet: ctx.wallet,
             setSession: (value: string, expiresAt: Date) =>
               resHeaders.append('Set-Cookie', serialize(cookieName, value, { ...cookieOptions, expires: expiresAt })),
             clearSession: () =>

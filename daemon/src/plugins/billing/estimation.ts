@@ -1,7 +1,7 @@
 import { Tiktoken } from 'js-tiktoken/lite';
 import o200kBase from 'js-tiktoken/ranks/o200k_base';
 
-import type { Endpoint } from '../catalog/service.js';
+import type { Endpoint } from '../database/schema/index.js';
 import { imageInputTypes, requestContentBlocks } from './content.js';
 import { estimateImageTokens } from './image-estimation.js';
 

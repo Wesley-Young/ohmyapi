@@ -1,7 +1,7 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { TRPCError } from '@trpc/server';
 import { and, desc, eq, gt, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
+import { AppError } from '../../core/errors.js';
 import { formatMoney } from '../../core/money.js';
 import { pageSize } from '../../core/pagination.js';
 import type { AuthService, Principal } from '../auth/service.js';
@@ -21,6 +21,7 @@ import {
   userChannelGrants,
 } from '../database/schema/index.js';
 import { availableSubscription } from '../subscription/availability.js';
+import type { CreateKeyInput, UpdateKeyInput } from './schemas.js';
 
 import { randomBytes } from 'node:crypto';
 
@@ -200,14 +201,14 @@ export class KeyService {
         .from(apiKeys)
         .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, user.id), isNull(apiKeys.deletedAt)))
         .for('update');
-      if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'Key 不存在' });
+      if (!key) throw new AppError('not_found', 'Key 不存在');
       if (key.revokedAt || (key.expiresAt && key.expiresAt <= new Date()))
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Key 已失效' });
+        throw new AppError('bad_request', 'Key 已失效');
       const [existing] = await tx.select().from(apiKeyChannels).where(eq(apiKeyChannels.apiKeyId, keyId));
-      if (existing) throw new TRPCError({ code: 'CONFLICT', message: 'Key 已绑定渠道，请通过编辑修改' });
+      if (existing) throw new AppError('conflict', 'Key 已绑定渠道，请通过编辑修改');
       const offerings = await this.offerings(user, tx);
       if (!offerings.some((o) => o.channelId === channelId))
-        throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用、未授权或没有可用模型' });
+        throw new AppError('forbidden', '渠道不可用、未授权或没有可用模型');
       await tx.insert(apiKeyChannels).values({ apiKeyId: keyId, channelId });
       return { success: true };
     });
@@ -287,14 +288,10 @@ export class KeyService {
     };
   }
 
-  async create(
-    principal: Principal,
-    input: { channelId: string; name: string; expiresAt?: string; modelIds?: string[] },
-  ) {
+  async create(principal: Principal, input: CreateKeyInput) {
     return this.auth.authorized(principal, {}, async (tx, user) => {
       const expiresAt = input.expiresAt ? new Date(input.expiresAt) : undefined;
-      if (expiresAt && expiresAt.getTime() <= Date.now())
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '有效期必须晚于当前时间' });
+      if (expiresAt && expiresAt.getTime() <= Date.now()) throw new AppError('bad_request', '有效期必须晚于当前时间');
       const [{ count }] = await tx
         .select({ count: sql<number>`count(*)::integer` })
         .from(apiKeys)
@@ -306,12 +303,12 @@ export class KeyService {
             or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date())),
           ),
         );
-      if (count >= 100) throw new TRPCError({ code: 'BAD_REQUEST', message: '最多保留 100 个有效 Key' });
+      if (count >= 100) throw new AppError('bad_request', '最多保留 100 个有效 Key');
       const modelIds = [...new Set(input.modelIds ?? [])];
       const offerings = (await this.offerings(user, tx)).filter((o) => o.channelId === input.channelId);
-      if (!offerings.length) throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用、未授权或没有可用模型' });
+      if (!offerings.length) throw new AppError('forbidden', '渠道不可用、未授权或没有可用模型');
       if (modelIds.some((id) => !offerings.some((o) => o.modelId === id)))
-        throw new TRPCError({ code: 'FORBIDDEN', message: '包含渠道不可用或未授权的模型' });
+        throw new AppError('forbidden', '包含渠道不可用或未授权的模型');
       const token = `sk-${randomBytes(32).toString('base64url')}`;
       const [key] = await tx
         .insert(apiKeys)
@@ -330,22 +327,19 @@ export class KeyService {
     });
   }
 
-  async update(
-    principal: Principal,
-    input: { keyId: string; name: string; channelId?: string; expiresAt: string | null; modelIds?: string[] | null },
-  ) {
+  async update(principal: Principal, input: UpdateKeyInput) {
     return this.auth.authorized(principal, {}, async (tx, user) => {
       const [key] = await tx
         .select()
         .from(apiKeys)
         .where(and(eq(apiKeys.id, input.keyId), eq(apiKeys.userId, user.id), isNull(apiKeys.deletedAt)))
         .for('update');
-      if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'Key 不存在或已删除' });
-      if (key.revokedAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Key 已撤销' });
+      if (!key) throw new AppError('not_found', 'Key 不存在或已删除');
+      if (key.revokedAt) throw new AppError('bad_request', 'Key 已撤销');
       const now = new Date();
       const expiresAt = input.expiresAt ? new Date(input.expiresAt) : null;
       if (expiresAt && expiresAt <= now && expiresAt.getTime() !== key.expiresAt?.getTime())
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '有效期必须晚于当前时间' });
+        throw new AppError('bad_request', '有效期必须晚于当前时间');
       if (key.expiresAt && key.expiresAt <= now && (!expiresAt || expiresAt > now)) {
         const [{ count }] = await tx
           .select({ count: sql<number>`count(*)::integer` })
@@ -358,7 +352,7 @@ export class KeyService {
               or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, now)),
             ),
           );
-        if (count >= 100) throw new TRPCError({ code: 'BAD_REQUEST', message: '最多保留 100 个有效 Key' });
+        if (count >= 100) throw new AppError('bad_request', '最多保留 100 个有效 Key');
       }
       const [binding] = await tx.select().from(apiKeyChannels).where(eq(apiKeyChannels.apiKeyId, key.id));
       const channelId = input.channelId ?? binding?.channelId;
@@ -371,9 +365,9 @@ export class KeyService {
           : [...new Set(input.modelIds ?? [])];
       if (channelChanged || input.modelIds !== undefined) {
         const offerings = (await this.offerings(user, tx)).filter((o) => o.channelId === channelId);
-        if (!offerings.length) throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用、未授权或没有可用模型' });
+        if (!offerings.length) throw new AppError('forbidden', '渠道不可用、未授权或没有可用模型');
         if (modelIds.some((id) => !offerings.some((o) => o.modelId === id)))
-          throw new TRPCError({ code: 'FORBIDDEN', message: '包含渠道不可用或未授权的模型，请重新选择' });
+          throw new AppError('forbidden', '包含渠道不可用或未授权的模型，请重新选择');
       }
       await tx
         .update(apiKeys)
@@ -405,7 +399,7 @@ export class KeyService {
         .set({ deletedAt: now, revokedAt: sql`coalesce(${apiKeys.revokedAt}, ${now})` })
         .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, user.id), isNull(apiKeys.deletedAt)))
         .returning({ id: apiKeys.id, name: apiKeys.name });
-      if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'Key 不存在或已删除' });
+      if (!key) throw new AppError('not_found', 'Key 不存在或已删除');
       await tx.insert(adminAuditLogs).values({
         actorId: user.id,
         action: 'key.delete',

@@ -21,6 +21,7 @@ const errorTypes = new Set([
   'AbortError',
   'TimeoutError',
   'TRPCError',
+  'AppError',
   'DrizzleQueryError',
   'DatabaseError',
   'AggregateError',

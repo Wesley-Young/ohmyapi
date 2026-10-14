@@ -1,7 +1,7 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { TRPCError } from '@trpc/server';
 import { and, desc, eq, gte, lte, type SQL, sql } from 'drizzle-orm';
 
+import { AppError } from '../../core/errors.js';
 import { formatMoney, parseMoney } from '../../core/money.js';
 import { pageSize } from '../../core/pagination.js';
 import type { AuthService, Principal } from '../auth/service.js';
@@ -16,6 +16,7 @@ import {
   walletLedger,
   wallets,
 } from '../database/schema/index.js';
+import type { AdjustWalletInput, StatsRange } from './schemas.js';
 
 const ledgerDto = (entry: typeof walletLedger.$inferSelect) => ({
   id: entry.id,
@@ -36,7 +37,7 @@ const usageStats = () => ({
   chargedMicros: sql<string>`coalesce(sum(${requests.chargedMicros}) filter (where ${requests.status} = 'settled'), 0)::text`,
 });
 
-const within = (range: '24h' | '30d') =>
+const within = (range: StatsRange) =>
   sql`${requests.receivedAt} >= now() - ${range === '24h' ? sql`interval '24 hours'` : sql`interval '30 days'`} and ${requests.receivedAt} <= now()`;
 
 const statsDto = (stats: { requestCount: string; tokens: string; chargedMicros: string }) => ({
@@ -56,7 +57,7 @@ export class WalletService {
 
   async get(userId: string) {
     const [wallet] = await this.db.select().from(wallets).where(eq(wallets.userId, userId));
-    if (!wallet) throw new TRPCError({ code: 'NOT_FOUND', message: '钱包不存在' });
+    if (!wallet) throw new AppError('not_found', '钱包不存在');
     const [settings] = await this.db.select({ currency: systemSettings.currency }).from(systemSettings);
     return {
       currency: settings.currency,
@@ -94,7 +95,7 @@ export class WalletService {
   }
 
   /** 个人按消费排序；全站按请求数排行，前 10 名之后合并为一行，合计仍与卡片一致。 */
-  async models(userId: string | undefined, range: '24h' | '30d') {
+  async models(userId: string | undefined, range: StatsRange) {
     const rows = await this.db
       .select({ modelId: requests.modelId, name: models.name, ...usageStats() })
       .from(requests)
@@ -133,7 +134,7 @@ export class WalletService {
     ];
   }
 
-  private async aggregateStats(userId?: string, range: '24h' | '30d' = '24h') {
+  private async aggregateStats(userId?: string, range: StatsRange = '24h') {
     const [stats] = await this.db
       .select(usageStats())
       .from(requests)
@@ -196,12 +197,9 @@ export class WalletService {
     };
   }
 
-  async adjust(
-    principal: Principal,
-    input: { userId: string; amount: string; reason: string; idempotencyKey: string },
-  ) {
+  async adjust(principal: Principal, input: AdjustWalletInput) {
     const delta = parseMoney(input.amount);
-    if (!delta) throw new TRPCError({ code: 'BAD_REQUEST', message: '调整金额不能为零' });
+    if (!delta) throw new AppError('bad_request', '调整金额不能为零');
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const key = `adjust:${actor.id}:${input.idempotencyKey}`;
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
@@ -212,18 +210,17 @@ export class WalletService {
           existing.balanceDeltaMicros !== delta ||
           existing.reason !== input.reason
         )
-          throw new TRPCError({ code: 'CONFLICT', message: '该操作标识已用于其他余额调整' });
+          throw new AppError('conflict', '该操作标识已用于其他余额调整');
         return ledgerDto(existing);
       }
       const [target] = await tx.select().from(users).where(eq(users.id, input.userId)).for('update');
-      if (!target || target.deletedAt) throw new TRPCError({ code: 'NOT_FOUND', message: '用户不存在或已删除' });
+      if (!target || target.deletedAt) throw new AppError('not_found', '用户不存在或已删除');
       const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, input.userId)).for('update');
-      if (!wallet) throw new TRPCError({ code: 'NOT_FOUND', message: '钱包不存在' });
+      if (!wallet) throw new AppError('not_found', '钱包不存在');
       const next = wallet.balanceMicros + delta;
-      if (delta < 0n && next < wallet.reservedMicros)
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '扣减金额超过可用余额' });
+      if (delta < 0n && next < wallet.reservedMicros) throw new AppError('bad_request', '扣减金额超过可用余额');
       if (next < -9223372036854775808n || next > 9223372036854775807n)
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '调整后的余额超出范围' });
+        throw new AppError('bad_request', '调整后的余额超出范围');
       await tx.update(wallets).set({ balanceMicros: next }).where(eq(wallets.userId, input.userId));
       const [entry] = await tx
         .insert(walletLedger)

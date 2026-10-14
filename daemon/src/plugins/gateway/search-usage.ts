@@ -1,6 +1,5 @@
 import { maxSearchCalls, type SearchKind, type SearchRequest } from '../billing/search.js';
-import type { Endpoint } from '../catalog/service.js';
-import type { UsageEstimate } from '../database/schema/index.js';
+import type { Endpoint, UsageEstimate } from '../database/schema/index.js';
 
 type Data = Record<string, unknown>;
 const object = (value: unknown): Data | undefined =>

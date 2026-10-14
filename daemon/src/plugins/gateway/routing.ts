@@ -1,8 +1,8 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 
 import { GatewayError } from '../../core/errors.js';
-import type { Endpoint } from '../catalog/service.js';
 import type { Database, Transaction } from '../database/client.js';
+import type { Endpoint } from '../database/schema/index.js';
 import {
   aggregateChannelMembers,
   channels,

@@ -1,11 +1,9 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
-import { TRPCError } from '@trpc/server';
 import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import { Client } from 'pg';
-import { z } from 'zod';
 
 import type { DatabaseConfig } from '../../config.js';
-import { GatewayError, requestErrorMessage } from '../../core/errors.js';
+import { AppError, GatewayError, requestErrorMessage } from '../../core/errors.js';
 import { type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '../../core/logging.js';
 import { formatMoney, parseMoney } from '../../core/money.js';
 import type { AuthService, Principal } from '../auth/service.js';
@@ -31,45 +29,14 @@ import {
 import { cacheReadForDisplay, reportedCacheReadTokens } from '../gateway/cache-usage.js';
 import { lockExecutionRoute } from '../gateway/routing.js';
 import type { Usage } from '../gateway/usage.js';
-import { priceInput, searchCountInput, tokenInput } from '../pricing/rules.js';
 import { type LockedPrice, type PricingService, publicPricingSnapshot } from '../pricing/service.js';
 import { reservationAmount } from './admission.js';
 import { estimateReservation } from './estimation.js';
+import type { CorrectBillInput, ResolveBillInput, ResolveZeroBillsInput } from './schemas.js';
 import { searchRequest } from './search.js';
 
 import { randomUUID } from 'node:crypto';
 
-const requestId = z.uuid();
-export const resolveBillInput = z.object({
-  requestId,
-  action: z.enum(['release', 'settle_usage', 'settle_amount']),
-  reason: z.string().trim().min(1, '请填写核对依据').max(500),
-  idempotencyKey: z.uuid(),
-  amount: priceInput.optional(),
-  usage: z
-    .object({
-      inputTokens: tokenInput,
-      outputTokens: tokenInput,
-      cacheReadTokens: tokenInput,
-      cacheWriteTokens: tokenInput,
-      webSearchCalls: searchCountInput.default('0'),
-      webSearchPreviewCalls: searchCountInput.default('0'),
-    })
-    .optional(),
-});
-export const correctBillInput = z.object({
-  requestId,
-  amount: priceInput,
-  reason: z.string().trim().min(1, '请填写修正依据').max(500),
-  idempotencyKey: z.uuid(),
-});
-export const resolveZeroBillsInput = resolveBillInput.pick({ reason: true, idempotencyKey: true }).extend({
-  requestIds: z
-    .array(requestId)
-    .min(1, '请先选择待核对请求')
-    .max(100, '每批最多核对 100 个请求')
-    .refine((ids) => new Set(ids).size === ids.length, '请求标识不能重复'),
-});
 type RequestRow = typeof requests.$inferSelect;
 type BillingOutcome = {
   request: RequestRow;
@@ -841,7 +808,7 @@ export class BillingService implements Disposable {
       .where(
         and(eq(requests.id, id), principal.user.role === 'admin' ? undefined : eq(requests.userId, principal.user.id)),
       );
-    if (!r) throw new TRPCError({ code: 'NOT_FOUND', message: '请求不存在' });
+    if (!r) throw new AppError('not_found', '请求不存在');
     const [usage] = await this.db.select().from(requestUsage).where(eq(requestUsage.requestId, id));
     const attempts =
       principal.user.role === 'admin'
@@ -920,18 +887,17 @@ export class BillingService implements Disposable {
     };
   }
 
-  async resolve(principal: Principal, input: z.infer<typeof resolveBillInput>) {
+  async resolve(principal: Principal, input: ResolveBillInput) {
     this.assertReady();
-    if (input.action === 'settle_usage' && !input.usage)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写确认后的用量' });
+    if (input.action === 'settle_usage' && !input.usage) throw new AppError('bad_request', '请填写确认后的用量');
     if (input.action === 'settle_amount' && input.amount === undefined)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写确认后的费用' });
+      throw new AppError('bad_request', '请填写确认后的费用');
     return this.auth.authorized(principal, { admin: true }, (tx, actor) =>
       this.resolveInTransaction(tx, actor.id, input),
     );
   }
 
-  async resolveZero(principal: Principal, input: z.infer<typeof resolveZeroBillsInput>) {
+  async resolveZero(principal: Principal, input: ResolveZeroBillsInput) {
     this.assertReady();
     const ids = [...input.requestIds].sort();
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
@@ -960,7 +926,7 @@ export class BillingService implements Disposable {
   private async resolveInTransaction(
     tx: Transaction,
     actorId: string,
-    input: z.infer<typeof resolveBillInput>,
+    input: ResolveBillInput,
     batchRequestIds?: string[],
   ) {
     const key = `resolve:${input.requestId}:${input.idempotencyKey}`;
@@ -973,14 +939,14 @@ export class BillingService implements Disposable {
       ...(batchRequestIds ? { batchRequestIds } : {}),
     };
     const [r] = await tx.select().from(requests).where(eq(requests.id, input.requestId)).for('update');
-    if (!r) throw new TRPCError({ code: 'NOT_FOUND', message: '请求不存在' });
+    if (!r) throw new AppError('not_found', '请求不存在');
     if (r.resolutionKey === key) {
       if (canonical(r.resolutionPayload) !== canonical(payload))
-        throw new TRPCError({ code: 'CONFLICT', message: '核对标识已用于不同内容' });
+        throw new AppError('conflict', '核对标识已用于不同内容');
       return { success: true, userId: r.userId };
     }
     if (!r.billingEnabled || r.status !== 'needs_review')
-      throw new TRPCError({ code: 'CONFLICT', message: `请求 ${r.id} 已发生状态变化，请刷新后重新选择待核对请求` });
+      throw new AppError('conflict', `请求 ${r.id} 已发生状态变化，请刷新后重新选择待核对请求`);
     const [originalUsage] = await tx.select().from(requestUsage).where(eq(requestUsage.requestId, r.id));
     if (input.action === 'release') await this.release(tx, r, actorId, input.reason);
     else {
@@ -998,12 +964,11 @@ export class BillingService implements Disposable {
           contextTokens: BigInt(given.inputTokens) + BigInt(given.cacheReadTokens) + BigInt(given.cacheWriteTokens),
           rawUsage: { ...originalUsage?.rawUsage, administratorConfirmed: given },
         };
-        if (usage.contextTokens > 9_223_372_036_854_775_807n)
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '上下文用量超出范围' });
+        if (usage.contextTokens > 9_223_372_036_854_775_807n) throw new AppError('bad_request', '上下文用量超出范围');
         try {
           snapshot = { ...(await this.pinned(r, usage)), source: 'administrator_usage', reason: input.reason };
         } catch {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: '保存的价格无法计算该用量，请核对价格或确认费用' });
+          throw new AppError('bad_request', '保存的价格无法计算该用量，请核对价格或确认费用');
         }
         amount = BigInt(snapshot.totalMicros as string);
         await this.writeUsage(tx, r.id, usage);
@@ -1037,13 +1002,13 @@ export class BillingService implements Disposable {
     return { success: true, userId: r.userId };
   }
 
-  async correct(principal: Principal, input: z.infer<typeof correctBillInput>) {
+  async correct(principal: Principal, input: CorrectBillInput) {
     this.assertReady();
     const target = parseMoney(input.amount);
     const key = `correct:${input.requestId}:${input.idempotencyKey}`;
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [r] = await tx.select().from(requests).where(eq(requests.id, input.requestId)).for('update');
-      if (!r) throw new TRPCError({ code: 'NOT_FOUND', message: '请求不存在' });
+      if (!r) throw new AppError('not_found', '请求不存在');
       const [existing] = await tx.select().from(walletLedger).where(eq(walletLedger.idempotencyKey, key));
       if (existing) {
         if (
@@ -1051,13 +1016,13 @@ export class BillingService implements Disposable {
           existing.reason !== input.reason ||
           existing.metadata.targetCharged !== formatMoney(target)
         )
-          throw new TRPCError({ code: 'CONFLICT', message: '修正标识已用于不同内容' });
+          throw new AppError('conflict', '修正标识已用于不同内容');
         return { success: true, userId: r.userId };
       }
       if (!r.billingEnabled || r.status !== 'settled' || r.chargedMicros === null)
-        throw new TRPCError({ code: 'CONFLICT', message: '仅对已结算计费请求追加修正' });
+        throw new AppError('conflict', '仅对已结算计费请求追加修正');
       const delta = r.chargedMicros - target;
-      if (delta === 0n) throw new TRPCError({ code: 'BAD_REQUEST', message: '费用没有变化' });
+      if (delta === 0n) throw new AppError('bad_request', '费用没有变化');
       const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, r.userId)).for('update');
       if (!wallet) throw new Error('Wallet missing');
       const balance = bounds(wallet.balanceMicros + delta);
@@ -1100,7 +1065,7 @@ export class BillingService implements Disposable {
     return this.db.transaction(
       async (tx) => {
         const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId));
-        if (!wallet) throw new TRPCError({ code: 'NOT_FOUND', message: '钱包不存在' });
+        if (!wallet) throw new AppError('not_found', '钱包不存在');
         const [ledger] = await tx
           .select({
             balance: sql<string>`coalesce(sum(${walletLedger.balanceDeltaMicros}), 0)::text`,

@@ -1,5 +1,4 @@
-import { TRPCError } from '@trpc/server';
-
+import { AppError } from '../../../core/errors.js';
 import type { OutboundFetch } from '../../outbound/index.js';
 import { clientId, exchangeToken, redirectUri } from './client.js';
 import { type OpenAICredentials, parseCredentials } from './credentials.js';
@@ -19,8 +18,7 @@ export class OpenAIOAuth {
 
   start(actorId: string) {
     this.prune();
-    if (this.sessions.size >= 500)
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: '授权会话过多，请稍后重试' });
+    if (this.sessions.size >= 500) throw new AppError('too_many_requests', '授权会话过多，请稍后重试');
     const state = randomBytes(32).toString('base64url');
     const verifier = randomBytes(48).toString('base64url');
     this.sessions.set(state, { actorId, verifier, expiresAt: Date.now() + 30 * 60_000 });
@@ -42,15 +40,15 @@ export class OpenAIOAuth {
   async complete(actorId: string, callbackUrl: string, request: OutboundFetch) {
     const url = new URL(callbackUrl);
     if (`${url.origin}${url.pathname}` !== redirectUri)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '请粘贴完整的 localhost:1455 授权回调地址' });
+      throw new AppError('bad_request', '请粘贴完整的 localhost:1455 授权回调地址');
     const state = url.searchParams.get('state') ?? '';
     const entry = this.sessions.get(state);
     if (!entry || entry.actorId !== actorId || entry.expiresAt <= Date.now())
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '授权会话无效或已过期，请重新授权' });
+      throw new AppError('bad_request', '授权会话无效或已过期，请重新授权');
     const code = url.searchParams.get('code');
-    if (!code || url.searchParams.has('error')) throw new TRPCError({ code: 'BAD_REQUEST', message: '授权未完成' });
+    if (!code || url.searchParams.has('error')) throw new AppError('bad_request', '授权未完成');
     if (entry.code && entry.code !== code)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '授权回调不匹配，请使用同一次授权的完整回调地址' });
+      throw new AppError('bad_request', '授权回调不匹配，请使用同一次授权的完整回调地址');
     entry.code = code;
     // 授权码只兑换一次；拉取模型与保存渠道复用服务端暂存的凭据。
     entry.credentials ??= exchangeToken(

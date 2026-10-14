@@ -1,6 +1,6 @@
-import { TRPCError } from '@trpc/server';
 import { and, eq, isNull } from 'drizzle-orm';
 
+import { AppError } from '../../core/errors.js';
 import type { CredentialVault } from '../../core/vault.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import { channels } from '../database/schema/catalog.js';
@@ -20,7 +20,7 @@ export async function channelProxy(
           .from(channels)
           .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)))
       : [];
-    if (channelId && !channel) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在' });
+    if (channelId && !channel) throw new AppError('not_found', '渠道不存在');
     if (override !== undefined) return override;
     return channel?.encrypted ? vault.decrypt(channel.encrypted) : null;
   });

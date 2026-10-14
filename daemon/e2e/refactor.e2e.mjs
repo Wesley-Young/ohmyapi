@@ -154,6 +154,9 @@ class Session {
     if (json.error) {
       const error = new Error(`${path}: ${json.error.message}`);
       error.code = json.error.data?.code;
+      error.status = res.status;
+      error.rpcMessage = json.error.message;
+      error.fieldErrors = json.error.data?.fieldErrors;
       throw error;
     }
     return json.result.data;
@@ -165,9 +168,10 @@ class Session {
     return this.call('POST', path, input);
   }
 }
-async function rejects(promise, code) {
+async function rejects(promise, code, message) {
   await assert.rejects(promise, (error) => {
     assert.equal(error.code, code, error.message);
+    if (message !== undefined) assert.equal(error.rpcMessage, message);
     return true;
   });
 }
@@ -206,13 +210,27 @@ after(async () => {
 test('认证、目录配置、Key 与网关结算主流程', async () => {
   // 认证
   assert.equal(await admin.query('auth.me'), null);
-  await rejects(admin.mutate('auth.login', { username: 'admin', password: 'wrong-password' }), 'UNAUTHORIZED');
+  await rejects(
+    admin.mutate('auth.login', { username: 'admin', password: 'wrong-password' }),
+    'UNAUTHORIZED',
+    '用户名或密码错误',
+  );
+  // 输入校验错误返回首条校验消息和字段错误
+  await assert.rejects(admin.mutate('auth.login', { username: 'A', password: 'x' }), (error) => {
+    assert.equal(error.code, 'BAD_REQUEST');
+    assert.equal(error.status, 400);
+    assert.equal(error.rpcMessage, '用户名需为 3–64 位小写字母、数字、点、下划线或连字符');
+    assert.ok(error.fieldErrors.username);
+    return true;
+  });
   const me = await admin.mutate('auth.login', { username: 'admin', password: 'admin-password-e2e' });
   assert.equal(me.role, 'admin');
   const created = await admin.mutate('admin.users.create', { username: 'alice', password: 'alice-password' });
   state.userId = created.user.id;
   await user.mutate('auth.login', { username: 'alice', password: 'alice-password' });
-  await rejects(user.query('admin.users.list'), 'FORBIDDEN');
+  await rejects(user.query('admin.users.list'), 'FORBIDDEN', '需要管理员权限');
+  await rejects(admin.mutate('admin.users.create', { username: 'alice', password: 'alice-password' }), 'CONFLICT');
+  await rejects(admin.query('admin.users.get', { userId: randomUUID() }), 'NOT_FOUND', '用户不存在');
 
   // 渠道、模型与价格
   const channel = await admin.mutate('admin.catalog.saveChannel', {
@@ -255,7 +273,11 @@ test('认证、目录配置、Key 与网关结算主流程', async () => {
   assert.equal((await admin.query('admin.pricing.list', { modelId: model.id })).rules.length, 1);
 
   // 渠道授权与 Key
-  await rejects(user.mutate('keys.create', { name: 'k', channelId: channel.id }), 'FORBIDDEN');
+  await rejects(
+    user.mutate('keys.create', { name: 'k', channelId: channel.id }),
+    'FORBIDDEN',
+    '渠道不可用、未授权或没有可用模型',
+  );
   await admin.mutate('admin.catalog.setGrants', { userId: state.userId, channelIds: [channel.id] });
   assert.deepEqual(
     (await user.query('keys.channels')).map((c) => c.id),

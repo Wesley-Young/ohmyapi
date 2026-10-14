@@ -1,4 +1,4 @@
-import type { Endpoint } from '../catalog/service.js';
+import type { Endpoint } from '../database/schema/index.js';
 
 export const imageInputTypes: Record<Endpoint, string> = {
   '/v1/chat/completions': 'image_url',

@@ -1,7 +1,7 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { TRPCError } from '@trpc/server';
 import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
 
+import { AppError } from '../../core/errors.js';
 import { formatMoney } from '../../core/money.js';
 import { pageSize } from '../../core/pagination.js';
 import { generatePassword, hashPassword } from '../auth/password.js';
@@ -46,7 +46,7 @@ export class UserService {
 
   async get(userId: string) {
     const [user] = await this.db.select().from(users).where(eq(users.id, userId));
-    if (!user) throw new TRPCError({ code: 'NOT_FOUND', message: '用户不存在' });
+    if (!user) throw new AppError('not_found', '用户不存在');
     return { ...publicUser(user), createdAt: user.createdAt.toISOString(), deleted: user.deletedAt !== null };
   }
 
@@ -58,7 +58,7 @@ export class UserService {
         .values({ username, passwordHash })
         .onConflictDoNothing({ target: users.username, where: isNull(users.deletedAt) })
         .returning();
-      if (!user) throw new TRPCError({ code: 'CONFLICT', message: '用户名已存在' });
+      if (!user) throw new AppError('conflict', '用户名已存在');
       await tx.insert(wallets).values({ userId: user.id });
       await tx.insert(adminAuditLogs).values({
         actorId: actor.id,
@@ -78,11 +78,11 @@ export class UserService {
         .from(users)
         .where(and(eq(users.id, userId), isNull(users.deletedAt)))
         .for('update');
-      if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: '用户不存在' });
+      if (!target) throw new AppError('not_found', '用户不存在');
       if (target.role === role) return publicUser(target);
-      if (actor.id === userId) throw new TRPCError({ code: 'FORBIDDEN', message: '请由其他管理员将你降级为普通用户' });
+      if (actor.id === userId) throw new AppError('forbidden', '请由其他管理员将你降级为普通用户');
       if (role === 'admin' && target.status !== 'active')
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '请先启用该用户，再提升为管理员' });
+        throw new AppError('bad_request', '请先启用该用户，再提升为管理员');
       const [updated] = await tx.update(users).set({ role }).where(eq(users.id, userId)).returning();
       await tx
         .update(sessions)
@@ -112,10 +112,9 @@ export class UserService {
         .from(users)
         .where(and(eq(users.id, userId), isNull(users.deletedAt)))
         .for('update');
-      if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: '用户不存在' });
-      if (target.role !== 'user') throw new TRPCError({ code: 'FORBIDDEN', message: '此操作仅适用于普通用户' });
-      if (action === 'reset_password' && !passwordHash)
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '请填写新密码' });
+      if (!target) throw new AppError('not_found', '用户不存在');
+      if (target.role !== 'user') throw new AppError('forbidden', '此操作仅适用于普通用户');
+      if (action === 'reset_password' && !passwordHash) throw new AppError('bad_request', '请填写新密码');
       if (action === 'enable' || action === 'disable')
         await tx
           .update(users)

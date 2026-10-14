@@ -1,15 +1,14 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
-import { TRPCError } from '@trpc/server';
 import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { GatewayError } from '../../core/errors.js';
+import { AppError, GatewayError } from '../../core/errors.js';
 import type { CredentialVault } from '../../core/vault.js';
 import type { AuthService, Principal } from '../auth/service.js';
 import { channelProxy } from '../catalog/proxy.js';
 import type { Database, Transaction } from '../database/client.js';
 import { adminAuditLogs, channels, subscriptionAccounts } from '../database/schema/index.js';
-import { type OutboundHttp, proxyUrlInput } from '../outbound/index.js';
+import type { OutboundHttp } from '../outbound/index.js';
 import { fetchClaudeModels } from './claude/catalog.js';
 import { importClaudeCredentials } from './claude/client.js';
 import { type ClaudeCredentials, claudeCredentialsSchema } from './claude/credentials.js';
@@ -26,18 +25,12 @@ import { OpenAIOAuth } from './openai/oauth.js';
 import { OpenAIQuota } from './openai/quota.js';
 import { OpenAIResetCredits } from './openai/reset-credits.js';
 import { OpenAITokens } from './openai/tokens.js';
-
-const credentialInput = z.object({
-  provider: z.enum(['openai', 'claude']).default('openai'),
-  credentials: z.string().min(1).max(60000).optional(),
-  callbackUrl: z.url().max(8192).optional(),
-});
-export const subscriptionInput = credentialInput
-  .extend({ maxConcurrent: z.number().int().min(1).max(100).default(5) })
-  .refine((input) => !(input.credentials && input.callbackUrl), '请选择一种接入方式');
-export const fetchSubscriptionModelsInput = credentialInput
-  .extend({ channelId: z.uuid().optional(), proxyUrl: proxyUrlInput })
-  .refine((input) => !(input.credentials && input.callbackUrl), '请选择一种接入方式');
+import type {
+  ConsumeResetCreditInput,
+  CredentialInput,
+  FetchSubscriptionModelsInput,
+  SetCycleResetInput,
+} from './schemas.js';
 
 export class SubscriptionService implements Disposable {
   static readonly token = serviceToken<SubscriptionService>('ohmyapi/subscription');
@@ -87,15 +80,15 @@ export class SubscriptionService implements Disposable {
     (provider === 'claude' ? this.claudeOAuth : this.oauth).consume(principal.user.id, callbackUrl);
   }
 
-  async prepareCredentials(principal: Principal, input: z.infer<typeof credentialInput>, proxyUrl: string | null) {
+  async prepareCredentials(principal: Principal, input: CredentialInput, proxyUrl: string | null) {
     await this.auth.authorized(principal, { admin: true }, async () => {});
     if (input.callbackUrl) {
       try {
         const oauth = input.provider === 'claude' ? this.claudeOAuth : this.oauth;
         return await oauth.complete(principal.user.id, input.callbackUrl, this.outbound.forProxy(proxyUrl));
       } catch (error) {
-        if (error instanceof TRPCError) throw error;
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '授权失败，请重新授权并粘贴完整回调地址' });
+        if (error instanceof AppError) throw error;
+        throw new AppError('bad_request', '授权失败，请重新授权并粘贴完整回调地址');
       }
     }
     if (input.provider === 'claude') {
@@ -103,20 +96,17 @@ export class SubscriptionService implements Disposable {
       try {
         return await importClaudeCredentials(JSON.parse(input.credentials), this.outbound.forProxy(proxyUrl));
       } catch {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Claude 凭据无效；需要 OAuth 令牌、有效期及 account_uuid，缺少账号信息时将通过代理查询',
-        });
+        throw new AppError(
+          'bad_request',
+          'Claude 凭据无效；需要 OAuth 令牌、有效期及 account_uuid，缺少账号信息时将通过代理查询',
+        );
       }
     }
     if (input.credentials) {
       try {
         return parseCredentials(JSON.parse(input.credentials));
       } catch {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: '凭据格式无效，需要 access_token、账号 ID 和有效期；支持 Codex auth.json',
-        });
+        throw new AppError('bad_request', '凭据格式无效，需要 access_token、账号 ID 和有效期；支持 Codex auth.json');
       }
     }
   }
@@ -134,15 +124,15 @@ export class SubscriptionService implements Disposable {
           .for('update')
       : [];
     if (existing && existing.provider !== input.provider)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '订阅平台不可更改，请新建渠道' });
-    if (input.id && !existing) throw new TRPCError({ code: 'NOT_FOUND', message: '订阅账号不存在' });
-    if (!existing && !credentials) throw new TRPCError({ code: 'BAD_REQUEST', message: '请导入凭据或完成授权' });
+      throw new AppError('bad_request', '订阅平台不可更改，请新建渠道');
+    if (input.id && !existing) throw new AppError('not_found', '订阅账号不存在');
+    if (!existing && !credentials) throw new AppError('bad_request', '请导入凭据或完成授权');
     if (
       existing &&
       credentials &&
       (existing.accountId !== credentials.accountId || existing.userId !== credentials.userId)
     )
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '新凭据属于其他账号，请新建订阅渠道' });
+      throw new AppError('bad_request', '新凭据属于其他账号，请新建订阅渠道');
     if (credentials) {
       if (existing) {
         const raw = JSON.parse(this.vault.decrypt(existing.credentialEncrypted));
@@ -171,7 +161,7 @@ export class SubscriptionService implements Disposable {
           ),
         );
       if (duplicate && duplicate.id !== input.id)
-        throw new TRPCError({ code: 'CONFLICT', message: '该订阅账号已存在，请编辑对应订阅渠道' });
+        throw new AppError('conflict', '该订阅账号已存在，请编辑对应订阅渠道');
     }
     const values = {
       name: input.name,
@@ -198,7 +188,7 @@ export class SubscriptionService implements Disposable {
         .where(eq(subscriptionAccounts.id, existing.id))
         .returning({ id: subscriptionAccounts.id });
     } else {
-      if (!credentials) throw new TRPCError({ code: 'BAD_REQUEST', message: '请导入凭据或完成授权' });
+      if (!credentials) throw new AppError('bad_request', '请导入凭据或完成授权');
       const [created] = await tx
         .insert(subscriptionAccounts)
         .values({
@@ -210,7 +200,7 @@ export class SubscriptionService implements Disposable {
         })
         .onConflictDoNothing()
         .returning({ id: subscriptionAccounts.id });
-      if (!created) throw new TRPCError({ code: 'CONFLICT', message: '该订阅账号已存在，请编辑对应订阅渠道' });
+      if (!created) throw new AppError('conflict', '该订阅账号已存在，请编辑对应订阅渠道');
       row = created;
     }
     this.openaiQuota.invalidate(row.id);
@@ -230,7 +220,7 @@ export class SubscriptionService implements Disposable {
       this.openaiQuota.invalidate(id);
       this.claudeQuota.invalidate(id);
     } catch {
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '刷新失败，请检查账号状态或重新授权' });
+      throw new AppError('bad_request', '刷新失败，请检查账号状态或重新授权');
     }
     return { success: true };
   }
@@ -246,10 +236,7 @@ export class SubscriptionService implements Disposable {
     const id = await this.providerAccountForChannel(principal, channelId, 'openai');
     return this.openaiResetCredits.list(this.tokens, id);
   }
-  async consumeOpenAIResetCredit(
-    principal: Principal,
-    input: { channelId: string; creditId: string; redeemRequestId: string },
-  ) {
+  async consumeOpenAIResetCredit(principal: Principal, input: ConsumeResetCreditInput) {
     const id = await this.providerAccountForChannel(principal, input.channelId, 'openai');
     try {
       const result = await this.openaiResetCredits.consume(this.tokens, id, input.creditId, input.redeemRequestId);
@@ -285,7 +272,7 @@ export class SubscriptionService implements Disposable {
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
     if (!account?.enabled || (account.provider !== 'openai' && account.provider !== 'claude'))
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '渠道未启用或已删除' });
+      throw new AppError('bad_request', '渠道未启用或已删除');
     const quota = await (account.provider === 'claude'
       ? this.claudeQuota.get(this.claudeTokens, id)
       : this.openaiQuota.get(this.tokens, id)
@@ -319,19 +306,18 @@ export class SubscriptionService implements Disposable {
       ...usage,
     };
   }
-  async setCycleReset(principal: Principal, input: { channelId: string; resetAt: string | null }) {
+  async setCycleReset(principal: Principal, input: SetCycleResetInput) {
     const id = await this.accountForChannel(principal, input.channelId);
     const resetAt = input.resetAt ? new Date(input.resetAt) : null;
     if (resetAt && resetAt.getTime() > Date.now() + 60_000)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '重置时刻不能晚于当前时间' });
+      throw new AppError('bad_request', '重置时刻不能晚于当前时间');
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [account] = await tx
         .select({ provider: subscriptionAccounts.provider, cycleResetAt: subscriptionAccounts.cycleResetAt })
         .from(subscriptionAccounts)
         .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)))
         .for('update');
-      if (account?.provider !== 'claude')
-        throw new TRPCError({ code: 'BAD_REQUEST', message: '仅 Claude 订阅需要手动填写重置时刻' });
+      if (account?.provider !== 'claude') throw new AppError('bad_request', '仅 Claude 订阅需要手动填写重置时刻');
       await tx.update(subscriptionAccounts).set({ cycleResetAt: resetAt }).where(eq(subscriptionAccounts.id, id));
       await tx.insert(adminAuditLogs).values({
         actorId: actor.id,
@@ -353,7 +339,7 @@ export class SubscriptionService implements Disposable {
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
     if (account?.provider !== provider || !account.enabled)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '订阅平台不匹配，或渠道未启用、已删除' });
+      throw new AppError('bad_request', '订阅平台不匹配，或渠道未启用、已删除');
     return id;
   }
   private async accountForChannel(principal: Principal, channelId: string) {
@@ -362,7 +348,7 @@ export class SubscriptionService implements Disposable {
         .select({ accountId: channels.subscriptionAccountId })
         .from(channels)
         .where(and(eq(channels.id, channelId), eq(channels.type, 'subscription'), isNull(channels.deletedAt)));
-      if (!channel?.accountId) throw new TRPCError({ code: 'NOT_FOUND', message: '订阅渠道不存在' });
+      if (!channel?.accountId) throw new AppError('not_found', '订阅渠道不存在');
       return channel.accountId;
     });
   }
@@ -373,8 +359,8 @@ export class SubscriptionService implements Disposable {
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)))
       .for('update');
-    if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: '订阅账号不存在' });
-    if (this.concurrency.active(id)) throw new TRPCError({ code: 'CONFLICT', message: '请等待该渠道请求结束后再删除' });
+    if (!row) throw new AppError('not_found', '订阅账号不存在');
+    if (this.concurrency.active(id)) throw new AppError('conflict', '请等待该渠道请求结束后再删除');
     await tx
       .update(subscriptionAccounts)
       .set({ deletedAt: new Date(), enabled: false })
@@ -525,18 +511,16 @@ export class SubscriptionService implements Disposable {
       );
   }
 
-  async models(principal: Principal, input: z.infer<typeof fetchSubscriptionModelsInput>) {
+  async models(principal: Principal, input: FetchSubscriptionModelsInput) {
     const id = input.channelId ? await this.accountForChannel(principal, input.channelId) : undefined;
     const provider = id ? await this.provider(id) : input.provider;
-    if (provider !== input.provider)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '订阅平台与已保存渠道不匹配' });
+    if (provider !== input.provider) throw new AppError('bad_request', '订阅平台与已保存渠道不匹配');
     const proxyUrl = await channelProxy(this.auth, this.vault, principal, input.channelId, input.proxyUrl);
     const request = this.outbound.forProxy(proxyUrl);
     const provided = await this.prepareCredentials(principal, input, proxyUrl);
-    if (!provided && !id)
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '请先导入凭据或完成 OAuth 授权，再拉取模型' });
+    if (!provided && !id) throw new AppError('bad_request', '请先导入凭据或完成 OAuth 授权，再拉取模型');
     if (provided && new Date(provided.expiresAt).getTime() <= Date.now())
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '凭据已过期，请重新授权或导入新凭据' });
+      throw new AppError('bad_request', '凭据已过期，请重新授权或导入新凭据');
     try {
       const tokens = provider === 'claude' ? this.claudeTokens : this.tokens;
       const credentials = provided ?? (id ? await tokens.get(id, false, proxyUrl) : undefined);
@@ -564,8 +548,8 @@ export class SubscriptionService implements Disposable {
         ignored: 0,
       };
     } catch (error) {
-      if (error instanceof TRPCError) throw error;
-      throw new TRPCError({ code: 'BAD_REQUEST', message: '获取订阅模型失败，请检查账号和出站代理，或手动添加模型' });
+      if (error instanceof AppError) throw error;
+      throw new AppError('bad_request', '获取订阅模型失败，请检查账号和出站代理，或手动添加模型');
     }
   }
 

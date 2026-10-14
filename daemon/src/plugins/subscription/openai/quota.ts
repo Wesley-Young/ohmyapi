@@ -1,6 +1,6 @@
-import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { AppError } from '../../../core/errors.js';
 import { type PlanCache, planValue } from '../plan.js';
 import { accountHeaders, readJson } from './client.js';
 import type { OpenAITokens } from './tokens.js';
@@ -77,7 +77,7 @@ export class OpenAIQuota {
         })
         .catch(() => {
           entry.expiresAt = Date.now() + 15_000;
-          throw new TRPCError({ code: 'BAD_GATEWAY', message: '获取 OpenAI 额度失败，请稍后重试或检查账号凭据' });
+          throw new AppError('bad_gateway', '获取 OpenAI 额度失败，请稍后重试或检查账号凭据');
         }),
     };
     this.cache.set(id, entry);

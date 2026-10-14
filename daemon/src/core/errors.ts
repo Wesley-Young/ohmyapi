@@ -1,3 +1,25 @@
+/** 业务错误的类别，由各传输层映射为协议状态。 */
+export type AppErrorKind =
+  | 'bad_request'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not_found'
+  | 'conflict'
+  | 'precondition_failed'
+  | 'too_many_requests'
+  | 'bad_gateway';
+
+/** 可直接展示给用户的业务错误；业务层不依赖 tRPC 等传输层的错误类型。 */
+export class AppError extends Error {
+  override readonly name = 'AppError';
+  readonly kind: AppErrorKind;
+  constructor(kind: AppErrorKind, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.kind = kind;
+  }
+}
+
+/** 网关协议错误：携带 HTTP 状态和兼容 OpenAI/Anthropic 的错误代码。 */
 export class GatewayError extends Error {
   readonly status: number;
   readonly code: string;
