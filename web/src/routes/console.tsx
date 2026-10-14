@@ -2,6 +2,7 @@ import { Box, Flex, HStack, Link, Stack, Text } from '@chakra-ui/react';
 import {
   CircleDollarSign,
   FlaskConical,
+  Info,
   KeyRound,
   Layers,
   LayoutDashboard,
@@ -29,6 +30,7 @@ const navigationIcons = {
   models: Layers,
   plaza: CircleDollarSign,
   playground: FlaskConical,
+  about: Info,
 };
 
 function NavigationIcon({ name }: { name: keyof typeof navigationIcons }) {
@@ -98,6 +100,9 @@ export default function Console() {
           bg="white"
           px={{ base: 2, md: 3 }}
           py="5"
+          display="flex"
+          flexDirection="column"
+          gap="5"
         >
           <Stack as="nav" aria-label="控制台导航" gap="1">
             {links.map((link) => {
@@ -142,6 +147,27 @@ export default function Console() {
               );
             })}
           </Stack>
+          <Box mt="auto">
+            <Tooltip content="关于">
+              <RouterLink to="/about" aria-label="关于" style={{ display: 'block', borderRadius: '8px' }}>
+                <HStack
+                  gap="3"
+                  h="44px"
+                  px={{ base: 0, md: 3 }}
+                  justify={{ base: 'center', md: 'start' }}
+                  borderRadius="lg"
+                  color="gray.500"
+                  _hover={{ bg: 'gray.50', color: textColor }}
+                  fontSize="sm"
+                >
+                  <NavigationIcon name="about" />
+                  <Text display={{ base: 'none', md: 'block' }} whiteSpace="nowrap" flex="1">
+                    关于
+                  </Text>
+                </HStack>
+              </RouterLink>
+            </Tooltip>
+          </Box>
         </Box>
         <Box
           flex="1"

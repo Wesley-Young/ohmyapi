@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router';
 
-import { Centered, ErrorText, FormInput, Loading, PrimaryButton } from '../components/ui';
+import { AboutLink, Centered, ErrorText, FormInput, Loading, PrimaryButton } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { formError } from '../lib/format';
 import { setSession, trpc } from '../lib/trpc';
@@ -32,7 +32,7 @@ export default function Login() {
     );
   if (auth.data) return <Navigate to="/console" replace />;
   return (
-    <Centered>
+    <Centered footer={<AboutLink />}>
       <Stack gap="7">
         <Heading as="h1" fontSize="28px" letterSpacing="-0.04em">
           登录

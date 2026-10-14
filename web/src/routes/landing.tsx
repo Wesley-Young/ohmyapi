@@ -1,13 +1,13 @@
-import { Flex, Heading, Stack } from '@chakra-ui/react';
+import { Heading, Stack } from '@chakra-ui/react';
 import { useNavigate } from 'react-router';
 
 import { Logo } from '../components/logo';
-import { PrimaryButton } from '../components/ui';
+import { AboutLink, Centered, PrimaryButton } from '../components/ui';
 
 export default function Landing() {
   const navigate = useNavigate();
   return (
-    <Flex minH="100dvh" align="center" justify="center" px="6">
+    <Centered footer={<AboutLink />}>
       <Stack align="center" gap="8">
         <Heading as="h1" fontSize={{ base: '48px', md: '64px' }} lineHeight="1">
           <Logo />
@@ -16,6 +16,6 @@ export default function Landing() {
           登录
         </PrimaryButton>
       </Stack>
-    </Flex>
+    </Centered>
   );
 }

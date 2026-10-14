@@ -8,6 +8,7 @@ import App from './App';
 import { AdminOnly, Authenticated } from './components/route-guards';
 import { Loading } from './components/ui';
 import { queryClient } from './lib/trpc';
+import About from './routes/about';
 import ChangePassword from './routes/change-password';
 import Channels from './routes/channels';
 import Console from './routes/console';
@@ -39,6 +40,7 @@ createRoot(root).render(
             <Route element={<App />}>
               <Route index element={<Landing />} />
               <Route path="login" element={<Login />} />
+              <Route path="about" element={<About />} />
               <Route element={<Authenticated />}>
                 <Route path="change-password" element={<ChangePassword />} />
                 <Route path="console" element={<Console />}>

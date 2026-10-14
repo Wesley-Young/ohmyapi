@@ -9,6 +9,7 @@ import {
   HStack,
   Input,
   type InputProps,
+  Link,
   Portal,
   Spinner,
   Stack,
@@ -17,6 +18,7 @@ import {
 import { useMutation } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { type ReactNode, useId, useState } from 'react';
+import { Link as RouterLink } from 'react-router';
 
 import { formError } from '../lib/format';
 import { brandColor, brandHoverColor } from '../lib/theme';
@@ -57,12 +59,38 @@ export function NameAction(props: ButtonProps) {
     />
   );
 }
-export function Centered({ children }: { children: ReactNode }) {
+/** Footer link to the about page for signed-out pages. */
+export function AboutLink() {
   return (
-    <Flex minH="100dvh" align="center" justify="center" px="6" py="10">
-      <Box w="full" maxW="360px">
-        {children}
-      </Box>
+    <Link asChild fontSize="sm" color="gray.500" textDecoration="none" _hover={{ color: brandColor }}>
+      <RouterLink to="/about">关于</RouterLink>
+    </Link>
+  );
+}
+const footerHeight = '56px';
+
+/** Compact single-column page; an optional footer sits at the bottom without shifting the centered content. */
+export function Centered({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
+  const content = (
+    <Box w="full" maxW="360px">
+      {children}
+    </Box>
+  );
+  if (!footer)
+    return (
+      <Flex minH="100dvh" align="center" justify="center" px="6" py="10">
+        {content}
+      </Flex>
+    );
+  return (
+    <Flex direction="column" minH="100dvh" px="6">
+      <Box h={footerHeight} flexShrink="0" aria-hidden="true" />
+      <Flex flex="1" align="center" justify="center" py="4">
+        {content}
+      </Flex>
+      <Flex as="footer" h={footerHeight} flexShrink="0" align="center" justify="center">
+        {footer}
+      </Flex>
     </Flex>
   );
 }
