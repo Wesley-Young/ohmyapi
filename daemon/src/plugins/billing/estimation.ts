@@ -7,18 +7,6 @@ import { estimateImageTokens } from './image-estimation.js';
 
 // A local approximation for arbitrary upstream models, not a billing tokenizer.
 const tokenizer = new Tiktoken(o200kBase);
-export type UsageEstimate = {
-  method: 'o200k_base_v1';
-  reason: 'client_disconnected';
-  inputSource: 'upstream' | 'request_estimate';
-  outputSource: 'upstream' | 'observed_estimate' | 'upstream_with_observed_tail';
-  reportedOutputTokens: string | null;
-  observedTailTokens: string;
-  inputImageCount: number;
-  inputImageTokens: number;
-  imageMethod: 'model_default_1024_v1';
-  searchSource: 'upstream' | 'observed' | 'request' | 'none';
-};
 
 /** 按固定字符块计数，避免 SSE 分片边界影响估算；内存中只保留最后一个块。 */
 export class OutputTokenEstimate {

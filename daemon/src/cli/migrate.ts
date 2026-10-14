@@ -1,5 +1,5 @@
 import { readDatabaseConfig } from '../config.js';
-import { errorDetails, globalLogger } from '../logging.js';
+import { errorDetails, formatEvent, globalLogger } from '../core/logging.js';
 import { createDatabase } from '../plugins/database/client.js';
 import { migrateDatabase } from '../plugins/database/migrate.js';
 
@@ -14,6 +14,6 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  globalLogger.error(`数据库迁移失败 ${JSON.stringify(errorDetails(error))}`);
+  globalLogger.error(formatEvent('数据库迁移失败', errorDetails(error)));
   process.exitCode = 1;
 });

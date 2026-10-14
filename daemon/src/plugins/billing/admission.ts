@@ -1,5 +1,5 @@
+import { GatewayError } from '../../core/errors.js';
 import type { Endpoint } from '../catalog/service.js';
-import { GatewayError } from '../gateway/errors.js';
 import { ruleTimeMatcher } from '../pricing/rules.js';
 import type { LockedPrice } from '../pricing/service.js';
 import { imageInputTypes, requestContentBlocks } from './content.js';

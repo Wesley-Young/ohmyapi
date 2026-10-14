@@ -1,5 +1,5 @@
+import { GatewayError } from '../../core/errors.js';
 import type { Endpoint } from '../catalog/service.js';
-import { GatewayError } from '../gateway/errors.js';
 
 export const maxSearchCalls = 10_000;
 export type SearchKind = 'webSearch' | 'webSearchPreview';

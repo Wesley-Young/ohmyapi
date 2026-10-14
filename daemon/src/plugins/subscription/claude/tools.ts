@@ -1,4 +1,4 @@
-import { GatewayError } from '../../gateway/errors.js';
+import { GatewayError } from '../../../core/errors.js';
 import { words } from './words.js';
 
 import { createHmac } from 'node:crypto';

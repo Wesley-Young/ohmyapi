@@ -2,10 +2,10 @@ import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, gt, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
-import type { AuthService, Principal, Transaction } from '../auth/service.js';
-import { formatMoney } from '../billing/conventions.js';
-import { supportedChannelTypes } from '../catalog/channel-types.js';
-import type { Database } from '../database/client.js';
+import { formatMoney } from '../../core/money.js';
+import { pageSize } from '../../core/pagination.js';
+import type { AuthService, Principal } from '../auth/service.js';
+import type { Database, Transaction } from '../database/client.js';
 import {
   adminAuditLogs,
   apiKeyChannels,
@@ -21,31 +21,33 @@ import {
   userChannelGrants,
 } from '../database/schema/index.js';
 import { availableSubscription } from '../subscription/availability.js';
-import { pageSize } from '../users/service.js';
 
 import { randomBytes } from 'node:crypto';
 
 export class KeyService {
   static readonly token = serviceToken<KeyService>('ohmyapi/keys');
+  private readonly db: Database;
   private readonly auth: AuthService;
-  constructor(auth: AuthService) {
+  constructor({ db, auth }: { db: Database; auth: AuthService }) {
+    this.db = db;
     this.auth = auth;
   }
 
   async availableModels(principal: Principal) {
     if (principal.user.role === 'admin')
-      return this.auth.db
+      return this.db
         .select({ id: models.id, name: models.name })
         .from(models)
         .where(and(eq(models.enabled, true), isNull(models.deletedAt)))
         .orderBy(models.name);
-    const offerings = await this.offerings(this.auth.db, principal.user.id, principal.user.role);
+    const offerings = await this.offerings(principal.user);
     return [...new Map(offerings.map((row) => [row.modelId, { id: row.modelId, name: row.modelName }])).values()].sort(
       (a, b) => a.name.localeCompare(b.name),
     );
   }
 
-  async offerings(db: Database | Transaction, userId: string, role: string) {
+  /** 用户可调用的渠道、模型和端点组合；在事务中调用时传入 tx 以读取一致的授权状态。 */
+  async offerings({ id: userId, role }: { id: string; role: string }, db: Database | Transaction = this.db) {
     const allowed =
       role === 'admin' ? undefined : or(eq(channels.isPublic, true), eq(userChannelGrants.userId, userId));
     const base = db
@@ -76,7 +78,6 @@ export class KeyService {
         and(
           eq(channels.enabled, true),
           availableSubscription(),
-          inArray(channels.type, [...supportedChannelTypes]),
           eq(models.enabled, true),
           isNull(channels.deletedAt),
           isNull(models.deletedAt),
@@ -99,7 +100,7 @@ export class KeyService {
   }
 
   async availableChannels(principal: Principal) {
-    const rows = await this.offerings(this.auth.db, principal.user.id, principal.user.role);
+    const rows = await this.offerings(principal.user);
     return [...new Set(rows.map((r) => r.channelId))].map((id) => {
       const filteredRows = rows.filter((r) => r.channelId === id);
       return {
@@ -112,7 +113,7 @@ export class KeyService {
   }
 
   async playgroundOptions(principal: Principal) {
-    const rows = await this.auth.db
+    const rows = await this.db
       .selectDistinct({
         keyId: apiKeys.id,
         keyName: apiKeys.name,
@@ -148,7 +149,6 @@ export class KeyService {
           inArray(channelEndpoints.endpoint, ['/v1/chat/completions', '/v1/responses', '/v1/messages']),
           eq(channels.enabled, true),
           availableSubscription(),
-          inArray(channels.type, [...supportedChannelTypes]),
           isNull(channels.deletedAt),
           eq(models.enabled, true),
           isNull(models.deletedAt),
@@ -205,7 +205,7 @@ export class KeyService {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Key 已失效' });
       const [existing] = await tx.select().from(apiKeyChannels).where(eq(apiKeyChannels.apiKeyId, keyId));
       if (existing) throw new TRPCError({ code: 'CONFLICT', message: 'Key 已绑定渠道，请通过编辑修改' });
-      const offerings = await this.offerings(tx, user.id, user.role);
+      const offerings = await this.offerings(user, tx);
       if (!offerings.some((o) => o.channelId === channelId))
         throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用、未授权或没有可用模型' });
       await tx.insert(apiKeyChannels).values({ apiKeyId: keyId, channelId });
@@ -216,8 +216,8 @@ export class KeyService {
   async list(principal: Principal, page: number) {
     const userId = principal.user.id;
     const [offerings, rows] = await Promise.all([
-      this.offerings(this.auth.db, userId, principal.user.role),
-      this.auth.db
+      this.offerings(principal.user),
+      this.db
         .select({
           id: apiKeys.id,
           name: apiKeys.name,
@@ -244,12 +244,12 @@ export class KeyService {
       sql<string>`coalesce(sum(${requests.chargedMicros}) filter (where ${requests.status} = 'settled' and ${requests.receivedAt} >= now() - ${window}), 0)::text`;
     const [grants, usage] = items.length
       ? await Promise.all([
-          this.auth.db
+          this.db
             .select({ keyId: apiKeyModelGrants.apiKeyId, id: models.id, name: models.name })
             .from(apiKeyModelGrants)
             .innerJoin(models, eq(models.id, apiKeyModelGrants.modelId))
             .where(inArray(apiKeyModelGrants.apiKeyId, keyIds)),
-          this.auth.db
+          this.db
             .select({
               keyId: requests.apiKeyId,
               last24Hours: settled(sql`interval '24 hours'`),
@@ -308,7 +308,7 @@ export class KeyService {
         );
       if (count >= 100) throw new TRPCError({ code: 'BAD_REQUEST', message: '最多保留 100 个有效 Key' });
       const modelIds = [...new Set(input.modelIds ?? [])];
-      const offerings = (await this.offerings(tx, user.id, user.role)).filter((o) => o.channelId === input.channelId);
+      const offerings = (await this.offerings(user, tx)).filter((o) => o.channelId === input.channelId);
       if (!offerings.length) throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用、未授权或没有可用模型' });
       if (modelIds.some((id) => !offerings.some((o) => o.modelId === id)))
         throw new TRPCError({ code: 'FORBIDDEN', message: '包含渠道不可用或未授权的模型' });
@@ -370,7 +370,7 @@ export class KeyService {
             )
           : [...new Set(input.modelIds ?? [])];
       if (channelChanged || input.modelIds !== undefined) {
-        const offerings = (await this.offerings(tx, user.id, user.role)).filter((o) => o.channelId === channelId);
+        const offerings = (await this.offerings(user, tx)).filter((o) => o.channelId === channelId);
         if (!offerings.length) throw new TRPCError({ code: 'FORBIDDEN', message: '渠道不可用、未授权或没有可用模型' });
         if (modelIds.some((id) => !offerings.some((o) => o.modelId === id)))
           throw new TRPCError({ code: 'FORBIDDEN', message: '包含渠道不可用或未授权的模型，请重新选择' });

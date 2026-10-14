@@ -4,9 +4,8 @@ import { bodyLimit } from 'hono/body-limit';
 import { getCookie } from 'hono/cookie';
 import { serialize } from 'hono/utils/cookie';
 
-import { readSessionConfig } from '../../config.js';
+import { errorDetails, formatEvent } from '../../core/logging.js';
 import { definePlugin } from '../../kernel.js';
-import { errorDetails } from '../../logging.js';
 import { appRouter } from '../../trpc/router.js';
 import { AuthService } from '../auth/service.js';
 import { BillingService } from '../billing/service.js';
@@ -38,7 +37,7 @@ export const HttpPlugin = definePlugin({
   apply(ctx) {
     const app = ctx.hono.app;
     const startedAt = new Date().toISOString();
-    const sessionConfig = readSessionConfig();
+    const sessionConfig = ctx.config.session;
     const cookieName: string = sessionConfig.secure ? '__Host-ohmyapi_session' : 'ohmyapi_session';
     const cookieOptions = { path: '/', httpOnly: true, sameSite: 'Strict' as const, secure: sessionConfig.secure };
     const requestInfos = new WeakMap<Request, { requestId: string; startedAt: number }>();
@@ -82,7 +81,7 @@ export const HttpPlugin = definePlugin({
         dependency = 'billing';
         ctx.billing.assertReady();
         if (readiness !== 'ready') {
-          ctx.logger.info(`服务就绪 ${JSON.stringify({ previousState: readiness ?? 'unknown' })}`);
+          ctx.logger.info(formatEvent('服务就绪', { previousState: readiness ?? 'unknown' }));
           readiness = 'ready';
         }
         return c.json({ name: 'ohmyapi', status: 'ready' });
@@ -90,11 +89,11 @@ export const HttpPlugin = definePlugin({
         const state = `${dependency}_unavailable`;
         if (readiness !== state) {
           ctx.logger.warn(
-            `服务未就绪 ${JSON.stringify({
+            formatEvent('服务未就绪', {
               dependency,
               previousState: readiness ?? 'unknown',
               ...errorDetails(error),
-            })}`,
+            }),
           );
           readiness = state;
         }
@@ -134,14 +133,14 @@ export const HttpPlugin = definePlugin({
           if (error.code === 'INTERNAL_SERVER_ERROR') {
             const info = requestInfo(c.req.raw);
             ctx.logger.error(
-              `RPC 请求失败 ${JSON.stringify({
+              formatEvent('RPC 请求失败', {
                 requestId: info.requestId,
                 procedure: path && /^[a-zA-Z][a-zA-Z0-9_.]{0,127}$/.test(path) ? path : 'unknown',
                 method: c.req.method,
                 durationMs: Date.now() - info.startedAt,
                 errorCode: error.code,
                 ...errorDetails(error.cause ?? error),
-              })}`,
+              }),
             );
           }
         },
@@ -157,19 +156,19 @@ export const HttpPlugin = definePlugin({
         ctx.gateway.error(endpoint, 405, 'method_not_allowed', 'Only POST is supported', crypto.randomUUID()),
       );
     }
-    if (process.env.NODE_ENV === 'production') serveWeb(app);
+    if (ctx.config.serveWeb) serveWeb(app);
     app.notFound((c) => c.json({ error: 'Not found' }, 404));
     app.onError((error, c) => {
       const info = requestInfo(c.req.raw);
       c.header('x-request-id', info.requestId);
       ctx.logger.error(
-        `HTTP 请求失败 ${JSON.stringify({
+        formatEvent('HTTP 请求失败', {
           requestId: info.requestId,
           route: c.req.routePath,
           method: c.req.method,
           durationMs: Date.now() - info.startedAt,
           ...errorDetails(error),
-        })}`,
+        }),
       );
       return c.json({ error: 'Internal server error' }, 500);
     });

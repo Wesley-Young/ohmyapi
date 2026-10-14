@@ -1,5 +1,5 @@
+import { GatewayError } from '../../../core/errors.js';
 import type { Endpoint } from '../../catalog/service.js';
-import { GatewayError } from '../../gateway/errors.js';
 
 import { createHash } from 'node:crypto';
 

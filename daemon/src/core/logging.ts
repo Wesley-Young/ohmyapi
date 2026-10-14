@@ -8,6 +8,11 @@ export const globalLogger = new Logger(logHandler, 'ohmyapi');
 export type EventLogger = Pick<Logger, LogLevel>;
 export type LogFields = Record<string, string | number | boolean | null | undefined>;
 
+/** 结构化日志行：中文描述后附 JSON 字段，便于检索和解析。 */
+export function formatEvent(message: string, fields: object) {
+  return `${message} ${JSON.stringify(fields)}`;
+}
+
 const errorTypes = new Set([
   'Error',
   'TypeError',

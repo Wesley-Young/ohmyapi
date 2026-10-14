@@ -1,4 +1,4 @@
-import { GatewayError } from '../../gateway/errors.js';
+import { GatewayError } from '../../../core/errors.js';
 import { responseHeaders } from '../../gateway/protocol.js';
 import { type ForwardResponseOptions, forwardResponse } from '../../gateway/response.js';
 import { SseObserver } from '../../gateway/usage.js';

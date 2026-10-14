@@ -1,10 +1,10 @@
-import type { ChannelType } from '../catalog/channel-types.js';
-import type { CredentialVault, Endpoint } from '../catalog/service.js';
-import type { channels } from '../database/schema/catalog.js';
+import { GatewayError } from '../../core/errors.js';
+import type { CredentialVault } from '../../core/vault.js';
+import type { Endpoint } from '../catalog/service.js';
+import type { ChannelType, channels } from '../database/schema/catalog.js';
 import { claudeAdapter } from '../subscription/claude/adapter.js';
 import { openAIAdapter } from '../subscription/openai/adapter.js';
 import type { SubscriptionService } from '../subscription/service.js';
-import { GatewayError } from './errors.js';
 import { upstreamBody, upstreamHeaders, upstreamUrl } from './protocol.js';
 import { type ForwardResponseOptions, forwardResponse } from './response.js';
 

@@ -1,4 +1,4 @@
-import { parseMoney } from '../billing/conventions.js';
+import { parseMoney } from '../../core/money.js';
 import type { Rule } from './rules.js';
 
 /** GPT-5/6 搜索调用单价按每千次；USD/CNY 仅作为显示符号。

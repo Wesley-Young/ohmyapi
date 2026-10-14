@@ -1,8 +1,14 @@
 import { type ContextOf, createPluginFactory, defineContext } from '@fraqjs/kernel';
 
-export const AppContext = defineContext<void>()
+import type { AppConfig } from './config.js';
+
+export const AppContext = defineContext<AppConfig>()
   .subsystems(() => ({}))
-  .builtins(() => ({}))
+  .builtins(({ rootOptions, parent }): { readonly config: AppConfig } => {
+    const config = rootOptions ?? parent?.context.config;
+    if (!config) throw new Error('Application config is required');
+    return { config };
+  })
   .build();
 
 export type AppContext = ContextOf<typeof AppContext>;

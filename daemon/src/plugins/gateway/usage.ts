@@ -1,7 +1,7 @@
-import { safeErrorMessage } from '../../logging.js';
-import type { UsageEstimate } from '../billing/estimation.js';
+import { safeErrorMessage } from '../../core/logging.js';
 import type { SearchRequest } from '../billing/search.js';
 import type { Endpoint } from '../catalog/service.js';
+import type { UsageEstimate } from '../database/schema/index.js';
 import { reportedCacheReadTokens } from './cache-usage.js';
 import { SearchUsageCollector } from './search-usage.js';
 import { StreamUsageEstimate } from './usage-estimate.js';

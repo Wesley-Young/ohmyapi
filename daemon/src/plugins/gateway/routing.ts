@@ -1,8 +1,8 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 
-import type { Transaction } from '../auth/service.js';
+import { GatewayError } from '../../core/errors.js';
 import type { Endpoint } from '../catalog/service.js';
-import type { Database } from '../database/client.js';
+import type { Database, Transaction } from '../database/client.js';
 import {
   aggregateChannelMembers,
   channels,
@@ -14,7 +14,6 @@ import { availableSubscription } from '../subscription/availability.js';
 import { openAIEndpoints } from '../subscription/openai/request.js';
 import type { SubscriptionService } from '../subscription/service.js';
 import type { AffinitySelection, ChannelAffinity } from './affinity.js';
-import { GatewayError } from './errors.js';
 import { requestSession } from './session.js';
 
 type Channel = typeof channels.$inferSelect;

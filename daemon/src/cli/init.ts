@@ -1,7 +1,7 @@
 import { readBillingCurrency, readDatabaseConfig } from '../config.js';
-import { errorDetails, globalLogger } from '../logging.js';
-import { initializeDatabase } from '../plugins/database/bootstrap.js';
+import { errorDetails, formatEvent, globalLogger } from '../core/logging.js';
 import { createDatabase } from '../plugins/database/client.js';
+import { initializeDatabase } from './bootstrap.js';
 
 async function main() {
   const options = {
@@ -25,6 +25,6 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  globalLogger.error(`数据库初始化失败 ${JSON.stringify(errorDetails(error))}`);
+  globalLogger.error(formatEvent('数据库初始化失败', errorDetails(error)));
   process.exitCode = 1;
 });

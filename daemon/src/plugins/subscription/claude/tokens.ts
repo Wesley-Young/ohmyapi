@@ -1,9 +1,9 @@
 import { and, eq, isNull } from 'drizzle-orm';
 
-import type { CredentialVault } from '../../catalog/vault.js';
+import { GatewayError } from '../../../core/errors.js';
+import type { CredentialVault } from '../../../core/vault.js';
 import type { Database } from '../../database/client.js';
 import { channels, subscriptionAccounts } from '../../database/schema/index.js';
-import { GatewayError } from '../../gateway/errors.js';
 import type { OutboundHttp } from '../../outbound/index.js';
 import { ClaudeRefreshError, refreshClaudeToken } from './client.js';
 import { type ClaudeCredentials, claudeCredentialsSchema } from './credentials.js';

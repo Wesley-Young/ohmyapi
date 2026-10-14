@@ -1,13 +1,16 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { and, asc, desc, eq, gt, inArray, isNull, or } from 'drizzle-orm';
 
-import type { readGatewayConfig } from '../../config.js';
-import { createLogSampler, type EventLogger, errorDetails } from '../../logging.js';
+import type { GatewayConfig } from '../../config.js';
+import { GatewayError } from '../../core/errors.js';
+import { createLogSampler, type EventLogger, errorDetails, formatEvent } from '../../core/logging.js';
+import { formatMoney } from '../../core/money.js';
+import { pageSize } from '../../core/pagination.js';
+import type { CredentialVault } from '../../core/vault.js';
 import { validateBillableRequest } from '../billing/admission.js';
-import { formatMoney } from '../billing/conventions.js';
 import { searchRequest } from '../billing/search.js';
 import type { BillingService } from '../billing/service.js';
-import type { CredentialVault, Endpoint } from '../catalog/service.js';
+import type { Endpoint } from '../catalog/service.js';
 import type { Database } from '../database/client.js';
 import {
   apiKeyChannels,
@@ -28,60 +31,57 @@ import type { OutboundHttp } from '../outbound/index.js';
 import { type PricingService, publicPricingSnapshot } from '../pricing/service.js';
 import { availableSubscription } from '../subscription/availability.js';
 import type { SubscriptionService } from '../subscription/service.js';
-import { pageSize } from '../users/service.js';
 import { channelAdapter } from './adapters.js';
 import { type AffinitySelection, ChannelAffinity } from './affinity.js';
 import { ForwardBillingSession } from './billing-session.js';
 import { cacheReadForDisplay } from './cache-usage.js';
-import { GatewayError } from './errors.js';
 import { RequestLifecycle } from './lifecycle.js';
 import { reasoningEffort } from './protocol.js';
 import { selectExecutionChannel } from './routing.js';
 
 import { randomUUID } from 'node:crypto';
 
-type Config = ReturnType<typeof readGatewayConfig>;
 export class GatewayService implements Disposable {
   static readonly token = serviceToken<GatewayService>('ohmyapi/gateway');
   private readonly limits = new Map<string, { active: number; count: number; reset: number }>();
   private readonly affinity = new ChannelAffinity();
   private readonly db: Database;
-  private readonly vault: CredentialVault;
-  private readonly outbound: OutboundHttp;
-  private readonly subscription: SubscriptionService;
-  readonly config: Config;
-  private readonly logger: EventLogger;
-  private readonly sampleLog = createLogSampler();
   private readonly pricing: PricingService;
   private readonly billing: BillingService;
+  private readonly vault: CredentialVault;
+  private readonly subscription: SubscriptionService;
+  private readonly outbound: OutboundHttp;
+  private readonly config: GatewayConfig;
+  private readonly logger: EventLogger;
+  private readonly sampleLog = createLogSampler();
   private stopping = false;
   private disposal?: Promise<void>;
   private readonly running = new Map<string, { abort: AbortController; done: Promise<void> }>();
-  constructor(
-    db: Database,
-    pricing: PricingService,
-    billing: BillingService,
-    vault: CredentialVault,
-    subscription: SubscriptionService,
-    config: Config,
-    logger: EventLogger,
-    outbound: OutboundHttp,
-  ) {
-    this.db = db;
-    this.pricing = pricing;
-    this.billing = billing;
-    this.vault = vault;
-    this.subscription = subscription;
-    this.config = config;
-    this.logger = logger;
-    this.outbound = outbound;
+  constructor(deps: {
+    db: Database;
+    pricing: PricingService;
+    billing: BillingService;
+    vault: CredentialVault;
+    subscription: SubscriptionService;
+    outbound: OutboundHttp;
+    config: GatewayConfig;
+    logger: EventLogger;
+  }) {
+    this.db = deps.db;
+    this.pricing = deps.pricing;
+    this.billing = deps.billing;
+    this.vault = deps.vault;
+    this.subscription = deps.subscription;
+    this.outbound = deps.outbound;
+    this.config = deps.config;
+    this.logger = deps.logger;
   }
 
   dispose() {
     this.stopping = true;
     this.disposal ??= (async () => {
       const entries = [...this.running.values()];
-      this.logger.info(`网关停止转发 ${JSON.stringify({ activeRequests: entries.length })}`);
+      this.logger.info(formatEvent('网关停止转发', { activeRequests: entries.length }));
       for (const e of entries) e.abort.abort('server_shutdown');
       await Promise.allSettled(entries.map((e) => e.done));
     })();
@@ -91,7 +91,13 @@ export class GatewayService implements Disposable {
   error(endpoint: Endpoint | '/v1/models', status: number, code: string, message: string, id: string) {
     if (code === 'method_not_allowed' && this.sampleLog(code))
       this.logger.warn(
-        `网关请求被拒绝 ${JSON.stringify({ requestId: id, endpoint, httpStatus: status, errorCode: code, errorMessage: message })}`,
+        formatEvent('网关请求被拒绝', {
+          requestId: id,
+          endpoint,
+          httpStatus: status,
+          errorCode: code,
+          errorMessage: message,
+        }),
       );
     const type =
       status === 401
@@ -255,14 +261,14 @@ export class GatewayService implements Disposable {
           : new GatewayError(502, 'gateway_error', 'Unable to list available models');
       if (failure.status >= 500 || this.sampleLog(failure.code))
         this.logger[failure.status >= 500 ? 'error' : 'warn'](
-          `网关模型列表请求失败 ${JSON.stringify({
+          formatEvent('网关模型列表请求失败', {
             requestId: id,
             endpoint: '/v1/models',
             httpStatus: failure.status,
             errorCode: failure.code,
             durationMs: Date.now() - startedAt,
             ...errorDetails(error),
-          })}`,
+          }),
         );
       return this.error('/v1/models', failure.status, failure.code, failure.message, id);
     }

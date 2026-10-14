@@ -3,11 +3,12 @@ import { TRPCError } from '@trpc/server';
 import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-import type { AuthService, Principal, Transaction } from '../auth/service.js';
+import { GatewayError } from '../../core/errors.js';
+import type { CredentialVault } from '../../core/vault.js';
+import type { AuthService, Principal } from '../auth/service.js';
 import { channelProxy } from '../catalog/proxy.js';
-import type { CredentialVault } from '../catalog/vault.js';
+import type { Database, Transaction } from '../database/client.js';
 import { adminAuditLogs, channels, subscriptionAccounts } from '../database/schema/index.js';
-import { GatewayError } from '../gateway/errors.js';
 import { type OutboundHttp, proxyUrlInput } from '../outbound/index.js';
 import { fetchClaudeModels } from './claude/catalog.js';
 import { importClaudeCredentials } from './claude/client.js';
@@ -49,25 +50,27 @@ export class SubscriptionService implements Disposable {
   private readonly openaiQuota = new OpenAIQuota();
   private readonly claudeQuota = new ClaudeQuota();
   private readonly openaiResetCredits = new OpenAIResetCredits();
-  private readonly timer: ReturnType<typeof setInterval>;
   private refreshing = false;
   private stopped = false;
 
+  private readonly db: Database;
   private readonly auth: AuthService;
   private readonly vault: CredentialVault;
   private readonly outbound: OutboundHttp;
-  constructor(auth: AuthService, vault: CredentialVault, outbound: OutboundHttp) {
-    this.auth = auth;
-    this.vault = vault;
-    this.outbound = outbound;
-    this.tokens = new OpenAITokens(auth.db, vault, outbound);
-    this.claudeTokens = new ClaudeTokens(auth.db, vault, outbound);
-    this.timer = setInterval(() => {
-      this.oauth.prune();
-      this.claudeOAuth.prune();
-      void this.refreshExpiring().catch(() => {});
-    }, 30_000);
-    this.timer.unref();
+  constructor(deps: { db: Database; auth: AuthService; vault: CredentialVault; outbound: OutboundHttp }) {
+    this.db = deps.db;
+    this.auth = deps.auth;
+    this.vault = deps.vault;
+    this.outbound = deps.outbound;
+    this.tokens = new OpenAITokens(deps.db, deps.vault, deps.outbound);
+    this.claudeTokens = new ClaudeTokens(deps.db, deps.vault, deps.outbound);
+  }
+
+  /** 定期清理过期的授权会话，并提前刷新即将过期的订阅令牌。 */
+  async maintain() {
+    this.oauth.prune();
+    this.claudeOAuth.prune();
+    await this.refreshExpiring().catch(() => {});
   }
 
   accountEmail(encrypted: string, provider = 'openai'): string | null {
@@ -253,7 +256,7 @@ export class SubscriptionService implements Disposable {
       // 上游已完成的兑换不因本地状态更新失败而被报告为使用失败。
       const cooldownCleared =
         result.windowsReset > 0
-          ? await this.auth.db
+          ? await this.db
               .update(subscriptionAccounts)
               .set({ cooldownUntil: null })
               .where(eq(subscriptionAccounts.id, id))
@@ -273,7 +276,7 @@ export class SubscriptionService implements Disposable {
    */
   async cycleUsage(principal: Principal, channelId: string) {
     const id = await this.accountForChannel(principal, channelId);
-    const [account] = await this.auth.db
+    const [account] = await this.db
       .select({
         provider: subscriptionAccounts.provider,
         enabled: subscriptionAccounts.enabled,
@@ -299,7 +302,7 @@ export class SubscriptionService implements Disposable {
       startsAt = manual;
       source = 'manual';
     }
-    const usage = await estimateCycleUsage(this.auth.db, id, startsAt, now);
+    const usage = await estimateCycleUsage(this.db, id, startsAt, now);
     const usedPercent = upstream ? (quota?.sevenDay?.usedPercent ?? null) : null;
     // 已用比例过低时取整误差会被放大，不推算整个周期的额度。
     const projectedAmount =
@@ -345,7 +348,7 @@ export class SubscriptionService implements Disposable {
   }
   private async providerAccountForChannel(principal: Principal, channelId: string, provider: 'openai' | 'claude') {
     const id = await this.accountForChannel(principal, channelId);
-    const [account] = await this.auth.db
+    const [account] = await this.db
       .select({ provider: subscriptionAccounts.provider, enabled: subscriptionAccounts.enabled })
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
@@ -379,7 +382,7 @@ export class SubscriptionService implements Disposable {
   }
 
   async acquire(id: string, signal: AbortSignal) {
-    const [row] = await this.auth.db
+    const [row] = await this.db
       .select()
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
@@ -409,7 +412,7 @@ export class SubscriptionService implements Disposable {
   }
 
   async provider(id: string) {
-    const [row] = await this.auth.db
+    const [row] = await this.db
       .select({ provider: subscriptionAccounts.provider })
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
@@ -418,7 +421,7 @@ export class SubscriptionService implements Disposable {
   }
 
   async acquireClaude(id: string, signal: AbortSignal, model: string, proxyUrl: string | null) {
-    const [row] = await this.auth.db
+    const [row] = await this.db
       .select()
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
@@ -472,7 +475,7 @@ export class SubscriptionService implements Disposable {
     }
     const limit = claudeRateLimit(response.headers, response.status, errorBody);
     if (response.status !== 401 && !limit) return;
-    const [row] = await this.auth.db.select().from(subscriptionAccounts).where(eq(subscriptionAccounts.id, id));
+    const [row] = await this.db.select().from(subscriptionAccounts).where(eq(subscriptionAccounts.id, id));
     if (
       row?.provider !== 'claude' ||
       claudeCredentialsSchema.parse(JSON.parse(this.vault.decrypt(row.credentialEncrypted))).accessToken !== accessToken
@@ -488,7 +491,7 @@ export class SubscriptionService implements Disposable {
           : {
               cooldownUntil: sql`greatest(${subscriptionAccounts.cooldownUntil}, ${limit?.until.toISOString()}::timestamptz)`,
             };
-    await this.auth.db
+    await this.db
       .update(subscriptionAccounts)
       .set(values)
       .where(
@@ -498,7 +501,7 @@ export class SubscriptionService implements Disposable {
 
   async reportStatus(id: string, status: number, headers: Headers, accessToken: string) {
     if (status !== 401 && status !== 429) return;
-    const [current] = await this.auth.db.select().from(subscriptionAccounts).where(eq(subscriptionAccounts.id, id));
+    const [current] = await this.db.select().from(subscriptionAccounts).where(eq(subscriptionAccounts.id, id));
     if (
       !current ||
       credentialsSchema.parse(JSON.parse(this.vault.decrypt(current.credentialEncrypted))).accessToken !== accessToken
@@ -506,7 +509,7 @@ export class SubscriptionService implements Disposable {
       return;
     const raw = headers.get('retry-after');
     const seconds = raw && /^\d+$/.test(raw) ? Number(raw) : raw ? (Date.parse(raw) - Date.now()) / 1000 : 60;
-    await this.auth.db
+    await this.db
       .update(subscriptionAccounts)
       .set(
         status === 401
@@ -570,7 +573,7 @@ export class SubscriptionService implements Disposable {
     if (this.refreshing || this.stopped) return;
     this.refreshing = true;
     try {
-      const rows = await this.auth.db
+      const rows = await this.db
         .select({ id: subscriptionAccounts.id, provider: subscriptionAccounts.provider })
         .from(subscriptionAccounts)
         .where(
@@ -592,7 +595,6 @@ export class SubscriptionService implements Disposable {
   }
   async dispose() {
     this.stopped = true;
-    clearInterval(this.timer);
     this.oauth.dispose();
     this.claudeOAuth.dispose();
     this.openaiQuota.dispose();

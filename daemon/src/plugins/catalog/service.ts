@@ -3,19 +3,24 @@ import { TRPCError } from '@trpc/server';
 import { and, asc, eq, inArray, isNull, like, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { type EventLogger, errorDetails } from '../../logging.js';
-import type { AuthService, Principal, Transaction } from '../auth/service.js';
-import { formatMoney, parseMoney } from '../billing/conventions.js';
+import { type EventLogger, errorDetails, formatEvent } from '../../core/logging.js';
+import { formatMoney, parseMoney } from '../../core/money.js';
+import { pageSize } from '../../core/pagination.js';
+import type { CredentialVault } from '../../core/vault.js';
+import type { AuthService, Principal } from '../auth/service.js';
+import type { Database, Transaction } from '../database/client.js';
 import {
   adminAuditLogs,
   aggregateChannelMembers,
   channelAvailableModels,
   channelEndpoints,
   channels,
+  channelTypes,
   effectiveChannelEndpoints,
   effectiveChannelModels,
   models,
   priceRules,
+  pricingModes,
   subscriptionAccounts,
   userChannelGrants,
   users,
@@ -23,12 +28,7 @@ import {
 import { type OutboundHttp, proxyUrlInput } from '../outbound/index.js';
 import { expandRules, multiplierInput, ruleInput, validateRules } from '../pricing/rules.js';
 import { type SubscriptionService, subscriptionInput } from '../subscription/service.js';
-import { pageSize } from '../users/service.js';
-import { channelTypes, pricingModes } from './channel-types.js';
 import { channelProxy } from './proxy.js';
-import type { CredentialVault } from './vault.js';
-
-export { CredentialVault } from './vault.js';
 
 export const endpoints = ['/v1/chat/completions', '/v1/responses', '/v1/messages', '/v1/responses/compact'] as const;
 export type Endpoint = (typeof endpoints)[number];
@@ -106,28 +106,31 @@ export const importModelsInput = z.object({
 });
 export class CatalogService {
   static readonly token = serviceToken<CatalogService>('ohmyapi/catalog');
+  private readonly db: Database;
   private readonly auth: AuthService;
-  private readonly logger: EventLogger;
-  readonly vault: CredentialVault;
+  private readonly vault: CredentialVault;
   private readonly subscription: SubscriptionService;
   private readonly outbound: OutboundHttp;
-  constructor(
-    auth: AuthService,
-    vault: CredentialVault,
-    logger: EventLogger,
-    subscription: SubscriptionService,
-    outbound: OutboundHttp,
-  ) {
-    this.auth = auth;
-    this.vault = vault;
-    this.logger = logger;
-    this.subscription = subscription;
-    this.outbound = outbound;
+  private readonly logger: EventLogger;
+  constructor(deps: {
+    db: Database;
+    auth: AuthService;
+    vault: CredentialVault;
+    subscription: SubscriptionService;
+    outbound: OutboundHttp;
+    logger: EventLogger;
+  }) {
+    this.db = deps.db;
+    this.auth = deps.auth;
+    this.vault = deps.vault;
+    this.subscription = deps.subscription;
+    this.outbound = deps.outbound;
+    this.logger = deps.logger;
   }
 
   async list() {
     const [channelRows, modelRows, channelScopes, available, activePrices, members] = await Promise.all([
-      this.auth.db
+      this.db
         .select({
           id: channels.id,
           name: channels.name,
@@ -154,11 +157,11 @@ export class CatalogService {
         .leftJoin(subscriptionAccounts, eq(channels.subscriptionAccountId, subscriptionAccounts.id))
         .where(isNull(channels.deletedAt))
         .orderBy(asc(channels.name)),
-      this.auth.db.select().from(models).where(isNull(models.deletedAt)).orderBy(asc(models.name)),
-      this.auth.db.select().from(effectiveChannelEndpoints),
-      this.auth.db.select().from(effectiveChannelModels),
-      this.auth.db.select({ modelId: priceRules.modelId }).from(priceRules).where(eq(priceRules.kind, 'default')),
-      this.auth.db.select().from(aggregateChannelMembers),
+      this.db.select().from(models).where(isNull(models.deletedAt)).orderBy(asc(models.name)),
+      this.db.select().from(effectiveChannelEndpoints),
+      this.db.select().from(effectiveChannelModels),
+      this.db.select({ modelId: priceRules.modelId }).from(priceRules).where(eq(priceRules.kind, 'default')),
+      this.db.select().from(aggregateChannelMembers),
     ]);
     return {
       channels: channelRows.map(({ multiplierMicros, proxyUrlEncrypted, ...c }) => ({
@@ -311,7 +314,7 @@ export class CatalogService {
       if (!names.size) throw new TRPCError({ code: 'BAD_REQUEST', message: '上游未返回有效模型，请手动添加模型' });
     } catch (error) {
       this.logger.warn(
-        `上游模型列表获取失败 ${JSON.stringify({
+        formatEvent('上游模型列表获取失败', {
           actorId: principal.user.id,
           channelId: input.id,
           stage,
@@ -320,19 +323,19 @@ export class CatalogService {
           durationMs: Date.now() - startedAt,
           responseBytes: bytes,
           ...errorDetails(error),
-        })}`,
+        }),
       );
       if (error instanceof TRPCError) throw error;
       throw new TRPCError({ code: 'BAD_REQUEST', message: '无法获取上游模型，请检查地址、凭据和连接后重试' });
     }
     this.logger.info(
-      `上游模型列表获取完成 ${JSON.stringify({
+      formatEvent('上游模型列表获取完成', {
         actorId: principal.user.id,
         channelId: input.id,
         modelCount: names.size,
         ignored,
         durationMs: Date.now() - startedAt,
-      })}`,
+      }),
     );
     return { names: [...names].sort(), ignored };
   }
@@ -683,7 +686,7 @@ export class CatalogService {
   }
 
   async grants(userId: string) {
-    return this.auth.db
+    return this.db
       .select({ channelId: userChannelGrants.channelId })
       .from(userChannelGrants)
       .innerJoin(channels, eq(channels.id, userChannelGrants.channelId))
@@ -691,13 +694,13 @@ export class CatalogService {
   }
 
   async channelGrants(channelId: string, page: number, search: string) {
-    const [channel] = await this.auth.db
+    const [channel] = await this.db
       .select({ isPublic: channels.isPublic })
       .from(channels)
       .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)));
     if (!channel) throw new TRPCError({ code: 'NOT_FOUND', message: '渠道不存在或已删除' });
     if (channel.isPublic) throw new TRPCError({ code: 'BAD_REQUEST', message: '公开渠道默认对所有用户开放' });
-    const rows = await this.auth.db
+    const rows = await this.db
       .select({
         id: users.id,
         username: users.username,

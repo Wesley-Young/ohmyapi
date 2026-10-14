@@ -1,10 +1,10 @@
 import { and, eq, isNull } from 'drizzle-orm';
 
-import type { CredentialVault } from '../../catalog/vault.js';
+import { GatewayError } from '../../../core/errors.js';
+import type { CredentialVault } from '../../../core/vault.js';
 import type { Database } from '../../database/client.js';
 import { channels } from '../../database/schema/catalog.js';
 import { subscriptionAccounts } from '../../database/schema/subscription.js';
-import { GatewayError } from '../../gateway/errors.js';
 import type { OutboundHttp } from '../../outbound/index.js';
 import { exchangeToken } from './client.js';
 import { credentialsSchema, type OpenAICredentials, parseCredentials } from './credentials.js';

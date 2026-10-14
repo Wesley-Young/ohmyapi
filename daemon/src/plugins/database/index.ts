@@ -2,7 +2,6 @@ import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { eq, sql } from 'drizzle-orm';
 
 import type { DatabaseConfig } from '../../config.js';
-import { readBillingCurrency } from '../../config.js';
 import { definePlugin } from '../../kernel.js';
 import { createDatabase } from './client.js';
 import { assertMigrationsCurrent } from './migrate.js';
@@ -39,9 +38,9 @@ export class DatabaseService implements Disposable {
 export const DatabasePlugin = definePlugin({
   name: 'ohmyapi-database',
   provides: [DatabaseService],
-  async apply(ctx, config: DatabaseConfig, currency: string = readBillingCurrency()) {
-    const service = new DatabaseService(config);
+  async apply(ctx) {
+    const service = new DatabaseService(ctx.config.database);
     ctx.provide(DatabaseService, service);
-    await service.assertInitialized(currency);
+    await service.assertInitialized(ctx.config.currency);
   },
 });

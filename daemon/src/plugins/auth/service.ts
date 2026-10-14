@@ -2,14 +2,13 @@ import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
 import { and, eq, gt, isNull, lt, or } from 'drizzle-orm';
 
-import { createLogSampler, type EventLogger } from '../../logging.js';
-import type { Database } from '../database/client.js';
+import { createLogSampler, type EventLogger, formatEvent } from '../../core/logging.js';
+import type { Database, Transaction } from '../database/client.js';
 import { sessions, users } from '../database/schema/index.js';
 import { hashPassword, verifyPassword } from './password.js';
 
 import { createHash, randomBytes } from 'node:crypto';
 
-export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 export type User = typeof users.$inferSelect;
 export const publicUser = (user: User) => ({
   id: user.id,
@@ -26,10 +25,10 @@ export class AuthService {
   private readonly dummyHash = hashPassword(randomBytes(32).toString('hex'));
   private readonly attempts = new Map<string, { count: number; expires: number }>();
 
-  readonly db: Database;
+  private readonly db: Database;
   private readonly logger: EventLogger;
   private readonly sampleLog = createLogSampler();
-  constructor(db: Database, logger: EventLogger) {
+  constructor({ db, logger }: { db: Database; logger: EventLogger }) {
     this.db = db;
     this.logger = logger;
   }
@@ -46,13 +45,13 @@ export class AuthService {
         const scope = this.attempts.size >= 10_000 ? 'capacity' : key === '*' ? 'global' : 'account';
         if (this.sampleLog(scope))
           this.logger.warn(
-            `登录触发限流 ${JSON.stringify({
+            formatEvent('登录触发限流', {
               scope,
               attempts: scope === 'capacity' ? undefined : attempt.count,
               trackedAccounts: scope === 'capacity' ? this.attempts.size : undefined,
               limit: scope === 'capacity' ? 10_000 : maximum,
               windowMs: scope === 'capacity' ? undefined : window,
-            })}`,
+            }),
           );
         throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: '登录尝试过于频繁，请稍后再试' });
       }

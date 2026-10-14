@@ -1,7 +1,7 @@
-import type { readGatewayConfig } from '../../config.js';
-import { safeErrorMessage } from '../../logging.js';
+import type { GatewayConfig } from '../../config.js';
+import { GatewayError } from '../../core/errors.js';
+import { safeErrorMessage } from '../../core/logging.js';
 import type { Endpoint } from '../catalog/service.js';
-import { GatewayError } from './errors.js';
 import type { RequestLifecycle } from './lifecycle.js';
 import { responseHeaders } from './protocol.js';
 import { SseObserver, type UsageCollector } from './usage.js';
@@ -12,7 +12,7 @@ export type ForwardResponseOptions = {
   streaming: boolean;
   lifecycle: RequestLifecycle;
   collector: UsageCollector;
-  config: ReturnType<typeof readGatewayConfig>;
+  config: GatewayConfig;
   onCheckpoint: () => Promise<void>;
   onFinish: (safeRejection: boolean, errorCode?: string) => Promise<void>;
   onError: (error: unknown) => void;

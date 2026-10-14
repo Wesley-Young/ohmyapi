@@ -2,23 +2,25 @@ import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
 
+import { formatMoney } from '../../core/money.js';
+import { pageSize } from '../../core/pagination.js';
 import { generatePassword, hashPassword } from '../auth/password.js';
 import { type AuthService, type Principal, publicUser } from '../auth/service.js';
-import { formatMoney } from '../billing/conventions.js';
+import type { Database } from '../database/client.js';
 import { adminAuditLogs, apiKeys, sessions, systemSettings, users, wallets } from '../database/schema/index.js';
-
-export const pageSize = 20;
 
 export class UserService {
   static readonly token = serviceToken<UserService>('ohmyapi/users');
+  private readonly db: Database;
   private readonly auth: AuthService;
-  constructor(auth: AuthService) {
+  constructor({ db, auth }: { db: Database; auth: AuthService }) {
+    this.db = db;
     this.auth = auth;
   }
 
   async list(page: number, search: string) {
-    const [settings] = await this.auth.db.select({ currency: systemSettings.currency }).from(systemSettings);
-    const rows = await this.auth.db
+    const [settings] = await this.db.select({ currency: systemSettings.currency }).from(systemSettings);
+    const rows = await this.db
       .select({ user: users, wallet: wallets })
       .from(users)
       .innerJoin(wallets, eq(users.id, wallets.userId))
@@ -43,7 +45,7 @@ export class UserService {
   }
 
   async get(userId: string) {
-    const [user] = await this.auth.db.select().from(users).where(eq(users.id, userId));
+    const [user] = await this.db.select().from(users).where(eq(users.id, userId));
     if (!user) throw new TRPCError({ code: 'NOT_FOUND', message: '用户不存在' });
     return { ...publicUser(user), createdAt: user.createdAt.toISOString(), deleted: user.deletedAt !== null };
   }

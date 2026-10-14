@@ -1,19 +1,19 @@
 import { eq } from 'drizzle-orm';
 
-import type { readGatewayConfig } from '../../config.js';
-import { type EventLogger, errorDetails, type LogFields } from '../../logging.js';
+import type { GatewayConfig } from '../../config.js';
+import { requestErrorMessage } from '../../core/errors.js';
+import { type EventLogger, errorDetails, formatEvent, type LogFields } from '../../core/logging.js';
 import type { BillingService, BillingSummary } from '../billing/service.js';
 import type { Endpoint } from '../catalog/service.js';
 import type { Database } from '../database/client.js';
 import { requestAttempts } from '../database/schema/index.js';
-import { requestErrorMessage } from './errors.js';
 import { UsageCollector } from './usage.js';
 
 type Options = {
   id: string;
   receivedAt: Date;
   endpoint: Endpoint;
-  config: ReturnType<typeof readGatewayConfig>;
+  config: GatewayConfig;
   billing: BillingService;
   db: Database;
   logger: EventLogger;
@@ -125,7 +125,7 @@ export class ForwardBillingSession {
       try {
         await billing.checkpoint(id, this.summary());
       } catch (error) {
-        logger.error(`最终用量保存失败 ${JSON.stringify({ requestId: id, ...errorDetails(error) })}`);
+        logger.error(formatEvent('最终用量保存失败', { requestId: id, ...errorDetails(error) }));
       }
     }
     if (!this.blockedCheckpoint && this.summary().blockSettlement) {
@@ -133,7 +133,7 @@ export class ForwardBillingSession {
       try {
         await billing.checkpoint(id, this.summary());
       } catch (error) {
-        logger.error(`用量校验状态保存失败 ${JSON.stringify({ requestId: id, ...errorDetails(error) })}`);
+        logger.error(formatEvent('用量校验状态保存失败', { requestId: id, ...errorDetails(error) }));
       }
     }
   }
@@ -156,14 +156,14 @@ export class ForwardBillingSession {
           .where(eq(requestAttempts.id, this.attemptId));
       } catch (error) {
         logger.error(
-          `上游尝试记录保存失败 ${JSON.stringify({ requestId: id, attemptId: this.attemptId, ...errorDetails(error) })}`,
+          formatEvent('上游尝试记录保存失败', { requestId: id, attemptId: this.attemptId, ...errorDetails(error) }),
         );
       }
     }
     try {
       if (this.recorded) await billing.finish(id, result);
     } catch (error) {
-      logger.error(`计费收尾未完成 ${JSON.stringify({ requestId: id, ...errorDetails(error) })}`);
+      logger.error(formatEvent('计费收尾未完成', { requestId: id, ...errorDetails(error) }));
     }
   }
 
@@ -200,7 +200,7 @@ export class ForwardBillingSession {
                 ? 'warn'
                 : 'info';
       logger[level](
-        `网关请求结束 ${JSON.stringify({
+        formatEvent('网关请求结束', {
           requestId: id,
           endpoint,
           userId,
@@ -232,7 +232,7 @@ export class ForwardBillingSession {
                     ? config.streamIdleTimeoutMs
                     : undefined,
           ...failureDetails,
-        })}`,
+        }),
       );
     }
   }

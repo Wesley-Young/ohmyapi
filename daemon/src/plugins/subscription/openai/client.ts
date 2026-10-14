@@ -1,4 +1,4 @@
-import { GatewayError } from '../../gateway/errors.js';
+import { GatewayError } from '../../../core/errors.js';
 import type { OutboundFetch } from '../../outbound/index.js';
 import type { OpenAICredentials } from './credentials.js';
 

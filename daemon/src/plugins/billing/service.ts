@@ -5,8 +5,11 @@ import { Client } from 'pg';
 import { z } from 'zod';
 
 import type { DatabaseConfig } from '../../config.js';
-import { type EventLogger, errorDetails, safeErrorMessage } from '../../logging.js';
-import type { AuthService, Principal, Transaction } from '../auth/service.js';
+import { GatewayError, requestErrorMessage } from '../../core/errors.js';
+import { type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '../../core/logging.js';
+import { formatMoney, parseMoney } from '../../core/money.js';
+import type { AuthService, Principal } from '../auth/service.js';
+import type { Database, Transaction } from '../database/client.js';
 import {
   adminAuditLogs,
   apiKeyChannels,
@@ -19,20 +22,19 @@ import {
   requestAttempts,
   requests,
   requestUsage,
+  type UsageEstimate,
   userChannelGrants,
   users,
   walletLedger,
   wallets,
 } from '../database/schema/index.js';
 import { cacheReadForDisplay, reportedCacheReadTokens } from '../gateway/cache-usage.js';
-import { GatewayError, requestErrorMessage } from '../gateway/errors.js';
 import { lockExecutionRoute } from '../gateway/routing.js';
 import type { Usage } from '../gateway/usage.js';
 import { priceInput, searchCountInput, tokenInput } from '../pricing/rules.js';
 import { type LockedPrice, type PricingService, publicPricingSnapshot } from '../pricing/service.js';
 import { reservationAmount } from './admission.js';
-import { formatMoney, parseMoney } from './conventions.js';
-import { estimateReservation, type UsageEstimate } from './estimation.js';
+import { estimateReservation } from './estimation.js';
 import { searchRequest } from './search.js';
 
 import { randomUUID } from 'node:crypto';
@@ -121,6 +123,7 @@ function canonical(value: unknown): string {
 export class BillingService implements Disposable {
   static readonly token = serviceToken<BillingService>('ohmyapi/billing');
   readonly ownerId = randomUUID();
+  private readonly db: Database;
   private readonly auth: AuthService;
   private readonly pricing: PricingService;
   private readonly logger: EventLogger;
@@ -132,10 +135,11 @@ export class BillingService implements Disposable {
   private readonly active = new Set<string>();
   private readonly pending = new Map<string, BillingSummary>();
   private readonly failures = new Map<string, number>();
-  constructor(auth: AuthService, pricing: PricingService, logger: EventLogger) {
-    this.auth = auth;
-    this.pricing = pricing;
-    this.logger = logger;
+  constructor(deps: { db: Database; auth: AuthService; pricing: PricingService; logger: EventLogger }) {
+    this.db = deps.db;
+    this.auth = deps.auth;
+    this.pricing = deps.pricing;
+    this.logger = deps.logger;
   }
 
   private logOutcome(outcome: BillingOutcome | undefined) {
@@ -144,7 +148,7 @@ export class BillingService implements Disposable {
     this.logger[
       outcome.errorCode === 'billing_processing_failed' ? 'error' : outcome.status === 'needs_review' ? 'warn' : 'info'
     ](
-      `计费状态变更 ${JSON.stringify({
+      formatEvent('计费状态变更', {
         requestId: r.id,
         userId: r.userId,
         channelId: r.channelId,
@@ -157,7 +161,7 @@ export class BillingService implements Disposable {
         usageFinal: outcome.usageFinal ?? r.usageFinal,
         usageEstimate: r.usageEstimate,
         blockSettlement: outcome.blockSettlement,
-      })}`,
+      }),
     );
   }
 
@@ -182,12 +186,12 @@ export class BillingService implements Disposable {
       if (this.closing || !this.healthy) return;
       this.healthy = false;
       this.logger.error(
-        `计费所有权连接中断，停止转发 ${JSON.stringify({
+        formatEvent('计费所有权连接中断，停止转发', {
           ownerId: this.ownerId,
           activeRequests: this.active.size,
           pendingRetries: this.pending.size,
           ...(error === undefined ? {} : errorDetails(error)),
-        })}`,
+        }),
       );
       this.lostHandler?.();
     };
@@ -198,7 +202,7 @@ export class BillingService implements Disposable {
       const { rows } = await lease.query<{ locked: boolean }>('select pg_try_advisory_lock(1330138459) as locked');
       if (!rows[0].locked) throw new Error('Another ohmyapi instance owns billing for this database');
       this.healthy = true;
-      this.logger.info(`计费所有权已获取 ${JSON.stringify({ ownerId: this.ownerId })}`);
+      this.logger.info(formatEvent('计费所有权已获取', { ownerId: this.ownerId }));
       await this.recover(true);
     } catch (error) {
       this.healthy = false;
@@ -236,7 +240,7 @@ export class BillingService implements Disposable {
     endpoint: (typeof requests.$inferSelect)['endpoint'];
   }) {
     this.assertReady();
-    const history = await this.auth.db
+    const history = await this.db
       .select({ outputTokens: requestUsage.outputTokens })
       .from(requests)
       .innerJoin(requestUsage, eq(requestUsage.requestId, requests.id))
@@ -262,7 +266,7 @@ export class BillingService implements Disposable {
     const amount = reservationAmount(input.price, estimate.inputTokens, estimate.outputTokens, search);
     this.active.add(input.requestId);
     try {
-      await this.auth.db.transaction(async (tx) => {
+      await this.db.transaction(async (tx) => {
         const [user] = await tx.select().from(users).where(eq(users.id, input.userId)).for('update');
         const [key] = await tx
           .select({ restricted: apiKeys.restrictModels })
@@ -393,7 +397,7 @@ export class BillingService implements Disposable {
 
   async forwarding(id: string, attemptId: string, route: Parameters<typeof lockExecutionRoute>[1]) {
     this.assertReady();
-    await this.auth.db.transaction(async (tx) => {
+    await this.db.transaction(async (tx) => {
       await lockExecutionRoute(tx, route);
       const [r] = await tx
         .update(requests)
@@ -425,7 +429,7 @@ export class BillingService implements Disposable {
 
   async checkpoint(id: string, summary: BillingSummary) {
     this.assertReady();
-    await this.auth.db.transaction(async (tx) => {
+    await this.db.transaction(async (tx) => {
       const [r] = await tx.select().from(requests).where(eq(requests.id, id)).for('update');
       if (
         !r ||
@@ -453,7 +457,7 @@ export class BillingService implements Disposable {
   async finish(id: string, summary: BillingSummary) {
     this.assertReady();
     try {
-      const outcome = await this.auth.db.transaction<BillingOutcome | undefined>(async (tx) => {
+      const outcome = await this.db.transaction<BillingOutcome | undefined>(async (tx) => {
         const [r] = await tx.select().from(requests).where(eq(requests.id, id)).for('update');
         if (!r || terminal.has(r.status) || r.status === 'needs_review') return;
         if (r.billingEnabled && r.ownerId !== this.ownerId) return;
@@ -502,12 +506,12 @@ export class BillingService implements Disposable {
       const attempts = this.failures.get(id);
       if (attempts)
         this.logger.info(
-          `计费重试完成 ${JSON.stringify({
+          formatEvent('计费重试完成', {
             requestId: id,
             previousFailures: attempts,
             status: settled?.status ?? outcome?.status ?? 'unchanged',
             pendingRetries: Math.max(0, this.pending.size - 1),
-          })}`,
+          }),
         );
       this.pending.delete(id);
       this.failures.delete(id);
@@ -516,13 +520,13 @@ export class BillingService implements Disposable {
       const failures = (this.failures.get(id) ?? 0) + 1;
       this.failures.set(id, failures);
       this.logger[failures >= 3 ? 'error' : 'warn'](
-        `计费处理失败 ${JSON.stringify({
+        formatEvent('计费处理失败', {
           requestId: id,
           attempt: failures,
           nextAction: failures >= 3 ? 'manual_review' : 'retry',
           pendingRetries: this.pending.size,
           ...errorDetails(error),
-        })}`,
+        }),
       );
       if (failures >= 3) {
         try {
@@ -531,12 +535,12 @@ export class BillingService implements Disposable {
           this.failures.delete(id);
         } catch (reviewError) {
           this.logger.error(
-            `计费人工核对状态保存失败 ${JSON.stringify({
+            formatEvent('计费人工核对状态保存失败', {
               requestId: id,
               attempt: failures,
               pendingRetries: this.pending.size,
               ...errorDetails(reviewError),
-            })}`,
+            }),
           );
           // Keep evidence in memory until the database accepts it.
         }
@@ -548,7 +552,7 @@ export class BillingService implements Disposable {
   }
 
   private async reviewFailed(id: string, summary?: BillingSummary, error?: unknown) {
-    const outcome = await this.auth.db.transaction<BillingOutcome | undefined>(async (tx) => {
+    const outcome = await this.db.transaction<BillingOutcome | undefined>(async (tx) => {
       const [r] = await tx.select().from(requests).where(eq(requests.id, id)).for('update');
       if (!r?.billingEnabled || terminal.has(r.status) || r.status === 'needs_review') return;
       if (summary?.usage && (summary.usageFinal || !r.usageFinal)) await this.writeUsage(tx, id, summary.usage);
@@ -661,7 +665,7 @@ export class BillingService implements Disposable {
 
   private async settleStored(id: string) {
     this.assertReady();
-    const outcome = await this.auth.db.transaction<BillingOutcome | undefined>(async (tx) => {
+    const outcome = await this.db.transaction<BillingOutcome | undefined>(async (tx) => {
       const [r] = await tx.select().from(requests).where(eq(requests.id, id)).for('update');
       if (r?.status !== 'settling' || !r.billingEnabled || (!r.usageFinal && !r.usageEstimate)) return;
       const [usage] = await tx.select().from(requestUsage).where(eq(requestUsage.requestId, id));
@@ -712,7 +716,7 @@ export class BillingService implements Disposable {
 
   private async recover(startup = false) {
     this.assertReady();
-    const rows = await this.auth.db
+    const rows = await this.db
       .select()
       .from(requests)
       .where(and(eq(requests.billingEnabled, true), inArray(requests.status, ['reserved', 'forwarding', 'settling'])));
@@ -725,7 +729,7 @@ export class BillingService implements Disposable {
         if (r.status === 'settling') {
           outcome = await this.settleStored(r.id);
         } else {
-          outcome = await this.auth.db.transaction<BillingOutcome | undefined>(async (tx) => {
+          outcome = await this.db.transaction<BillingOutcome | undefined>(async (tx) => {
             const [current] = await tx.select().from(requests).where(eq(requests.id, r.id)).for('update');
             if (
               !current ||
@@ -760,7 +764,7 @@ export class BillingService implements Disposable {
         }
       } catch (error) {
         counts.failed++;
-        this.logger.error(`历史计费恢复失败 ${JSON.stringify({ requestId: r.id, ...errorDetails(error) })}`);
+        this.logger.error(formatEvent('历史计费恢复失败', { requestId: r.id, ...errorDetails(error) }));
         // Isolate a failed bill; database-wide failures still propagate if this write fails.
         outcome = await this.reviewFailed(r.id, undefined, error);
       }
@@ -770,12 +774,12 @@ export class BillingService implements Disposable {
     }
     if (startup || counts.processed)
       this.logger[counts.failed ? 'warn' : 'info'](
-        `计费恢复完成 ${JSON.stringify({
+        formatEvent('计费恢复完成', {
           ownerId: this.ownerId,
           startup,
           ...counts,
           pendingRetries: this.pending.size,
-        })}`,
+        }),
       );
   }
 
@@ -789,17 +793,17 @@ export class BillingService implements Disposable {
         this.healthy = false;
         this.lostHandler?.();
         this.logger.error(
-          `计费所有权健康检查失败 ${JSON.stringify({
+          formatEvent('计费所有权健康检查失败', {
             ownerId: this.ownerId,
             activeRequests: this.active.size,
             pendingRetries: this.pending.size,
             ...errorDetails(error),
-          })}`,
+          }),
         );
         return;
       }
       if (this.active.size)
-        await this.auth.db
+        await this.db
           .update(requests)
           .set({ heartbeatAt: new Date() })
           .where(
@@ -819,11 +823,11 @@ export class BillingService implements Disposable {
       await this.recover();
     } catch (error) {
       this.logger.error(
-        `计费恢复任务失败 ${JSON.stringify({
+        formatEvent('计费恢复任务失败', {
           activeRequests: this.active.size,
           pendingRetries: this.pending.size,
           ...errorDetails(error),
-        })}`,
+        }),
       );
     } finally {
       this.ticking = false;
@@ -831,23 +835,23 @@ export class BillingService implements Disposable {
   }
 
   async detail(principal: Principal, id: string) {
-    const [r] = await this.auth.db
+    const [r] = await this.db
       .select()
       .from(requests)
       .where(
         and(eq(requests.id, id), principal.user.role === 'admin' ? undefined : eq(requests.userId, principal.user.id)),
       );
     if (!r) throw new TRPCError({ code: 'NOT_FOUND', message: '请求不存在' });
-    const [usage] = await this.auth.db.select().from(requestUsage).where(eq(requestUsage.requestId, id));
+    const [usage] = await this.db.select().from(requestUsage).where(eq(requestUsage.requestId, id));
     const attempts =
       principal.user.role === 'admin'
-        ? await this.auth.db
+        ? await this.db
             .select()
             .from(requestAttempts)
             .where(eq(requestAttempts.requestId, id))
             .orderBy(requestAttempts.sequence)
         : [];
-    const ledger = await this.auth.db
+    const ledger = await this.db
       .select({ entry: walletLedger, actor: users.username })
       .from(walletLedger)
       .leftJoin(users, eq(walletLedger.actorId, users.id))
@@ -1093,7 +1097,7 @@ export class BillingService implements Disposable {
   }
 
   async reconcile(userId: string) {
-    return this.auth.db.transaction(
+    return this.db.transaction(
       async (tx) => {
         const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId));
         if (!wallet) throw new TRPCError({ code: 'NOT_FOUND', message: '钱包不存在' });

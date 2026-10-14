@@ -1,9 +1,10 @@
 import { type inferRouterInputs, type inferRouterOutputs, initTRPC, TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import type { EventLogger } from '../logging.js';
+import type { EventLogger } from '../core/logging.js';
+import { formatEvent } from '../core/logging.js';
+import { parseMoney } from '../core/money.js';
 import type { AuthService, Principal } from '../plugins/auth/service.js';
-import { parseMoney } from '../plugins/billing/conventions.js';
 import {
   type BillingService,
   correctBillInput,
@@ -69,11 +70,11 @@ const protectedProcedure = signedIn.use(async ({ ctx, path, type, next }) => {
   const result = await next();
   if (result.ok && type === 'mutation')
     ctx.logger.info(
-      `操作完成 ${JSON.stringify({
+      formatEvent('操作完成', {
         requestId: ctx.requestId,
         actorId: ctx.principal.user.id,
         operation: path,
-      })}`,
+      }),
     );
   return result;
 });
@@ -155,7 +156,7 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) => ctx.keys.delete(ctx.principal, input.keyId)),
   }),
   modelPlaza: protectedProcedure.query(async ({ ctx }) =>
-    ctx.pricing.plaza(await ctx.keys.offerings(ctx.auth.db, ctx.principal.user.id, ctx.principal.user.role)),
+    ctx.pricing.plaza(await ctx.keys.offerings(ctx.principal.user)),
   ),
   wallet: t.router({
     get: protectedProcedure.query(({ ctx }) => ctx.wallet.get(ctx.principal.user.id)),

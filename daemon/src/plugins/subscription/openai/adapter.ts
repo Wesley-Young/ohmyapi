@@ -1,5 +1,5 @@
+import { GatewayError } from '../../../core/errors.js';
 import type { ChannelAdapter } from '../../gateway/adapters.js';
-import { GatewayError } from '../../gateway/errors.js';
 import { codexRequestHeaders } from '../../gateway/protocol.js';
 import type { SubscriptionService } from '../service.js';
 import { accountHeaders, codexBaseUrl } from './client.js';

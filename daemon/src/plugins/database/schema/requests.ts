@@ -15,11 +15,24 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import type { UsageEstimate } from '../../billing/estimation.js';
 import { channels, channelType, models } from './catalog.js';
 import { createdAt, endpoint, id, micros, tokenCount } from './common.js';
 import { apiKeys, users } from './identity.js';
 import { subscriptionAccounts } from './subscription.js';
+
+/** 客户端断连时按本地估算结算所保存的依据。 */
+export type UsageEstimate = {
+  method: 'o200k_base_v1';
+  reason: 'client_disconnected';
+  inputSource: 'upstream' | 'request_estimate';
+  outputSource: 'upstream' | 'observed_estimate' | 'upstream_with_observed_tail';
+  reportedOutputTokens: string | null;
+  observedTailTokens: string;
+  inputImageCount: number;
+  inputImageTokens: number;
+  imageMethod: 'model_default_1024_v1';
+  searchSource: 'upstream' | 'observed' | 'request' | 'none';
+};
 
 export const requestStatus = pgEnum('request_status', [
   'completed',

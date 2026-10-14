@@ -3,11 +3,19 @@ import { TRPCError } from '@trpc/server';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { GatewayError } from '../../core/errors.js';
+import { formatMoney, parseMoney } from '../../core/money.js';
 import type { AuthService, Principal } from '../auth/service.js';
-import { formatMoney, parseMoney } from '../billing/conventions.js';
-import { pricingModes } from '../catalog/channel-types.js';
-import { adminAuditLogs, channelModelPrices, channels, models, priceRules } from '../database/schema/index.js';
-import { GatewayError } from '../gateway/errors.js';
+import type { Database } from '../database/client.js';
+import {
+  adminAuditLogs,
+  channelModelPrices,
+  channels,
+  models,
+  type PricingMode,
+  priceRules,
+  pricingModes,
+} from '../database/schema/index.js';
 import type { KeyService } from '../keys/service.js';
 import {
   expandRules,
@@ -73,7 +81,7 @@ export type LockedPrice = {
   rules: Rule[];
   multiplierMicros: bigint;
   multiplierSource: 'model' | 'channel';
-  pricingMode: (typeof pricingModes)[number];
+  pricingMode: PricingMode;
   routing?: z.infer<typeof routingSnapshot>;
   receivedAt: Date;
 };
@@ -89,9 +97,11 @@ export function publicPricingSnapshot(value: Record<string, unknown> | null): Re
 
 export class PricingService {
   static readonly token = serviceToken<PricingService>('ohmyapi/pricing');
+  private readonly db: Database;
   private readonly auth: AuthService;
   readonly currency: string;
-  constructor(auth: AuthService, currency: string) {
+  constructor({ db, auth, currency }: { db: Database; auth: AuthService; currency: string }) {
+    this.db = db;
     this.auth = auth;
     this.currency = currency;
   }
@@ -99,7 +109,7 @@ export class PricingService {
   async plaza(offerings: Awaited<ReturnType<KeyService['offerings']>>) {
     const modelIds = [...new Set(offerings.map((row) => row.modelId))];
     const rules = modelIds.length
-      ? await this.auth.db
+      ? await this.db
           .select()
           .from(priceRules)
           .where(inArray(priceRules.modelId, modelIds))
@@ -174,12 +184,12 @@ export class PricingService {
   }
 
   async list(scope: z.infer<typeof priceScope>) {
-    const [model] = await this.auth.db
+    const [model] = await this.db
       .select({ id: models.id, name: models.name })
       .from(models)
       .where(and(eq(models.id, scope.modelId), isNull(models.deletedAt)));
     if (!model) throw new TRPCError({ code: 'NOT_FOUND', message: '模型不存在或已删除' });
-    const rules = await this.auth.db
+    const rules = await this.db
       .select()
       .from(priceRules)
       .where(eq(priceRules.modelId, scope.modelId))
@@ -231,7 +241,7 @@ export class PricingService {
   }
 
   async lockRoute(modelId: string, at: Date, entryChannelId: string, executionChannelId: string) {
-    const [selected] = await this.auth.db
+    const [selected] = await this.db
       .select({
         price: {
           pricingChannelId: channelModelPrices.pricingChannelId,
@@ -273,7 +283,7 @@ export class PricingService {
     multiplierMicros: bigint,
     multiplierSource: 'model' | 'channel',
   ): Promise<LockedPrice | null> {
-    const rows = await this.auth.db
+    const rows = await this.db
       .select({ rule: priceRules, modelName: models.name })
       .from(priceRules)
       .innerJoin(models, eq(models.id, priceRules.modelId))
@@ -334,7 +344,7 @@ export class PricingService {
     let maximum = minimum;
     let pricingMode: LockedPrice['pricingMode'] = 'unified';
     if (input.channelId) {
-      const options = await this.auth.db
+      const options = await this.db
         .select({
           price: {
             pricingChannelId: channelModelPrices.pricingChannelId,

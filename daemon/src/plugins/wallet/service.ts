@@ -2,8 +2,10 @@ import { serviceToken } from '@fraqjs/kernel';
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, gte, lte, type SQL, sql } from 'drizzle-orm';
 
+import { formatMoney, parseMoney } from '../../core/money.js';
+import { pageSize } from '../../core/pagination.js';
 import type { AuthService, Principal } from '../auth/service.js';
-import { formatMoney, parseMoney } from '../billing/conventions.js';
+import type { Database } from '../database/client.js';
 import {
   adminAuditLogs,
   models,
@@ -14,7 +16,6 @@ import {
   walletLedger,
   wallets,
 } from '../database/schema/index.js';
-import { pageSize } from '../users/service.js';
 
 const ledgerDto = (entry: typeof walletLedger.$inferSelect) => ({
   id: entry.id,
@@ -46,15 +47,17 @@ const statsDto = (stats: { requestCount: string; tokens: string; chargedMicros: 
 
 export class WalletService {
   static readonly token = serviceToken<WalletService>('ohmyapi/wallet');
+  private readonly db: Database;
   private readonly auth: AuthService;
-  constructor(auth: AuthService) {
+  constructor({ db, auth }: { db: Database; auth: AuthService }) {
+    this.db = db;
     this.auth = auth;
   }
 
   async get(userId: string) {
-    const [wallet] = await this.auth.db.select().from(wallets).where(eq(wallets.userId, userId));
+    const [wallet] = await this.db.select().from(wallets).where(eq(wallets.userId, userId));
     if (!wallet) throw new TRPCError({ code: 'NOT_FOUND', message: '钱包不存在' });
-    const [settings] = await this.auth.db.select({ currency: systemSettings.currency }).from(systemSettings);
+    const [settings] = await this.db.select({ currency: systemSettings.currency }).from(systemSettings);
     return {
       currency: settings.currency,
       balance: formatMoney(wallet.balanceMicros),
@@ -70,7 +73,7 @@ export class WalletService {
       sql<string>`coalesce(sum(${requests.chargedMicros}) filter (where ${requests.status} = 'settled' and ${requests.receivedAt} >= ${since}), 0)::text`;
     const [stats, [spending]] = await Promise.all([
       this.aggregateStats(userId),
-      this.auth.db
+      this.db
         .select({
           month: settled(monthStart),
           last30Days: settled(sql`now() - interval '30 days'`),
@@ -92,7 +95,7 @@ export class WalletService {
 
   /** 个人按消费排序；全站按请求数排行，前 10 名之后合并为一行，合计仍与卡片一致。 */
   async models(userId: string | undefined, range: '24h' | '30d') {
-    const rows = await this.auth.db
+    const rows = await this.db
       .select({ modelId: requests.modelId, name: models.name, ...usageStats() })
       .from(requests)
       .leftJoin(requestUsage, eq(requestUsage.requestId, requests.id))
@@ -131,7 +134,7 @@ export class WalletService {
   }
 
   private async aggregateStats(userId?: string, range: '24h' | '30d' = '24h') {
-    const [stats] = await this.auth.db
+    const [stats] = await this.db
       .select(usageStats())
       .from(requests)
       .leftJoin(requestUsage, eq(requestUsage.requestId, requests.id))
@@ -147,7 +150,7 @@ export class WalletService {
     const today = new Date(now.getTime() + offsetMs).toISOString().slice(0, 10);
     const start = new Date(`${today}T00:00:00+08:00`).getTime() - 6 * dayMs;
     const date = sql<string>`to_char(${requests.receivedAt} at time zone 'Asia/Shanghai', 'YYYY-MM-DD')`;
-    const rows = await this.auth.db
+    const rows = await this.db
       .select({ date, ...usageStats() })
       .from(requests)
       .leftJoin(requestUsage, eq(requestUsage.requestId, requests.id))
@@ -164,14 +167,14 @@ export class WalletService {
     const [last24Hours, last30Days, [settings]] = await Promise.all([
       this.aggregateStats(undefined, '24h'),
       this.aggregateStats(undefined, '30d'),
-      this.auth.db.select({ currency: systemSettings.currency }).from(systemSettings),
+      this.db.select({ currency: systemSettings.currency }).from(systemSettings),
     ]);
     return { last24Hours, last30Days, currency: settings.currency };
   }
 
   /** 与请求列表「待核对」筛选条件一致，供导航徽标轮询。 */
   async reviewCount() {
-    const [review] = await this.auth.db
+    const [review] = await this.db
       .select({ count: sql<number>`count(*)::integer` })
       .from(requests)
       .where(and(eq(requests.status, 'needs_review'), eq(requests.billingEnabled, true)));
@@ -179,7 +182,7 @@ export class WalletService {
   }
 
   async ledger(userId: string, page: number) {
-    const rows = await this.auth.db
+    const rows = await this.db
       .select({ entry: walletLedger, actorName: users.username })
       .from(walletLedger)
       .leftJoin(users, eq(walletLedger.actorId, users.id))

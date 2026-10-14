@@ -1,7 +1,6 @@
-import { readGatewayConfig } from '../../config.js';
+import { CredentialVault } from '../../core/vault.js';
 import { definePlugin } from '../../kernel.js';
 import { BillingService } from '../billing/service.js';
-import { CatalogService } from '../catalog/service.js';
 import { DatabaseService } from '../database/index.js';
 import { OutboundHttp } from '../outbound/index.js';
 import { PricingService } from '../pricing/service.js';
@@ -14,22 +13,22 @@ export const GatewayPlugin = definePlugin({
     database: DatabaseService,
     pricing: PricingService,
     billing: BillingService,
-    catalog: CatalogService,
+    vault: CredentialVault,
     subscription: SubscriptionService,
     outbound: OutboundHttp,
   },
   provides: [GatewayService],
   apply(ctx) {
-    const gateway = new GatewayService(
-      ctx.database.db,
-      ctx.pricing,
-      ctx.billing,
-      ctx.catalog.vault,
-      ctx.subscription,
-      readGatewayConfig(),
-      ctx.logger,
-      ctx.outbound,
-    );
+    const gateway = new GatewayService({
+      db: ctx.database.db,
+      pricing: ctx.pricing,
+      billing: ctx.billing,
+      vault: ctx.vault,
+      subscription: ctx.subscription,
+      outbound: ctx.outbound,
+      config: ctx.config.gateway,
+      logger: ctx.logger,
+    });
     ctx.provide(GatewayService, gateway);
     ctx.billing.onLeaseLost(() => {
       void gateway.dispose();

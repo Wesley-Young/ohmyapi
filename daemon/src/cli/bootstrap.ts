@@ -1,10 +1,10 @@
 import { eq, sql } from 'drizzle-orm';
 
-import { hashPassword, validatePassword } from '../auth/password.js';
-import { billingConventions } from '../billing/conventions.js';
-import type { Database } from './client.js';
-import { assertMigrationsCurrent } from './migrate.js';
-import { adminAuditLogs, systemSettings, users, wallets } from './schema/index.js';
+import { billingConventions } from '../core/money.js';
+import { hashPassword, validatePassword } from '../plugins/auth/password.js';
+import type { Database } from '../plugins/database/client.js';
+import { assertMigrationsCurrent } from '../plugins/database/migrate.js';
+import { adminAuditLogs, systemSettings, users, wallets } from '../plugins/database/schema/index.js';
 
 export interface BootstrapOptions {
   currency: string;

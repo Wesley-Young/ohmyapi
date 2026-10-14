@@ -14,7 +14,6 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { channelTypes, pricingModes } from '../../catalog/channel-types.js';
 import { createdAt, endpoint, id } from './common.js';
 import { apiKeys, users } from './identity.js';
 import { subscriptionAccounts } from './subscription.js';
@@ -35,6 +34,11 @@ export const models = pgTable(
     check('models_token_limits', sql`${table.inputTokenLimit} >= 1 and ${table.outputTokenLimit} >= 1`),
   ],
 );
+
+export const channelTypes = ['api', 'subscription', 'aggregate'] as const;
+export type ChannelType = (typeof channelTypes)[number];
+export const pricingModes = ['unified', 'passthrough'] as const;
+export type PricingMode = (typeof pricingModes)[number];
 
 export const channelType = pgEnum('channel_type', channelTypes);
 export const channelPricingMode = pgEnum('channel_pricing_mode', pricingModes);

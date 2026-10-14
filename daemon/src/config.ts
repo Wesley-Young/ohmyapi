@@ -39,11 +39,11 @@ export function readBillingCurrency(env: Environment = process.env) {
   return currency;
 }
 
-export function readServerConfig(env: Environment = process.env) {
+function readServerConfig(env: Environment) {
   return { host: env.HOST ?? '127.0.0.1', port: integerSetting(env, 'PORT', 8000, 65535) };
 }
 
-export function readSessionConfig(env: Environment = process.env) {
+function readSessionConfig(env: Environment) {
   const raw = env.SESSION_COOKIE_SECURE;
   if (raw !== undefined && raw !== 'true' && raw !== 'false')
     throw new Error('SESSION_COOKIE_SECURE must be true or false');
@@ -57,11 +57,14 @@ export function readSessionConfig(env: Environment = process.env) {
   return { secure: raw === undefined ? env.NODE_ENV === 'production' : raw === 'true', origin };
 }
 
-export function readGatewayConfig(env: Environment = process.env) {
-  if (!env.CHANNEL_ENCRYPTION_KEY) throw new Error('CHANNEL_ENCRYPTION_KEY is required');
-  if (!/^[a-fA-F0-9]{64}$/.test(env.CHANNEL_ENCRYPTION_KEY)) {
-    throw new Error('CHANNEL_ENCRYPTION_KEY must contain 64 hexadecimal characters');
-  }
+function readEncryptionKey(env: Environment) {
+  const key = env.CHANNEL_ENCRYPTION_KEY;
+  if (!key) throw new Error('CHANNEL_ENCRYPTION_KEY is required');
+  if (!/^[a-fA-F0-9]{64}$/.test(key)) throw new Error('CHANNEL_ENCRYPTION_KEY must contain 64 hexadecimal characters');
+  return key;
+}
+
+function readGatewayConfig(env: Environment) {
   return {
     maxBodyBytes: integerSetting(env, 'GATEWAY_MAX_BODY_BYTES', 32 * 1024 * 1024, 32 * 1024 * 1024),
     bodyTimeoutMs: integerSetting(env, 'GATEWAY_BODY_TIMEOUT_MS', 120_000, 600_000),
@@ -74,12 +77,25 @@ export function readGatewayConfig(env: Environment = process.env) {
   };
 }
 
+export type GatewayConfig = ReturnType<typeof readGatewayConfig>;
+
+/** 服务运行所需的全部配置，启动时一次性读取并校验。 */
+export function loadConfig(env: Environment = process.env) {
+  return {
+    server: readServerConfig(env),
+    database: readDatabaseConfig(env),
+    currency: readBillingCurrency(env),
+    session: readSessionConfig(env),
+    encryptionKey: readEncryptionKey(env),
+    gateway: readGatewayConfig(env),
+    serveWeb: env.NODE_ENV === 'production',
+  };
+}
+
+export type AppConfig = ReturnType<typeof loadConfig>;
+
 export function validateProductionConfig(env: Environment = process.env) {
-  readServerConfig(env);
-  readDatabaseConfig(env);
-  readBillingCurrency(env);
-  readGatewayConfig(env);
-  const session = readSessionConfig(env);
+  const { session } = loadConfig(env);
   if (!session.origin) throw new Error('APP_ORIGIN is required for production deployment');
   if (session.origin.startsWith('http:') && session.secure) {
     throw new Error('HTTP deployments require SESSION_COOKIE_SECURE=false');

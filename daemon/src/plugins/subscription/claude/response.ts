@@ -1,4 +1,5 @@
-import { GatewayError } from '../../gateway/errors.js';
+import { GatewayError } from '../../../core/errors.js';
+import { formatEvent } from '../../../core/logging.js';
 import { type ForwardResponseOptions, forwardResponse } from '../../gateway/response.js';
 import { readJson } from '../openai/client.js';
 import type { ClaudeSession } from './session.js';
@@ -51,7 +52,7 @@ export async function forwardClaudeResponse(
       }
       const first = lines.findIndex((l) => l.startsWith('data:'));
       lines = lines.filter((l) => !l.startsWith('data:'));
-      lines.splice(first, 0, `data: ${JSON.stringify(event)}`);
+      lines.splice(first, 0, formatEvent('data:', event));
     }
     controller.enqueue(encoder.encode(`${lines.join('\n')}\n\n`));
     lines = [];

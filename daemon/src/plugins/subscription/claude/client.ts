@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { GatewayError } from '../../gateway/errors.js';
+import { GatewayError } from '../../../core/errors.js';
 import type { OutboundFetch } from '../../outbound/index.js';
 import { readJson } from '../openai/client.js';
 import { planValue } from '../plan.js';

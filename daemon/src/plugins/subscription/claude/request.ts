@@ -1,4 +1,4 @@
-import { GatewayError } from '../../gateway/errors.js';
+import { GatewayError } from '../../../core/errors.js';
 import { claudeBetas } from './betas.js';
 import { cacheControl, prepareCache } from './cache.js';
 import type { ClaudeCredentials } from './credentials.js';
