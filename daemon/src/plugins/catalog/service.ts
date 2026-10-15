@@ -29,6 +29,12 @@ import { fetchUpstreamModels, type UpstreamModelsTrace } from './upstream-models
 
 type Channel = typeof channels.$inferSelect;
 
+const channelTypeOrder = {
+  aggregate: 0,
+  api: 1,
+  subscription: 2,
+} satisfies Record<Channel['type'], number>;
+
 export class CatalogService {
   static readonly token = serviceToken<CatalogService>('ohmyapi/catalog');
   private readonly db: Database;
@@ -80,14 +86,22 @@ export class CatalogService {
         })
         .from(channels)
         .leftJoin(subscriptionAccounts, eq(channels.subscriptionAccountId, subscriptionAccounts.id))
-        .where(isNull(channels.deletedAt))
-        .orderBy(asc(channels.name)),
+        .where(isNull(channels.deletedAt)),
       this.db.select().from(models).where(isNull(models.deletedAt)).orderBy(asc(models.name)),
       this.db.select().from(effectiveChannelEndpoints),
       this.db.select().from(effectiveChannelModels),
       this.db.select({ modelId: priceRules.modelId }).from(priceRules).where(eq(priceRules.kind, 'default')),
       this.db.select().from(aggregateChannelMembers),
     ]);
+    // 需要重新授权的渠道在前，其次启用优先、按类型分组，名称按自然顺序排列。
+    channelRows.sort(
+      (a, b) =>
+        Number(!a.subscription?.errorCode) - Number(!b.subscription?.errorCode) ||
+        Number(b.enabled) - Number(a.enabled) ||
+        channelTypeOrder[a.type] - channelTypeOrder[b.type] ||
+        a.name.localeCompare(b.name, 'zh-CN', { numeric: true }) ||
+        a.id.localeCompare(b.id),
+    );
     return {
       channels: channelRows.map(({ multiplierMicros, proxyUrlEncrypted, ...c }) => ({
         ...c,
