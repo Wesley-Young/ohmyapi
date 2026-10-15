@@ -134,6 +134,13 @@
       "when": 1792062426401,
       "tag": "0018_gemini_endpoint",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792065450194,
+      "tag": "0019_antigravity_provider",
+      "breakpoints": true
     }
   ]
 }

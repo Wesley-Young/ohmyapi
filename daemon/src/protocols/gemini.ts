@@ -70,14 +70,15 @@ function canonical(value: unknown, spec: Spec): unknown {
 const dummyThoughtSignature = 'skip_thought_signature_validator';
 
 /** 路径中的模型名：只含字母、数字、下划线、连字符和点，且不全是点。 */
-const isPathModel = (name: string) => /^[A-Za-z0-9_.-]{1,128}$/.test(name) && !/^\.+$/.test(name);
+export const isPathModel = (name: string) => /^[A-Za-z0-9_.-]{1,128}$/.test(name) && !/^\.+$/.test(name);
 
 /**
  * 发往上游前修正历史内容：移除 parts 为空的消息（上游不接受）；
  * 为缺少签名的 functionCall 补占位签名；历史来自其他上游时，签名在当前上游无效，替换为占位签名。
+ * 不需要修正时返回 undefined。
  */
-function upstreamBody(parsed: Data, bytes: Buffer<ArrayBuffer>, foreignHistory: boolean): Buffer<ArrayBuffer> {
-  if (!Array.isArray(parsed.contents)) return bytes;
+export function repairGeminiHistory(parsed: Data, foreignHistory: boolean): Data | undefined {
+  if (!Array.isArray(parsed.contents)) return undefined;
   let changed = false;
   const contents = parsed.contents.flatMap((item): unknown[] => {
     const entry = object(item);
@@ -101,7 +102,7 @@ function upstreamBody(parsed: Data, bytes: Buffer<ArrayBuffer>, foreignHistory: 
     changed = true;
     return [{ ...entry, parts }];
   });
-  return changed ? Buffer.from(JSON.stringify({ ...parsed, contents })) : bytes;
+  return changed ? { ...parsed, contents } : undefined;
 }
 
 const geminiCliTmpDir = /\/\.gemini\/tmp\/([A-Fa-f0-9]{64})/;
@@ -315,7 +316,10 @@ export const geminiProtocol: ApiProtocol = {
       return `${base}/v1beta/models/${encodeURIComponent(target.model)}:${method}`;
     },
     headers: (_request, credential) => new Headers({ 'x-goog-api-key': credential }),
-    body: (parsed, bytes, context) => upstreamBody(parsed, bytes, context.foreignHistory),
+    body(parsed, bytes, context) {
+      const repaired = repairGeminiHistory(parsed, context.foreignHistory);
+      return repaired ? Buffer.from(JSON.stringify(repaired)) : bytes;
+    },
   },
   responseFeatures: { searchOutputItems: false, serverTools: false },
   observeOutput(data, sink) {

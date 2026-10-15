@@ -467,6 +467,13 @@ export class GatewayService implements Disposable {
       await upstream.body?.cancel();
       throw new GatewayError(502, 'upstream_redirect', 'Upstream redirects are not supported');
     }
+    // 订阅渠道的错误响应可能包含账号信息，只返回状态；账号失效（401/403）对客户端表现为 502。
+    if (!upstream.ok && executionChannel.type === 'subscription') {
+      await upstream.body?.cancel();
+      await finish('upstream_http_error');
+      const status = upstream.status === 401 || upstream.status === 403 ? 502 : upstream.status;
+      return this.error(endpoint, status, 'upstream_http_error', `Upstream returned HTTP ${upstream.status}`, id);
+    }
     // 辅助操作的响应很小，完整读取后再返回，便于在收尾前释放上游连接。
     const declared = Number(upstream.headers.get('content-length'));
     if (declared > this.config.maxUsageBodyBytes) {

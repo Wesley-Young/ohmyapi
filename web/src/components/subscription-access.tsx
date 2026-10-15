@@ -3,7 +3,7 @@ import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { RefreshCw } from 'lucide-react';
 
 import { formError, localDateTime } from '../lib/format';
-import type { SubscriptionProvider } from '../lib/subscription';
+import { type SubscriptionProvider, subscriptionAccessHints, subscriptionProviderLabels } from '../lib/subscription';
 import { brandColor } from '../lib/theme';
 import { OpenAIResetCredits } from './openai-reset-credits';
 import { ErrorText, FormInput } from './ui';
@@ -123,11 +123,7 @@ export function SubscriptionAccess({
             autoComplete="off"
             spellCheck={false}
           />
-          <Field.HelperText>
-            {provider === 'claude'
-              ? '粘贴 CPA Claude 凭据或 claudeAiOauth JSON；缺少账号 ID 时通过出站代理查询'
-              : '粘贴 ~/.codex/auth.json 文件内容'}
-          </Field.HelperText>
+          <Field.HelperText>{subscriptionAccessHints[provider].credentials}</Field.HelperText>
         </Field.Root>
       ) : (
         <Stack gap="3">
@@ -137,10 +133,10 @@ export function SubscriptionAccess({
           {oauthUrl && (
             <>
               <Link href={oauthUrl} target="_blank" rel="noreferrer" color={brandColor}>
-                打开 {provider === 'claude' ? 'Claude' : 'OpenAI'} 授权页面
+                打开 {subscriptionProviderLabels[provider]} 授权页面
               </Link>
               <Text fontSize="sm" color="gray.500">
-                授权后将跳转到 localhost:{provider === 'claude' ? '54545/callback' : '1455/auth/callback'}
+                授权后将跳转到 {subscriptionAccessHints[provider].callback}
                 ，即使页面提示无法访问，也请复制地址栏的完整 URL 并粘贴到下方。
               </Text>
             </>

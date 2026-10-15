@@ -38,6 +38,7 @@ const requestErrors: Record<string, string> = {
   subscription_refresh_failed: '订阅令牌刷新失败，请稍后重试。',
   subscription_concurrency_exceeded: '订阅账号已达到并发上限，请稍后重试。',
   subscription_rate_limited: '订阅账号正在限流冷却，请稍后重试。',
+  subscription_project_missing: 'Antigravity 账号没有可用项目，请先在官方客户端完成初始化。',
   response_too_large: '非流式响应超过大小限制，请使用流式请求。',
   usage_missing: '上游未返回可用于计费的用量信息。',
   usage_not_final: '上游未返回完整的最终用量，无法确认费用。',

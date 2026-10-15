@@ -12,11 +12,23 @@ import { SubscriptionCycleDialog, subscriptionCycleQuery } from './subscription-
 
 type Quota = RouterOutputs['admin']['catalog']['openAIQuota'];
 
+// Antigravity 以 Gemini 额度池作为账号额度，结构与其他平台一致；周期详情中有说明。
+const quotaEndpoints = {
+  openai: { query: trpc.admin.catalog.openAIQuota, refresh: trpc.admin.catalog.refreshOpenAIQuota },
+  claude: { query: trpc.admin.catalog.claudeQuota, refresh: trpc.admin.catalog.refreshClaudeQuota },
+  antigravity: { query: trpc.admin.catalog.antigravityQuota, refresh: trpc.admin.catalog.refreshAntigravityQuota },
+} satisfies Record<SubscriptionProvider, unknown>;
+
 /** 额度与套餐共用同一个查询，组件各自订阅时不会重复请求。 */
 export function subscriptionQuotaQuery(provider: SubscriptionProvider, channelId: string, enabled: boolean) {
-  const endpoint = provider === 'claude' ? trpc.admin.catalog.claudeQuota : trpc.admin.catalog.openAIQuota;
-  return endpoint.queryOptions({ channelId }, { enabled, staleTime: 60_000, refetchInterval: 60_000, retry: false });
+  return quotaEndpoints[provider].query.queryOptions(
+    { channelId },
+    { enabled, staleTime: 60_000, refetchInterval: 60_000, retry: false },
+  );
 }
+
+const usageColor = (used: number | null | undefined) =>
+  used != null && used >= 90 ? '#ef4444' : used != null && used >= 75 ? '#f59e0b' : '#22c55e';
 
 function QuotaWindow({
   label,
@@ -30,7 +42,7 @@ function QuotaWindow({
   extra?: ReactNode;
 }) {
   const used = window?.usedPercent;
-  const color = used != null && used >= 90 ? '#ef4444' : used != null && used >= 75 ? '#f59e0b' : '#22c55e';
+  const color = usageColor(used);
   const percent = used == null ? '—' : used > 999 ? '>999%' : `${Math.round(used)}%`;
   const resetAt = window?.resetsAt ? new Date(window.resetsAt).getTime() : Number.NaN;
   const minutesUntilReset = Math.max(0, Math.floor((resetAt - Date.now()) / 60_000));
@@ -91,9 +103,7 @@ export function SubscriptionQuota({
   reauthorizationRequired: boolean;
 }) {
   const canFetch = enabled && !reauthorizationRequired;
-  const quotaEndpoint = provider === 'claude' ? trpc.admin.catalog.claudeQuota : trpc.admin.catalog.openAIQuota;
-  const refreshEndpoint =
-    provider === 'claude' ? trpc.admin.catalog.refreshClaudeQuota : trpc.admin.catalog.refreshOpenAIQuota;
+  const { query: quotaEndpoint, refresh: refreshEndpoint } = quotaEndpoints[provider];
   const quotaKey = quotaEndpoint.queryKey({ channelId });
   const refresh = useMutation(
     refreshEndpoint.mutationOptions({

@@ -366,7 +366,11 @@ export class CatalogService {
       if (input.endpoints.some((endpoint) => !providerSupports(provider, endpoint)))
         throw new AppError(
           'bad_request',
-          provider === 'claude' ? 'Claude 订阅渠道仅支持 Messages' : 'OpenAI 订阅渠道仅支持 Responses 和 compact',
+          {
+            openai: 'OpenAI 订阅渠道仅支持 Responses 和 compact',
+            claude: 'Claude 订阅渠道仅支持 Messages',
+            antigravity: 'Antigravity 订阅渠道仅支持 Gemini 端点',
+          }[provider],
         );
     }
     return aggregateModels;

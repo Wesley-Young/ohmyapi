@@ -24,8 +24,8 @@ const quotaSchema = z
   .object({
     provider: z.enum(subscriptionProviders),
     plan: z.string().nullable().meta({ description: '上游的套餐标识', example: 'pro' }),
-    fiveHour: quotaWindow.meta({ description: '5 小时窗口' }),
-    sevenDay: quotaWindow.meta({ description: '7 天窗口' }),
+    fiveHour: quotaWindow.meta({ description: '5 小时窗口；Antigravity 为 Gemini 模型共用的额度池' }),
+    sevenDay: quotaWindow.meta({ description: '7 天窗口；Antigravity 为 Gemini 模型共用的额度池' }),
     fetchedAt: z.iso.datetime().meta({ description: '从上游获取的时间' }),
   })
   .meta({ id: 'SubscriptionQuota' });
@@ -44,7 +44,10 @@ const cycleUsageSchema = z
     }),
     manualResetAt: z.iso.datetime().nullable().meta({ description: '管理员填写的重置时刻（Claude）' }),
     manualResetActive: z.boolean().meta({ description: '手动重置时刻是否落在当前周期内并作为起点' }),
-    usedPercent: z.number().nullable().meta({ description: '上游报告的 7 天窗口已用比例，0–100' }),
+    usedPercent: z
+      .number()
+      .nullable()
+      .meta({ description: '上游报告的 7 天窗口已用比例，0–100；Antigravity 为 Gemini 额度池' }),
     projectedAmount: moneySchema.nullable().meta({
       description: '按已用比例推算的整个周期的等效费用；已用比例达到 5% 时提供',
     }),

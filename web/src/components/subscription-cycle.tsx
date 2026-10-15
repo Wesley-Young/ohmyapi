@@ -175,6 +175,12 @@ export function SubscriptionCycleDialog({ channelId, onClose }: { channelId: str
               本周期暂无请求
             </Text>
           )}
+          {data.provider === 'antigravity' && (
+            <Text fontSize="sm" color="gray.500">
+              Antigravity 的 5h 和 7d 额度为 Gemini 模型共用的额度池。Claude、GPT-OSS
+              等第三方模型使用另一个额度池，不计入已用比例，但其请求费用仍计入上方合计。
+            </Text>
+          )}
           {data.provider === 'claude' && (
             <ManualReset
               key={data.manualResetAt ?? ''}

@@ -2,7 +2,7 @@ import { type Disposable, serviceToken } from '@fraqjs/kernel';
 import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { AppError } from '../../core/errors.ts';
+import { AppError, GatewayError } from '../../core/errors.ts';
 import type { CredentialVault } from '../../core/vault.ts';
 import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
@@ -11,6 +11,13 @@ import type { SubscriptionProvider } from '../database/schema/index.ts';
 import { channels, subscriptionAccounts } from '../database/schema/index.ts';
 import { channelProxy } from '../outbound/channel-proxy.ts';
 import type { OutboundHttp } from '../outbound/index.ts';
+import {
+  type AntigravityCredentials,
+  antigravityCredentialsSchema,
+  importAntigravityCredentials,
+} from './antigravity/credentials.ts';
+import { AntigravityOAuth } from './antigravity/oauth.ts';
+import { AntigravityQuota, antigravityModelNames } from './antigravity/quota.ts';
 import { fetchClaudeModels } from './claude/catalog.ts';
 import { importClaudeCredentials } from './claude/client.ts';
 import { type ClaudeCredentials, claudeCredentialsSchema } from './claude/credentials.ts';
@@ -35,6 +42,8 @@ export class SubscriptionService implements Disposable {
   static readonly token = serviceToken<SubscriptionService>('ohmyapi/subscription');
   private readonly oauth = new OpenAIOAuth();
   private readonly claudeOAuth = new ClaudeOAuth();
+  private readonly antigravityOAuth = new AntigravityOAuth();
+  private readonly antigravityQuota = new AntigravityQuota();
   private readonly openaiQuota = new OpenAIQuota();
   private readonly claudeQuota = new ClaudeQuota();
   private readonly openaiResetCredits = new OpenAIResetCredits();
@@ -62,6 +71,7 @@ export class SubscriptionService implements Disposable {
   async maintain() {
     this.oauth.prune();
     this.claudeOAuth.prune();
+    this.antigravityOAuth.prune();
     await this.runtime.refreshExpiringTokens().catch(() => {});
   }
 
@@ -74,25 +84,64 @@ export class SubscriptionService implements Disposable {
     try {
       // 已保存的旧凭据可从 access_token 读取邮箱，后续刷新会写入 email。
       const raw = JSON.parse(this.vault.decrypt(encrypted));
-      return (provider === 'claude' ? claudeCredentialsSchema.parse(raw) : parseCredentials(raw)).email ?? null;
+      return (
+        (provider === 'claude'
+          ? claudeCredentialsSchema.parse(raw)
+          : provider === 'antigravity'
+            ? antigravityCredentialsSchema.parse(raw)
+            : parseCredentials(raw)
+        ).email ?? null
+      );
     } catch {
       return null;
     }
   }
 
+  private oauthFor(provider: SubscriptionProvider) {
+    return provider === 'claude' ? this.claudeOAuth : provider === 'antigravity' ? this.antigravityOAuth : this.oauth;
+  }
+
+  private invalidateQuota(id: string) {
+    this.openaiQuota.invalidate(id);
+    this.claudeQuota.invalidate(id);
+    this.antigravityQuota.invalidate(id);
+    // 更换凭据后账号可用的模型可能变化。
+    this.runtime.antigravityModels.invalidate(id);
+  }
+
   consumeAuthorization(principal: Principal, callbackUrl: string, provider: SubscriptionProvider) {
-    (provider === 'claude' ? this.claudeOAuth : this.oauth).consume(principal.user.id, callbackUrl);
+    this.oauthFor(provider).consume(principal.user.id, callbackUrl);
   }
 
   async prepareCredentials(principal: Principal, input: CredentialInput, proxyUrl: string | null) {
     await this.auth.authorized(principal, { admin: true }, async () => {});
     if (input.callbackUrl) {
       try {
-        const oauth = input.provider === 'claude' ? this.claudeOAuth : this.oauth;
-        return await oauth.complete(principal.user.id, input.callbackUrl, this.outbound.forProxy(proxyUrl));
+        return await this.oauthFor(input.provider).complete(
+          principal.user.id,
+          input.callbackUrl,
+          this.outbound.forProxy(proxyUrl),
+        );
       } catch (error) {
         if (error instanceof AppError) throw error;
         throw new AppError('bad_request', '授权失败，请重新授权并粘贴完整回调地址');
+      }
+    }
+    if (input.provider === 'antigravity') {
+      if (!input.credentials) return;
+      try {
+        return await importAntigravityCredentials(
+          JSON.parse(input.credentials),
+          this.outbound.forProxy(proxyUrl),
+          AbortSignal.timeout(60_000),
+        );
+      } catch (error) {
+        throw new AppError(
+          'bad_request',
+          error instanceof GatewayError && error.code === 'subscription_reauthorization_required'
+            ? 'Google 拒绝了该 refresh token，请重新授权'
+            : 'Antigravity 凭据无效；需要 refresh_token，并通过出站代理查询 Google 账号',
+        );
       }
     }
     if (input.provider === 'claude') {
@@ -118,7 +167,7 @@ export class SubscriptionService implements Disposable {
   async saveAccount(
     tx: Transaction,
     input: { id?: string; name: string; enabled: boolean; maxConcurrent: number; provider: SubscriptionProvider },
-    credentials?: OpenAICredentials | ClaudeCredentials,
+    credentials?: OpenAICredentials | ClaudeCredentials | AntigravityCredentials,
   ) {
     const [existing] = input.id
       ? await tx
@@ -141,10 +190,17 @@ export class SubscriptionService implements Disposable {
       if (existing) {
         const raw = JSON.parse(this.vault.decrypt(existing.credentialEncrypted));
         const saved =
-          existing.provider === 'claude' ? claudeCredentialsSchema.parse(raw) : credentialsSchema.parse(raw);
+          existing.provider === 'claude'
+            ? claudeCredentialsSchema.parse(raw)
+            : existing.provider === 'antigravity'
+              ? antigravityCredentialsSchema.parse(raw)
+              : credentialsSchema.parse(raw);
         credentials = {
           ...credentials,
           ...('deviceId' in saved ? { deviceId: saved.deviceId } : {}),
+          ...('projectId' in saved && !('projectId' in credentials && credentials.projectId)
+            ? { projectId: saved.projectId }
+            : {}),
           refreshToken: credentials.refreshToken ?? saved.refreshToken,
           email:
             credentials.email ??
@@ -207,8 +263,7 @@ export class SubscriptionService implements Disposable {
       if (!created) throw new AppError('conflict', '该订阅账号已存在，请编辑对应订阅渠道');
       row = created;
     }
-    this.openaiQuota.invalidate(row.id);
-    this.claudeQuota.invalidate(row.id);
+    this.invalidateQuota(row.id);
     return row.id;
   }
 
@@ -228,19 +283,15 @@ export class SubscriptionService implements Disposable {
 
   async startOAuth(principal: Principal, provider: SubscriptionProvider = 'openai') {
     return this.auth.authorized(principal, { admin: true }, async () =>
-      (provider === 'claude' ? this.claudeOAuth : this.oauth).start(principal.user.id),
+      this.oauthFor(provider).start(principal.user.id),
     );
   }
 
   async refresh(principal: Principal, channelId: string) {
     const id = await this.accountForChannel(principal, channelId);
     try {
-      await ((await this.runtime.provider(id)) === 'claude' ? this.runtime.claudeTokens : this.runtime.tokens).get(
-        id,
-        true,
-      );
-      this.openaiQuota.invalidate(id);
-      this.claudeQuota.invalidate(id);
+      await this.runtime.tokensFor(await this.runtime.provider(id)).get(id, true);
+      this.invalidateQuota(id);
     } catch {
       throw new AppError('bad_request', '刷新失败，请检查账号状态或重新授权');
     }
@@ -257,12 +308,19 @@ export class SubscriptionService implements Disposable {
     return this.claudeQuota.get(this.runtime.claudeTokens, id, force);
   }
 
-  /** 按渠道的订阅平台查询额度窗口。 */
+  async antigravityUsage(principal: Principal, channelId: string, force = false) {
+    const id = await this.providerAccountForChannel(principal, channelId, 'antigravity');
+    return this.antigravityQuota.get(this.runtime.antigravityTokens, id, force);
+  }
+
+  /** 按渠道的订阅平台查询额度窗口；Antigravity 返回 Gemini 额度池的窗口。 */
   async quota(principal: Principal, channelId: string) {
     const { id, provider } = await this.enabledAccountForChannel(principal, channelId);
     const quota = await (provider === 'claude'
       ? this.claudeQuota.get(this.runtime.claudeTokens, id)
-      : this.openaiQuota.get(this.runtime.tokens, id));
+      : provider === 'antigravity'
+        ? this.antigravityQuota.get(this.runtime.antigravityTokens, id)
+        : this.openaiQuota.get(this.runtime.tokens, id));
     return {
       provider,
       plan: quota.plan,
@@ -318,11 +376,13 @@ export class SubscriptionService implements Disposable {
       })
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
-    if (!account?.enabled || (account.provider !== 'openai' && account.provider !== 'claude'))
-      throw new AppError('bad_request', '渠道未启用或已删除');
+    if (!account?.enabled) throw new AppError('bad_request', '渠道未启用或已删除');
+    // Antigravity 以 Gemini 额度池作为账号额度；第三方模型的额度池很少使用，不单独计算。
     const quota = await (account.provider === 'claude'
       ? this.claudeQuota.get(this.runtime.claudeTokens, id)
-      : this.openaiQuota.get(this.runtime.tokens, id)
+      : account.provider === 'antigravity'
+        ? this.antigravityQuota.get(this.runtime.antigravityTokens, id)
+        : this.openaiQuota.get(this.runtime.tokens, id)
     ).catch(() => null);
     const now = new Date();
     const week = 7 * 24 * 60 * 60 * 1000;
@@ -392,6 +452,17 @@ export class SubscriptionService implements Disposable {
     if (provided && new Date(provided.expiresAt).getTime() <= Date.now())
       throw new AppError('bad_request', '凭据已过期，请重新授权或导入新凭据');
     try {
+      if (provider === 'antigravity') {
+        const credentials =
+          provided ?? (id ? await this.runtime.antigravityTokens.get(id, false, proxyUrl) : undefined);
+        const { names, ignored, upstream } = await antigravityModelNames(
+          antigravityCredentialsSchema.parse(credentials),
+          request,
+        );
+        // 已保存的账号用最新目录更新变体缓存。
+        if (id && !provided) this.runtime.antigravityModels.set(id, upstream);
+        return { names, ignored };
+      }
       const tokens = provider === 'claude' ? this.runtime.claudeTokens : this.runtime.tokens;
       const credentials = provided ?? (id ? await tokens.get(id, false, proxyUrl) : undefined);
       if (!credentials) throw new Error('缺少订阅凭据');
@@ -453,7 +524,9 @@ export class SubscriptionService implements Disposable {
   dispose() {
     this.oauth.dispose();
     this.claudeOAuth.dispose();
+    this.antigravityOAuth.dispose();
     this.openaiQuota.dispose();
     this.claudeQuota.dispose();
+    this.antigravityQuota.dispose();
   }
 }

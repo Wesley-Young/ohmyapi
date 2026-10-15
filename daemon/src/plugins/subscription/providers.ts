@@ -4,6 +4,7 @@ import type { Endpoint, SubscriptionProvider } from '../database/schema/index.ts
 export const providerEndpoints = {
   openai: ['/v1/responses', '/v1/responses/compact'],
   claude: ['/v1/messages'],
+  antigravity: ['/v1beta/generateContent'],
 } as const satisfies Record<SubscriptionProvider, readonly Endpoint[]>;
 
 export function providerSupports(provider: string, endpoint: Endpoint) {

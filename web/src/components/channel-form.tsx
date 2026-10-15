@@ -6,7 +6,12 @@ import { useState } from 'react';
 import { refreshCatalog } from '../lib/cache';
 import { type Endpoint, endpoints, responsesEndpoints } from '../lib/endpoints';
 import { formError } from '../lib/format';
-import type { SubscriptionProvider } from '../lib/subscription';
+import {
+  isSubscriptionProvider,
+  type SubscriptionProvider,
+  subscriptionEndpoints,
+  subscriptionProviderLabels,
+} from '../lib/subscription';
 import { trpc } from '../lib/trpc';
 import { AggregateMembers, AggregateSummary, aggregateCommon } from './aggregate-members';
 import { type ChannelModel, ChannelModels } from './channel-models';
@@ -37,7 +42,7 @@ function EndpointFields({
           .filter(
             (endpoint) =>
               endpoint !== '/v1/responses/compact' &&
-              (!subscription || endpoint === (provider === 'claude' ? '/v1/messages' : '/v1/responses')),
+              (!subscription || subscriptionEndpoints[provider].includes(endpoint)),
           )
           .map((endpoint) => (
             <Checkbox.Root
@@ -194,13 +199,7 @@ export function ChannelForm({
                   value={type}
                   onChange={(e) => {
                     setType(e.target.value as typeof type);
-                    setScopes(
-                      e.target.value === 'subscription'
-                        ? provider === 'claude'
-                          ? ['/v1/messages']
-                          : [...responsesEndpoints]
-                        : [],
-                    );
+                    setScopes(e.target.value === 'subscription' ? [...subscriptionEndpoints[provider]] : []);
                     setAvailable([]);
                     setFetchNotice(undefined);
                   }}
@@ -223,18 +222,21 @@ export function ChannelForm({
                       aria-label="订阅平台"
                       value={provider}
                       onChange={(e) => {
-                        const next = e.target.value === 'claude' ? 'claude' : 'openai';
+                        const next = isSubscriptionProvider(e.target.value) ? e.target.value : 'openai';
                         setProvider(next);
                         setMode('oauth');
                         startOAuth.reset();
                         setCredentials('');
                         setCallback('');
                         setAvailable([]);
-                        setScopes(next === 'claude' ? ['/v1/messages'] : [...responsesEndpoints]);
+                        setScopes([...subscriptionEndpoints[next]]);
                       }}
                     >
-                      <option value="openai">OpenAI</option>
-                      <option value="claude">Claude</option>
+                      {Object.entries(subscriptionProviderLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
                     </NativeSelect.Field>
                     <NativeSelect.Indicator />
                   </NativeSelect.Root>

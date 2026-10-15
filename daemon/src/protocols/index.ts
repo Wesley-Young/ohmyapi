@@ -6,6 +6,7 @@ import { responses, responsesCompact } from './responses.ts';
 import type { ApiProtocol } from './types.ts';
 
 export { type Endpoint, endpoints } from './endpoints.ts';
+export { isPathModel as isGeminiPathModel, repairGeminiHistory } from './gemini.ts';
 export { openAIErrorBody } from './openai.ts';
 export { codexRequestHeaders } from './responses.ts';
 export type * from './types.ts';

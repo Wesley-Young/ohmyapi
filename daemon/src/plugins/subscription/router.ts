@@ -29,6 +29,12 @@ export function subscriptionAdminRoutes(subscription: SubscriptionService) {
     claudeQuota: adminProcedure
       .input(subscriptionChannelInput)
       .query(({ ctx, input }) => subscription.claudeUsage(ctx.principal, input.channelId)),
+    refreshAntigravityQuota: adminProcedure
+      .input(subscriptionChannelInput)
+      .mutation(({ ctx, input }) => subscription.antigravityUsage(ctx.principal, input.channelId, true)),
+    antigravityQuota: adminProcedure
+      .input(subscriptionChannelInput)
+      .query(({ ctx, input }) => subscription.antigravityUsage(ctx.principal, input.channelId)),
     subscriptionCycleUsage: adminProcedure
       .input(subscriptionChannelInput)
       .query(({ ctx, input }) => subscription.cycleUsage(ctx.principal, input.channelId)),

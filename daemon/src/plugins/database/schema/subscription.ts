@@ -3,7 +3,7 @@ import { boolean, check, integer, jsonb, pgTable, text, timestamp, uniqueIndex }
 
 import { createdAt, id } from './common.ts';
 
-export const subscriptionProviders = ['openai', 'claude'] as const;
+export const subscriptionProviders = ['openai', 'claude', 'antigravity'] as const;
 export type SubscriptionProvider = (typeof subscriptionProviders)[number];
 
 export const subscriptionAccounts = pgTable(
@@ -30,7 +30,7 @@ export const subscriptionAccounts = pgTable(
     uniqueIndex('subscription_accounts_identity_unique')
       .on(table.provider, table.accountId, table.userId)
       .where(sql`${table.deletedAt} is null`),
-    check('subscription_accounts_provider', sql`${table.provider} in ('openai', 'claude')`),
+    check('subscription_accounts_provider', sql`${table.provider} in ('openai', 'claude', 'antigravity')`),
     check('subscription_accounts_concurrency', sql`${table.maxConcurrent} between 1 and 100`),
   ],
 );

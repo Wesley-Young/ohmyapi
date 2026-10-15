@@ -49,8 +49,18 @@ const claudePlans: Record<string, { label: string; tier: Tier }> = {
   claude_enterprise: { label: 'Enterprise', tier: 'organization' },
 };
 
+// Antigravity 的套餐来自 loadCodeAssist 的 tier ID。
+const antigravityPlans: Record<string, { label: string; tier: Tier }> = {
+  'free-tier': { label: 'Free', tier: 'free' },
+  'legacy-tier': { label: 'Legacy', tier: 'free' },
+  'g1-pro-tier': { label: 'Pro', tier: 'standard' },
+  'g1-ultra-tier': { label: 'Ultra', tier: 'luxury' },
+  'standard-tier': { label: 'Standard', tier: 'organization' },
+};
+
 /** 识别不出的套餐原样显示为灰色。 */
 function planInfo(provider: SubscriptionProvider, raw: string): { label: string; tier: Tier } {
+  if (provider === 'antigravity') return antigravityPlans[raw] ?? { label: raw, tier: 'free' };
   if (provider === 'openai') return openAIPlans[raw.replace(/[\s_-]+/g, '')] ?? { label: raw, tier: 'free' };
   // Max 的倍数只出现在 rate_limit_tier（如 default_claude_max_5x），按数字归档以兼容新倍数。
   const multiple = raw.match(/max_(\d+)x/)?.[1];

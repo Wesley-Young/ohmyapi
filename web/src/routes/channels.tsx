@@ -13,6 +13,7 @@ import { SubscriptionQuota } from '../components/subscription-quota';
 import { ConfirmAction, ErrorText, Loading, NameAction, PrimaryButton, Title } from '../components/ui';
 import { refreshCatalog } from '../lib/cache';
 import { formError, localDateTime } from '../lib/format';
+import { subscriptionProviderLabels } from '../lib/subscription';
 import { brandColor } from '../lib/theme';
 import { trpc, trpcClient } from '../lib/trpc';
 
@@ -22,10 +23,6 @@ const channelTypeLabels = {
   subscription: '订阅渠道',
   aggregate: '聚合渠道',
 } satisfies Record<CatalogData['channels'][number]['type'], string>;
-const providerLabels = {
-  openai: 'OpenAI',
-  claude: 'Claude',
-} satisfies Record<NonNullable<CatalogData['channels'][number]['subscription']>['provider'], string>;
 
 export default function Channels() {
   const data = useQuery(trpc.admin.catalog.list.queryOptions());
@@ -113,7 +110,7 @@ export default function Channels() {
                         <HStack gap="2" flexWrap="wrap">
                           <Text>
                             {channelTypeLabels[c.type]}{' '}
-                            {c.subscription && `(${providerLabels[c.subscription.provider]})`}
+                            {c.subscription && `(${subscriptionProviderLabels[c.subscription.provider]})`}
                           </Text>
                           {c.type === 'subscription' && c.subscription && (
                             <PlanBadge
