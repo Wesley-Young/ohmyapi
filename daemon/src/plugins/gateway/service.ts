@@ -5,7 +5,7 @@ import type { GatewayConfig } from '../../config.ts';
 import { GatewayError } from '../../core/errors.ts';
 import { createLogSampler, type EventLogger, errorDetails, formatEvent } from '../../core/logging.ts';
 import type { CredentialVault } from '../../core/vault.ts';
-import { protocolFor } from '../../protocols/index.ts';
+import { type ModelInfo, protocolFor, type RequestTarget } from '../../protocols/index.ts';
 import { validateBillableRequest } from '../billing/admission.ts';
 import { searchRequest } from '../billing/search.ts';
 import type { BillingService } from '../billing/service.ts';
@@ -13,20 +13,28 @@ import type { Database } from '../database/client.ts';
 import { activeChannel, availableSubscription } from '../database/query.ts';
 import type { Endpoint } from '../database/schema/index.ts';
 import { channels, requestAttempts, requests } from '../database/schema/index.ts';
+import type { KeyIdentity } from '../keys/access.ts';
 import type { OutboundHttp } from '../outbound/index.ts';
 import type { PricingService } from '../pricing/service.ts';
 import { channelAdapter, type SubscriptionChannels } from './adapters.ts';
 import { type AffinitySelection, ChannelAffinity } from './affinity.ts';
 import { ForwardBillingSession } from './billing-session.ts';
 import { readJsonBody } from './body.ts';
-import { identifyApiKey } from './identity.ts';
+import { type ApiKeySources, identifyApiKey } from './identity.ts';
 import { RequestLifecycle } from './lifecycle.ts';
 import { availableModels, modelListResponse } from './models.ts';
-import { errorResponse, reasoningEffort } from './protocol.ts';
+import { errorResponse, reasoningEffort, responseHeaders } from './protocol.ts';
 import { UserRateLimiter } from './rate-limit.ts';
 import { resolveEntryRoute, selectExecutionChannel } from './routing.ts';
 
 import { randomUUID } from 'node:crypto';
+
+/**
+ * 聚合渠道按会话选择成员；此前没有确认过的成员，或本次换了成员时，会话历史可能来自其他上游。
+ * 非聚合渠道始终由同一渠道执行。
+ */
+const foreignHistory = (affinity: AffinitySelection | undefined, channelId: string) =>
+  affinity !== undefined && affinity.previous?.channelId !== channelId;
 
 /**
  * 网关请求流程：鉴权与限流 → 读取请求体 → 入库 → 解析路由 → 锁定价格 → 预占 → 转发 → 收尾计费。
@@ -94,12 +102,46 @@ export class GatewayService implements Disposable {
     return errorResponse(endpoint, status, code, message, id);
   }
 
-  async listModels(req: Request): Promise<Response> {
+  /** OpenAI 和 Anthropic 客户端共用的模型列表，按请求头选择响应格式。 */
+  listModels(req: Request): Promise<Response> {
+    return this.serveModels(req, '/v1/models', { headers: ['x-api-key'] }, undefined, (available, id) =>
+      modelListResponse(req, available, id),
+    );
+  }
+
+  /** 协议自带的模型接口：未指定 name 时返回列表，否则返回单个模型。 */
+  protocolModels(req: Request, endpoint: Endpoint, name?: string): Promise<Response> {
+    const protocol = protocolFor(endpoint);
+    const format = protocol.modelList;
+    if (!format) throw new Error(`${endpoint} does not provide a model list`);
+    return this.serveModels(
+      req,
+      endpoint,
+      { headers: protocol.apiKeyHeaders, query: protocol.apiKeyQuery, rejectedQuery: protocol.rejectedApiKeyQuery },
+      endpoint,
+      (available, id) => {
+        const model = name === undefined ? undefined : available.find((item) => item.name === name);
+        if (name !== undefined && !model)
+          throw new GatewayError(404, 'model_not_found', 'Unknown or unavailable model');
+        return Response.json(model ? format.get(model) : format.list(available), {
+          headers: { 'x-request-id': id, 'cache-control': 'no-store' },
+        });
+      },
+    );
+  }
+
+  private async serveModels(
+    req: Request,
+    errorEndpoint: Endpoint | '/v1/models',
+    sources: ApiKeySources,
+    endpoint: Endpoint | undefined,
+    respond: (available: ModelInfo[], id: string) => Response,
+  ): Promise<Response> {
     const id = randomUUID();
     const startedAt = Date.now();
     try {
       if (this.stopping) throw new GatewayError(503, 'server_stopping', 'Gateway is stopping');
-      const identity = await identifyApiKey(this.db, req, ['x-api-key']);
+      const identity = await identifyApiKey(this.db, req, sources);
       if (!identity.channelId)
         throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
       const [channel] = await this.db
@@ -108,8 +150,13 @@ export class GatewayService implements Disposable {
         .where(and(eq(channels.id, identity.channelId), activeChannel(), availableSubscription()));
       if (!channel) throw new GatewayError(503, 'channel_unavailable', 'The API Key channel is unavailable');
       if (channel.type !== 'aggregate') await channelAdapter(channel, this.subscriptions);
-      const available = await availableModels(this.db, { ...identity, channelId: identity.channelId }, channel);
-      return modelListResponse(req, available, id);
+      const available = await availableModels(
+        this.db,
+        { ...identity, channelId: identity.channelId },
+        channel,
+        endpoint,
+      );
+      return respond(available, id);
     } catch (error) {
       const failure =
         error instanceof GatewayError
@@ -119,14 +166,14 @@ export class GatewayService implements Disposable {
         this.logger[failure.status >= 500 ? 'error' : 'warn'](
           formatEvent('网关模型列表请求失败', {
             requestId: id,
-            endpoint: '/v1/models',
+            endpoint: errorEndpoint,
             httpStatus: failure.status,
             errorCode: failure.code,
             durationMs: Date.now() - startedAt,
             ...errorDetails(error),
           }),
         );
-      return this.error('/v1/models', failure.status, failure.code, failure.message, id);
+      return this.error(errorEndpoint, failure.status, failure.code, failure.message, id);
     }
   }
 
@@ -175,17 +222,29 @@ export class GatewayService implements Disposable {
           '此端点不支持 Claude Code 客户端，请在其他兼容 Anthropic Messages 的客户端中使用。',
         );
       this.billing.assertReady();
-      const identity = await identifyApiKey(this.db, req, protocol.apiKeyHeaders);
+      const identity = await identifyApiKey(this.db, req, {
+        headers: protocol.apiKeyHeaders,
+        query: protocol.apiKeyQuery,
+        rejectedQuery: protocol.rejectedApiKeyQuery,
+      });
       session.userId = identity.user.id;
       session.channelId = identity.channelId ?? undefined;
       lifecycle.releaseCapacity = this.rateLimiter.acquire(identity.user.id);
 
-      const { parsed, bytes } = await lifecycle.withBodyTimeout(
+      const received = await lifecycle.withBodyTimeout(
         this.config.bodyTimeoutMs,
         this.config.bodyIdleTimeoutMs,
         (progress) => readJsonBody(req, abort.signal, session.bodyStats, progress, this.config.maxBodyBytes),
       );
-      const target = protocol.target(req, parsed, params);
+      const { bytes } = received;
+      const target = protocol.target(req, received.parsed, params);
+      // 计费和路由读取统一写法后的请求体，上游仍收到原始字节。
+      const parsed = protocol.canonicalBody ? protocol.canonicalBody(received.parsed) : received.parsed;
+      if (target.unbilled) {
+        session.unbilled = true;
+        session.modelName = target.model;
+        return await this.relayUnbilled({ req, endpoint, target, parsed, bytes, identity, lifecycle, session, finish });
+      }
       // Async/background Responses retrieval is outside this synchronous gateway's scope.
       if (parsed.background === true)
         throw new GatewayError(400, 'unsupported_mode', 'Background responses are not supported');
@@ -247,6 +306,7 @@ export class GatewayService implements Disposable {
         request: req,
         endpoint,
         target,
+        foreignHistory: foreignHistory(affinity, executionChannel.id),
         parsed,
         bytes,
         vault: this.vault,
@@ -280,6 +340,7 @@ export class GatewayService implements Disposable {
         inputLimit: model.inputTokenLimit,
         outputLimit,
         body: prepared.billingBody ?? parsed,
+        requestedModel: target.model,
         endpoint,
       });
       session.collector.estimate.input = reservation.estimate;
@@ -339,5 +400,83 @@ export class GatewayService implements Disposable {
       await finish(failure.code);
       return this.error(endpoint, failure.status, failure.code, failure.message, id);
     }
+  }
+
+  /** 不计费的辅助操作：校验路由和权限后转发，不写入请求记录，也不预占余额。 */
+  private async relayUnbilled(options: {
+    req: Request;
+    endpoint: Endpoint;
+    target: RequestTarget;
+    parsed: Record<string, unknown>;
+    bytes: Buffer<ArrayBuffer>;
+    identity: KeyIdentity;
+    lifecycle: RequestLifecycle;
+    session: ForwardBillingSession;
+    finish: (errorCode?: string) => Promise<void>;
+  }): Promise<Response> {
+    const { req, endpoint, target, parsed, bytes, identity, lifecycle, session, finish } = options;
+    const { id, abort } = lifecycle;
+    const { channel } = await resolveEntryRoute(this.db, identity, target.model, endpoint, session);
+    const { channel: executionChannel, affinity } = await selectExecutionChannel(
+      this.db,
+      this.subscriptions,
+      channel,
+      parsed,
+      target.model,
+      endpoint,
+      req,
+      this.affinity,
+      identity.user.id,
+    );
+    session.executionChannelId = executionChannel.id;
+    const adapter = await channelAdapter(executionChannel, this.subscriptions);
+    const timeoutMs = Math.min(channel.timeoutMs, executionChannel.timeoutMs);
+    session.upstreamTimeoutMs = timeoutMs;
+    lifecycle.setTimeout('upstream_timeout', timeoutMs);
+    lifecycle.syncClientAbort();
+    const prepared = await adapter.prepareRequest({
+      userId: identity.user.id,
+      channel: executionChannel,
+      request: req,
+      endpoint,
+      target,
+      foreignHistory: foreignHistory(affinity, executionChannel.id),
+      parsed,
+      bytes,
+      vault: this.vault,
+      signal: abort.signal,
+    });
+    lifecycle.releaseUpstream = prepared.release;
+    const request = this.outbound.forProxy(
+      executionChannel.proxyUrlEncrypted ? this.vault.decrypt(executionChannel.proxyUrlEncrypted) : null,
+    );
+    if (abort.signal.aborted)
+      throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
+    session.dispatched = true;
+    const upstream = await request(prepared.url, {
+      method: 'POST',
+      headers: prepared.headers,
+      body: prepared.body,
+      signal: abort.signal,
+      redirect: 'manual',
+    });
+    if (prepared.onResponse) await prepared.onResponse(upstream).catch(() => {});
+    session.httpStatus = upstream.status;
+    session.upstreamStatus = upstream.status;
+    if (upstream.status >= 300 && upstream.status < 400) {
+      await upstream.body?.cancel();
+      throw new GatewayError(502, 'upstream_redirect', 'Upstream redirects are not supported');
+    }
+    // 辅助操作的响应很小，完整读取后再返回，便于在收尾前释放上游连接。
+    const declared = Number(upstream.headers.get('content-length'));
+    if (declared > this.config.maxUsageBodyBytes) {
+      await upstream.body?.cancel();
+      throw new GatewayError(502, 'upstream_response_too_large', 'Upstream response is too large');
+    }
+    const content = await upstream.arrayBuffer();
+    if (content.byteLength > this.config.maxUsageBodyBytes)
+      throw new GatewayError(502, 'upstream_response_too_large', 'Upstream response is too large');
+    await finish(upstream.ok ? undefined : 'upstream_http_error');
+    return new Response(content, { status: upstream.status, headers: responseHeaders(upstream.headers, id) });
   }
 }

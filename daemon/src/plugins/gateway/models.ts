@@ -1,10 +1,12 @@
 import { and, eq } from 'drizzle-orm';
 
+import type { ModelInfo } from '../../protocols/index.ts';
 import type { Database } from '../database/client.ts';
 import { activeModel } from '../database/query.ts';
 import {
   apiKeyModelGrants,
   type channels,
+  type Endpoint,
   effectiveChannelEndpoints,
   effectiveChannelModels,
   models,
@@ -13,16 +15,20 @@ import {
 } from '../database/schema/index.ts';
 import type { KeyIdentity } from '../keys/access.ts';
 
-type ModelEntry = { name: string; createdAt: Date };
-
-/** Key 在绑定渠道上可调用且已定价的模型。 */
+/** Key 在绑定渠道上可调用且已定价的模型；指定端点时只返回该端点可用的模型。 */
 export function availableModels(
   db: Database,
   identity: KeyIdentity & { channelId: string },
   channel: typeof channels.$inferSelect,
-): Promise<ModelEntry[]> {
+  endpoint?: Endpoint,
+): Promise<ModelInfo[]> {
   return db
-    .selectDistinct({ name: models.name, createdAt: models.createdAt })
+    .selectDistinct({
+      name: models.name,
+      createdAt: models.createdAt,
+      inputTokenLimit: models.inputTokenLimit,
+      outputTokenLimit: models.outputTokenLimit,
+    })
     .from(models)
     .innerJoin(effectiveChannelModels, eq(effectiveChannelModels.modelId, models.id))
     .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, effectiveChannelModels.channelId))
@@ -41,6 +47,7 @@ export function availableModels(
     .where(
       and(
         eq(effectiveChannelModels.channelId, identity.channelId),
+        endpoint ? eq(effectiveChannelEndpoints.endpoint, endpoint) : undefined,
         activeModel(),
         identity.key.restrictModels ? eq(apiKeyModelGrants.apiKeyId, identity.key.id) : undefined,
         identity.user.role !== 'admin' && !channel.isPublic
@@ -52,7 +59,7 @@ export function availableModels(
 }
 
 /** 按客户端协议输出模型列表。 */
-export function modelListResponse(req: Request, available: ModelEntry[], id: string): Response {
+export function modelListResponse(req: Request, available: ModelInfo[], id: string): Response {
   const headers = { 'x-request-id': id, 'cache-control': 'no-store' };
   // 与 New API 一致：同时带 x-api-key 和 anthropic-version 时返回 Anthropic 格式，其余返回 OpenAI 格式。
   if (req.headers.get('x-api-key') && req.headers.get('anthropic-version'))

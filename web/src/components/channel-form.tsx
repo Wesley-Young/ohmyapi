@@ -285,7 +285,7 @@ export function ChannelForm({
                   onChange={(e) => setBaseUrl(e.target.value)}
                   type="url"
                   required
-                  helper="支持服务根地址或以 /v1 结尾的 SDK 地址"
+                  helper="支持服务根地址或以 /v1、/v1beta 结尾的 SDK 地址"
                 />
                 <FormInput
                   label={initial ? '替换凭据（留空保留现有凭据）' : '上游凭据'}

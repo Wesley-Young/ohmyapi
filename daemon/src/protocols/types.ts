@@ -3,14 +3,33 @@ import type { Endpoint } from './endpoints.ts';
 export type Data = Record<string, unknown>;
 
 /** 同一协议族共享请求和响应结构，例如 Responses 与 compact。 */
-export type ProtocolFamily = 'chat' | 'responses' | 'messages';
+export type ProtocolFamily = 'chat' | 'responses' | 'messages' | 'gemini';
 
 export type SearchKind = 'webSearch' | 'webSearchPreview';
 /** 客户端执行的工具，或按调用次数计费的搜索工具。 */
 export type ToolKind = 'client' | SearchKind;
 
 /** 一次请求调用的模型和响应方式。 */
-export type RequestTarget = { model: string; streaming: boolean };
+export type RequestTarget = {
+  model: string;
+  streaming: boolean;
+  /** 协议内的操作名，由协议自己的上游地址使用，例如 Gemini 的 countTokens。 */
+  operation?: string;
+  /** 不产生费用的辅助操作：校验 Key、限流和渠道权限后原样转发，不预占也不结算。 */
+  unbilled?: boolean;
+};
+
+/** 模型列表中公开的模型信息。 */
+export type ModelInfo = { name: string; createdAt: Date; inputTokenLimit: number; outputTokenLimit: number };
+
+/** 构造上游请求时的会话状态。 */
+export type UpstreamContext = {
+  /**
+   * 会话历史可能产生于其他上游：聚合渠道换了成员，或无法确认此前的成员。
+   * 与上游账号绑定的不透明状态（如 Gemini 的 thoughtSignature）需要失效处理。
+   */
+  foreignHistory: boolean;
+};
 
 export type ErrorDetails = { status: number; type: string; code: string; message: string; id: string };
 
@@ -49,6 +68,10 @@ export interface UsageReader {
   configure?(body: Data): void;
   /** 事件中承载 id、usage 和状态的对象。 */
   envelope(data: Data): Data;
+  /** 用量对象，缺省读取 envelope.usage。 */
+  usage?(envelope: Data): unknown;
+  /** 上游响应标识，缺省读取 envelope.id。 */
+  upstreamId?(envelope: Data): unknown;
   /** 协议特有的失败标记；error 字段和 error 事件由调用方统一处理。 */
   failed?(data: Data, envelope: Data): boolean;
   terminal(data: Data, envelope: Data): boolean;
@@ -73,17 +96,30 @@ export interface ApiProtocol {
   readonly routes: readonly string[];
   /** 除 Authorization: Bearer 外接受 API Key 的请求头。 */
   readonly apiKeyHeaders: readonly string[];
+  /** 接受 API Key 的查询参数。 */
+  readonly apiKeyQuery?: readonly string[];
+  /** 不接受的 API Key 查询参数；出现时直接拒绝，提示改用支持的方式。 */
+  readonly rejectedApiKeyQuery?: readonly string[];
   target(request: Request, body: Data, params: Readonly<Record<string, string>>): RequestTarget;
+  /** 统一请求体的字段写法，供计费和路由读取；上游不需要改写时仍转发原始字节。字段重复时抛出错误。 */
+  canonicalBody?(body: Data): Data;
   /** 请求中的推理强度原值，由调用方校验格式。 */
   reasoningEffort(body: Data): unknown;
   /** 会话标识的候选值，按优先级排列；family 区分不同协议的会话空间。 */
   readonly session?: { readonly family: string; candidates(request: Request, body: Data): unknown[] };
   errorBody(error: ErrorDetails): unknown;
+  /** 协议自带的模型列表接口：path 返回列表，`${path}/:model` 返回单个模型。 */
+  readonly modelList?: {
+    readonly path: string;
+    list(models: ModelInfo[]): unknown;
+    get(model: ModelInfo): unknown;
+  };
 
   // 计费准入
 
   readonly request: {
     readonly outputLimit: {
+      /** 字段路径，嵌套字段以点分隔。 */
       readonly fields: readonly string[];
       readonly required: boolean;
       /** 客户端显式提供上限时的最小值。 */
@@ -94,6 +130,14 @@ export interface ApiProtocol {
     messages(body: Data): Data[];
     /** 内容遍历的起点，按顺序入栈。 */
     contentRoots(body: Data): unknown[];
+    /** 内容块的类型，缺省读取 block.type；没有 type 字段的协议按内容推断。 */
+    blockType?(block: Data): unknown;
+    /** 图片的分辨率档位，缺省读取 image_url.detail 或 detail。 */
+    imageDetail?(block: Data, body: Data): unknown;
+    /** 请求生成的候选数，缺省读取 n。 */
+    choiceCount?(body: Data): unknown;
+    /** 请求的输出模态，缺省读取 modalities；文本模态为 'text'。 */
+    outputModalities?(body: Data): unknown;
     toolKind(tool: Data): ToolKind | undefined;
     readonly search: {
       /** 每个搜索工具声明调用次数上限的字段。 */
@@ -113,7 +157,8 @@ export interface ApiProtocol {
     url(baseUrl: string, target: RequestTarget): string;
     /** 鉴权和协议相关的请求头；Content-Type 与 Accept 由调用方设置。 */
     headers(request: Request, credential: string): Headers;
-    body?(parsed: Data, bytes: Buffer<ArrayBuffer>): Buffer<ArrayBuffer>;
+    /** 改写发往上游的请求体；不需要改写时返回原始字节。 */
+    body?(parsed: Data, bytes: Buffer<ArrayBuffer>, context: UpstreamContext): Buffer<ArrayBuffer>;
   };
 
   // 响应观察

@@ -38,6 +38,8 @@ export class ForwardBillingSession {
   dispatched = false;
   recorded = false;
   safeRejection = false;
+  /** 不计费的辅助操作，没有用量也视为正常完成。 */
+  unbilled = false;
   private finalCheckpoint = false;
   private blockedCheckpoint = false;
   private readonly options: Options;
@@ -51,19 +53,21 @@ export class ForwardBillingSession {
     const { collector, httpStatus, dispatched, safeRejection } = this;
     const code =
       errorCode ??
-      (collector.observationIncomplete
-        ? 'usage_observation_limit'
-        : collector.unknownCosts
-          ? 'unsupported_usage'
-          : collector.failed
-            ? 'upstream_error'
-            : collector.invalid
-              ? 'invalid_usage'
-              : !collector.usage
-                ? 'usage_missing'
-                : collector.searchIncomplete || !collector.finalUsage
-                  ? 'usage_not_final'
-                  : undefined);
+      (this.unbilled
+        ? undefined
+        : collector.observationIncomplete
+          ? 'usage_observation_limit'
+          : collector.unknownCosts
+            ? 'unsupported_usage'
+            : collector.failed
+              ? 'upstream_error'
+              : collector.invalid
+                ? 'invalid_usage'
+                : !collector.usage
+                  ? 'usage_missing'
+                  : collector.searchIncomplete || !collector.finalUsage
+                    ? 'usage_not_final'
+                    : undefined);
     const failureMessage = [this.failureDetails.errorMessage, this.failureDetails.causeMessage]
       .filter((value) => typeof value === 'string' && value)
       .join('\n');
@@ -209,6 +213,7 @@ export class ForwardBillingSession {
           streaming,
           dispatched,
           recorded,
+          unbilled: this.unbilled || undefined,
           httpStatus,
           upstreamStatus,
           upstreamRequestId: result.upstreamRequestId,

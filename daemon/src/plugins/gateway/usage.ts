@@ -148,8 +148,9 @@ export class UsageCollector {
           (['error', 'response.error'].includes(String(data.type)) ? data.message : undefined));
     if (typeof message === 'string') this.errorMessage = safeErrorMessage(message);
     if (reader.terminal(data, envelope)) this.complete = true;
-    if (typeof envelope.id === 'string') this.upstreamId = envelope.id.slice(0, 256);
-    const usage = object(envelope.usage);
+    const upstreamId = reader.upstreamId ? reader.upstreamId(envelope) : envelope.id;
+    if (typeof upstreamId === 'string') this.upstreamId = upstreamId.slice(0, 256);
+    const usage = object(reader.usage ? reader.usage(envelope) : envelope.usage);
     if (usage) {
       const reportedInput = count(usage[reader.inputKey]);
       const reportedOutput = count(usage[reader.outputKey]);

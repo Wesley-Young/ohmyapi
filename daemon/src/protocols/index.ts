@@ -1,5 +1,6 @@
 import { chatProtocol } from './chat.ts';
 import type { Endpoint } from './endpoints.ts';
+import { geminiProtocol } from './gemini.ts';
 import { messagesProtocol } from './messages.ts';
 import { responses, responsesCompact } from './responses.ts';
 import type { ApiProtocol } from './types.ts';
@@ -8,12 +9,14 @@ export { type Endpoint, endpoints } from './endpoints.ts';
 export { openAIErrorBody } from './openai.ts';
 export { codexRequestHeaders } from './responses.ts';
 export type * from './types.ts';
+export { valueAt } from './util.ts';
 
 const registry = {
   '/v1/chat/completions': chatProtocol,
   '/v1/responses': responses,
   '/v1/messages': messagesProtocol,
   '/v1/responses/compact': responsesCompact,
+  '/v1beta/generateContent': geminiProtocol,
 } as const satisfies Record<Endpoint, ApiProtocol>;
 
 /** 端点对应的协议描述。 */

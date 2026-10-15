@@ -51,7 +51,7 @@ export const channelInput = z.object({
     .default([]),
   endpoints: z
     .array(z.enum(endpoints))
-    .max(4)
+    .max(endpoints.length)
     .refine((v) => new Set(v).size === v.length)
     .default([]),
 });

@@ -1,5 +1,5 @@
 import { GatewayError } from '../../core/errors.ts';
-import { type ApiProtocol, protocolFor } from '../../protocols/index.ts';
+import { type ApiProtocol, protocolFor, valueAt } from '../../protocols/index.ts';
 import type { Endpoint } from '../database/schema/index.ts';
 import { ruleTimeMatcher } from '../pricing/rules.ts';
 import type { LockedPrice } from '../pricing/service.ts';
@@ -45,12 +45,12 @@ export function reservationAmount(
 export function validateBillableRequest(body: Record<string, unknown>, endpoint: Endpoint, outputLimit: number) {
   const protocol = protocolFor(endpoint);
   const { fields, required, minimum: suppliedMinimum } = protocol.request.outputLimit;
-  const supplied = fields.filter((field) => body[field] != null);
+  const supplied = fields.filter((field) => valueAt(body, field) != null);
   const defaultOutput = !required && supplied.length === 0;
   if (!defaultOutput && supplied.length !== 1)
     throw new GatewayError(400, 'output_limit_required', `Provide exactly one output limit: ${fields.join(' or ')}`);
   // 缺省上限只用于预占估算，保留上游请求中的缺省值或 null。
-  const output = defaultOutput ? outputLimit : body[supplied[0]];
+  const output = defaultOutput ? outputLimit : valueAt(body, supplied[0]);
   const minimum = defaultOutput ? 1 : suppliedMinimum;
   if (typeof output !== 'number' || !Number.isSafeInteger(output) || output < minimum || output > outputLimit)
     throw new GatewayError(
@@ -58,13 +58,16 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
       'invalid_output_limit',
       `Output limit must be an integer between ${minimum} and ${outputLimit}`,
     );
-  if (body.n !== undefined && body.n !== 1)
+  const { request } = protocol;
+  const choices = request.choiceCount ? request.choiceCount(body) : body.n;
+  if (choices !== undefined && choices !== 1)
     throw new GatewayError(400, 'unsupported_billing_mode', 'Only one completion per request is supported');
   searchRequest(body, endpoint);
   for (const field of ['previous_response_id', 'conversation', 'prompt', 'audio', 'prediction'])
     if (body[field] !== undefined && body[field] !== null)
       throw new GatewayError(400, 'unsupported_billing_mode', `${field} is not supported for billing`);
-  if (body.modalities !== undefined && (!Array.isArray(body.modalities) || body.modalities.some((m) => m !== 'text')))
+  const modalities = request.outputModalities ? request.outputModalities(body) : body.modalities;
+  if (modalities !== undefined && (!Array.isArray(modalities) || modalities.some((m) => m !== 'text')))
     throw new GatewayError(400, 'unsupported_billing_mode', 'Only text modalities are supported');
   if (body.tools !== undefined && body.tools !== null && !Array.isArray(body.tools))
     throw new GatewayError(400, 'invalid_request', 'tools must be an array');
@@ -84,16 +87,17 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
     'video',
     'computer_use',
   ]);
-  if (protocol.request.messages(body).some((message) => message.audio != null))
+  if (request.messages(body).some((message) => message.audio != null))
     throw new GatewayError(400, 'unsupported_billing_mode', 'Audio messages are not supported for billing');
   // 按协议检查消息、内容块和工具结果，schema、examples 与业务数据保持原样。
-  const { imageType, serverSearchBlock } = protocol.request;
+  const { imageType, serverSearchBlock } = request;
   for (const object of requestContentBlocks(body, endpoint)) {
-    if (['image', 'image_url', 'input_image'].includes(String(object.type)) && object.type !== imageType)
+    const type = request.blockType ? request.blockType(object) : object.type;
+    if (['image', 'image_url', 'input_image'].includes(String(type)) && type !== imageType)
       throw new GatewayError(400, 'invalid_request', `Use ${imageType} for image inputs on ${endpoint}`);
     if (
-      (typeof object.type === 'string' && forbidden.has(object.type)) ||
-      ((object.type === 'server_tool_use' || object.type === 'web_search_tool_result') && !serverSearchBlock?.(object))
+      (typeof type === 'string' && forbidden.has(type)) ||
+      ((type === 'server_tool_use' || type === 'web_search_tool_result') && !serverSearchBlock?.(object))
     )
       throw new GatewayError(
         400,

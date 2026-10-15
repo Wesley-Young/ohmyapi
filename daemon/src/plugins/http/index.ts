@@ -188,6 +188,15 @@ export const HttpPlugin = definePlugin({
     app.all('/v1/models', () =>
       ctx.gateway.error('/v1/models', 405, 'method_not_allowed', 'Only GET is supported', crypto.randomUUID()),
     );
+    for (const { endpoint, modelList } of protocols) {
+      if (!modelList) continue;
+      app.get(modelList.path, (c) => ctx.gateway.protocolModels(c.req.raw, endpoint));
+      app.all(modelList.path, () =>
+        ctx.gateway.error(endpoint, 405, 'method_not_allowed', 'Only GET is supported', crypto.randomUUID()),
+      );
+      // 单个模型与生成路由共享路径，GET 先于生成路由注册。
+      app.get(`${modelList.path}/:model`, (c) => ctx.gateway.protocolModels(c.req.raw, endpoint, c.req.param('model')));
+    }
     for (const { endpoint, routes } of protocols)
       for (const route of routes) {
         app.post(route, (c) => ctx.gateway.forward(c.req.raw, endpoint, c.req.param()));

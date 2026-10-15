@@ -1,0 +1,1 @@
+ALTER TYPE "public"."endpoint" ADD VALUE '/v1beta/generateContent';

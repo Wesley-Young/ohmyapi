@@ -1,8 +1,9 @@
 import { Tiktoken } from 'js-tiktoken/lite';
 import o200kBase from 'js-tiktoken/ranks/o200k_base';
 
+import { protocolFor } from '../../protocols/index.ts';
 import type { Endpoint } from '../database/schema/index.ts';
-import { imageInputType, requestContentBlocks } from './content.ts';
+import { requestContentBlocks } from './content.ts';
 import { estimateImageTokens } from './image-estimation.ts';
 
 // A local approximation for arbitrary upstream models, not a billing tokenizer.
@@ -57,19 +58,27 @@ export function estimateReservation(
   endpoint: Endpoint,
   outputLimit: number,
   recentOutputTokens: bigint[],
+  /** 请求路径中的模型名，请求体没有 model 字段时用于估算图像 Token。 */
+  model: string,
 ): ReservationEstimate {
   // Include message wrappers, tool schemas and instructions. Treat special-token-looking text literally.
   const images = new WeakSet<object>();
   let inputImageCount = 0;
   let settlementImageTokens = 0;
-  const imageType = imageInputType(endpoint);
+  const { request } = protocolFor(endpoint);
+  const imageType = request.imageType;
+  const modelName = typeof body.model === 'string' ? body.model : model;
   for (const block of requestContentBlocks(body, endpoint)) {
-    if (block.type !== imageType) continue;
+    if ((request.blockType ? request.blockType(block) : block.type) !== imageType) continue;
     images.add(block);
     inputImageCount++;
     const image = block.image_url;
-    const detail = image && typeof image === 'object' ? (image as Record<string, unknown>).detail : block.detail;
-    settlementImageTokens += estimateImageTokens(String(body.model), detail);
+    const detail = request.imageDetail
+      ? request.imageDetail(block, body)
+      : image && typeof image === 'object'
+        ? (image as Record<string, unknown>).detail
+        : block.detail;
+    settlementImageTokens += estimateImageTokens(modelName, detail);
   }
   // 预占跳过图像 URL、文件引用和 Base64 载荷，转发请求保持原样。
   const text = JSON.stringify(body, (_key, value: unknown) =>

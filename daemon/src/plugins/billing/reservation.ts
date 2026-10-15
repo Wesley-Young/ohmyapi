@@ -33,6 +33,8 @@ export type ReservationInput = {
   inputLimit: number;
   outputLimit: number;
   body: Record<string, unknown>;
+  /** 客户端请求的模型名。 */
+  requestedModel: string;
   endpoint: Endpoint;
 };
 

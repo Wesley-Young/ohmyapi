@@ -1,9 +1,6 @@
 import { protocolFor } from '../../protocols/index.ts';
 import type { Endpoint } from '../database/schema/index.ts';
 
-/** 端点使用的图片内容块类型。 */
-export const imageInputType = (endpoint: Endpoint) => protocolFor(endpoint).request.imageType;
-
 /** 只遍历协议内容，工具定义和业务对象保持原样。 */
 export function* requestContentBlocks(body: Record<string, unknown>, endpoint: Endpoint) {
   const stack: unknown[] = [...protocolFor(endpoint).request.contentRoots(body)];

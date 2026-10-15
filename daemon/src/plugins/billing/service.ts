@@ -125,6 +125,7 @@ export class BillingService implements Disposable {
       input.endpoint,
       input.outputLimit,
       history.map((r) => r.outputTokens),
+      input.requestedModel,
     );
     const search = searchRequest(input.body, input.endpoint);
     const amount = reservationAmount(input.price, estimate.inputTokens, estimate.outputTokens, search);

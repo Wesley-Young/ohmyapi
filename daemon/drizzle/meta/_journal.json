@@ -127,6 +127,13 @@
       "when": 1792032995836,
       "tag": "0017_channels_read_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792062426401,
+      "tag": "0018_gemini_endpoint",
+      "breakpoints": true
     }
   ]
 }

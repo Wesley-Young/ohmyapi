@@ -9,5 +9,6 @@ export const endpoints = Object.keys({
   '/v1/responses': true,
   '/v1/messages': true,
   '/v1/responses/compact': true,
+  '/v1beta/generateContent': true,
 } satisfies Record<Endpoint, true>) as Endpoint[];
 export const responsesEndpoints: Endpoint[] = ['/v1/responses', '/v1/responses/compact'];

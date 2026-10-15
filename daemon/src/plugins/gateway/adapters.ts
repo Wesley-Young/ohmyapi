@@ -11,6 +11,8 @@ type PrepareRequestOptions = {
   request: Request;
   endpoint: Endpoint;
   target: RequestTarget;
+  /** 会话历史可能产生于其他上游，见 UpstreamContext。 */
+  foreignHistory: boolean;
   parsed: Record<string, unknown>;
   bytes: Buffer<ArrayBuffer>;
   vault: CredentialVault;
@@ -45,11 +47,11 @@ export interface ChannelAdapter {
 }
 
 const apiAdapter: ChannelAdapter = {
-  prepareRequest({ channel, request, endpoint, target, parsed, bytes, vault }) {
+  prepareRequest({ channel, request, endpoint, target, foreignHistory, parsed, bytes, vault }) {
     if (!channel.baseUrl || !channel.credentialEncrypted)
       throw new GatewayError(503, 'channel_unavailable', 'The API channel connection is not configured');
     const { upstream } = protocolFor(endpoint);
-    const body = upstream.body ? upstream.body(parsed, bytes) : bytes;
+    const body = upstream.body ? upstream.body(parsed, bytes, { foreignHistory }) : bytes;
     const credential = vault.decrypt(channel.credentialEncrypted);
     const headers = upstream.headers(request, credential);
     headers.set('content-type', 'application/json');

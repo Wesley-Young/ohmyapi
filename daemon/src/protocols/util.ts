@@ -4,6 +4,13 @@ import type { Data, RequestTarget } from './types.ts';
 export const object = (value: unknown): Data | undefined =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Data) : undefined;
 
+/** 按点分隔的路径读取嵌套字段。 */
+export function valueAt(body: Data, path: string): unknown {
+  let value: unknown = body;
+  for (const key of path.split('.')) value = object(value)?.[key];
+  return value;
+}
+
 /** 非负安全整数转为 bigint，其余返回 undefined。 */
 export const count = (value: unknown) =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? BigInt(value) : undefined;
