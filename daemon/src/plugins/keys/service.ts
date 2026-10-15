@@ -163,7 +163,12 @@ export class KeyService {
         and(
           eq(apiKeys.userId, principal.user.id),
           activeApiKey(),
-          inArray(effectiveChannelEndpoints.endpoint, ['/v1/chat/completions', '/v1/responses', '/v1/messages']),
+          inArray(effectiveChannelEndpoints.endpoint, [
+            '/v1/chat/completions',
+            '/v1/responses',
+            '/v1/messages',
+            '/v1beta/generateContent',
+          ]),
           activeChannel(),
           availableSubscription(),
           activeModel(),

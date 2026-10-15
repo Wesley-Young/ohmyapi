@@ -6,10 +6,11 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
 import { IconButton } from '../components/icon-button';
+import { PlaygroundProtocol } from '../components/playground-protocol';
 import { PlaygroundSelector } from '../components/playground-selector';
 import { ErrorText, Loading } from '../components/ui';
 import { formError } from '../lib/format';
-import { messageText, playgroundTransport, preferredEndpoint } from '../lib/playground';
+import { messageText, type PlaygroundEndpoint, playgroundEndpoints, playgroundTransport } from '../lib/playground';
 import { brandColor, brandHoverColor } from '../lib/theme';
 import { queryClient, trpc } from '../lib/trpc';
 
@@ -17,6 +18,7 @@ export default function Playground() {
   const options = useQuery(trpc.keys.playgroundOptions.queryOptions(undefined, { staleTime: 0, gcTime: 0 }));
   const [keyId, setKeyId] = useState('');
   const [modelId, setModelId] = useState('');
+  const [endpointChoice, setEndpointChoice] = useState<PlaygroundEndpoint>();
   const [input, setInput] = useState('');
   const scrollArea = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLDivElement>(null);
@@ -24,7 +26,9 @@ export default function Playground() {
   const followOutput = useRef(true);
   const selectedKey = options.data?.find((key) => key.id === keyId);
   const selectedModel = selectedKey?.models.find((model) => model.id === modelId);
-  const endpoint = selectedKey && preferredEndpoint(selectedKey.endpoints);
+  const endpoints = selectedKey ? playgroundEndpoints(selectedKey.endpoints) : [];
+  // 选择的协议不再可用时（如切换了 Key）回到推荐协议。
+  const endpoint = endpointChoice && endpoints.includes(endpointChoice) ? endpointChoice : endpoints[0];
   const transport = useMemo(
     () => playgroundTransport(selectedKey, selectedModel, endpoint),
     [selectedKey, selectedModel, endpoint],
@@ -242,6 +246,19 @@ export default function Playground() {
                     >
                       <RotateCcw size={16} aria-hidden="true" />
                     </IconButton>
+                  )}
+                  {endpoint && endpoints.length > 1 && (
+                    <PlaygroundProtocol
+                      endpoints={endpoints}
+                      value={endpoint}
+                      disabled={busy || options.isPending}
+                      onChange={(next) => {
+                        if (next === endpoint) return;
+                        setEndpointChoice(next);
+                        setInput('');
+                        followOutput.current = true;
+                      }}
+                    />
                   )}
                   <PlaygroundSelector
                     keys={options.data ?? []}

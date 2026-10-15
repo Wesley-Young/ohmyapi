@@ -3,13 +3,22 @@ import { type ChatTransport, streamText, toUIMessageStream, type UIMessage } fro
 
 export type PlaygroundKey = RouterOutputs['keys']['playgroundOptions'][number];
 export type PlaygroundModel = PlaygroundKey['models'][number];
-type PlaygroundEndpoint = PlaygroundKey['endpoints'][number];
+export type PlaygroundEndpoint = PlaygroundKey['endpoints'][number];
 
-const endpointOrder: PlaygroundEndpoint[] = ['/v1/responses', '/v1/messages', '/v1/chat/completions'];
+const endpointOrder: PlaygroundEndpoint[] = [
+  '/v1/responses',
+  '/v1/messages',
+  '/v1/chat/completions',
+  '/v1beta/generateContent',
+];
 
-export function preferredEndpoint(endpoints: PlaygroundEndpoint[]) {
-  return endpointOrder.find((endpoint) => endpoints.includes(endpoint));
+/** Key 可在 Playground 中对话的端点，按推荐顺序排列。 */
+export function playgroundEndpoints(endpoints: PlaygroundEndpoint[]) {
+  return endpointOrder.filter((endpoint) => endpoints.includes(endpoint));
 }
+
+/** 与网关的 Gemini 路径规则一致：名称只含字母、数字、下划线、连字符和点。 */
+const geminiModelName = /^(?!\.+$)[A-Za-z0-9_.-]{1,128}$/;
 
 export function messageText(message: UIMessage) {
   return message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('');
@@ -26,15 +35,22 @@ export function playgroundTransport(
       if (key.expiresAt && new Date(key.expiresAt).getTime() <= Date.now())
         throw new Error('API Key 已过期，请选择其他 Key');
 
+      if (endpoint === '/v1beta/generateContent' && !geminiModelName.test(selectedModel.name))
+        throw new Error('该模型名称无法通过 Gemini 端点调用，请切换协议');
+
       const settings = { baseURL: `${window.location.origin}/v1`, apiKey: key.token };
       const model =
         endpoint === '/v1/responses'
           ? (await import('@ai-sdk/openai')).createOpenAI(settings).responses(selectedModel.name)
           : endpoint === '/v1/messages'
             ? (await import('@ai-sdk/anthropic')).createAnthropic(settings).messages(selectedModel.name)
-            : (await import('@ai-sdk/openai-compatible'))
-                .createOpenAICompatible({ ...settings, name: 'ohmyapi', includeUsage: true })
-                .chatModel(selectedModel.name);
+            : endpoint === '/v1beta/generateContent'
+              ? (await import('@ai-sdk/google'))
+                  .createGoogleGenerativeAI({ baseURL: `${window.location.origin}/v1beta`, apiKey: key.token })
+                  .chat(selectedModel.name)
+              : (await import('@ai-sdk/openai-compatible'))
+                  .createOpenAICompatible({ ...settings, name: 'ohmyapi', includeUsage: true })
+                  .chatModel(selectedModel.name);
 
       const result = streamText({
         model,
