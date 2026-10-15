@@ -24,6 +24,7 @@ export async function selectExecutionChannel(
   subscriptions: SubscriptionChannels,
   entry: Channel,
   parsed: Record<string, unknown>,
+  model: string,
   endpoint: Endpoint,
   request: Request,
   cache: ChannelAffinity,
@@ -32,7 +33,7 @@ export async function selectExecutionChannel(
   if (entry.type !== 'aggregate') return { channel: entry };
   const session = requestSession(request, parsed, endpoint);
   const affinity = session
-    ? cache.lookup(entry.id, String(parsed.model), {
+    ? cache.lookup(entry.id, model, {
         family: session.family,
         value: JSON.stringify([userId, session.value]),
       })
@@ -59,7 +60,7 @@ export async function selectExecutionChannel(
       channel.type === 'api' ||
       (account &&
         (!account.cooldownUntil || account.cooldownUntil.getTime() <= Date.now()) &&
-        !(Date.parse(account.modelCooldowns[String(parsed.model)] ?? '') > Date.now()) &&
+        !(Date.parse(account.modelCooldowns[model] ?? '') > Date.now()) &&
         subscriptions.activeRequests(account.id) < account.maxConcurrent),
   );
   if (!available.length)

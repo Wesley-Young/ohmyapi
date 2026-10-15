@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { GatewayConfig } from '../../config.ts';
 import { requestErrorMessage } from '../../core/errors.ts';
 import { type EventLogger, errorDetails, formatEvent, type LogFields } from '../../core/logging.ts';
+import { protocolFor } from '../../protocols/index.ts';
 import type { BillingSummary } from '../billing/requests.ts';
 import type { BillingService } from '../billing/service.ts';
 import type { Database } from '../database/client.ts';
@@ -105,11 +106,7 @@ export class ForwardBillingSession {
     if (!usage || !this.dispatched) return { ttftMs };
     let tokens = Number(usage.outputTokens);
     if (streaming && !collector.estimate.reasoningStreamed) {
-      const details = usage.rawUsage[
-        this.options.endpoint === '/v1/chat/completions' ? 'completion_tokens_details' : 'output_tokens_details'
-      ] as Record<string, unknown> | undefined;
-      // OpenAI 使用 reasoning_tokens，Anthropic 使用 thinking_tokens。
-      const reasoning = details?.reasoning_tokens ?? details?.thinking_tokens;
+      const reasoning = protocolFor(this.options.endpoint).reasoningTokens(usage.rawUsage);
       if (typeof reasoning === 'number' && reasoning > 0) tokens = Math.max(0, tokens - reasoning);
     }
     const windowMs = streaming ? (first === undefined ? 0 : now - first) : now - start;

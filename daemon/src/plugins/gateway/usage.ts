@@ -1,4 +1,5 @@
 import { safeErrorMessage } from '../../core/logging.ts';
+import { type ApiProtocol, protocolFor, type UsageReader } from '../../protocols/index.ts';
 import { reportedCacheReadTokens } from '../billing/cache-usage.ts';
 import type { SearchRequest } from '../billing/search.ts';
 import type { Endpoint, Usage, UsageEstimate } from '../database/schema/index.ts';
@@ -10,17 +11,6 @@ const object = (value: unknown): ObjectValue | undefined =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as ObjectValue) : undefined;
 const count = (value: unknown) =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? BigInt(value) : undefined;
-const responseTerminalStatuses = new Set(['completed', 'incomplete', 'failed', 'cancelled', 'canceled']);
-const responseTerminalEvents = new Set([
-  'response.completed',
-  'response.done',
-  'response.incomplete',
-  'response.failed',
-  'response.cancelled',
-  'response.canceled',
-]);
-const maxUsageIterations = 1_000;
-type CompactionUsage = { iterations: bigint; input: bigint; output: bigint; read: bigint; write: bigint };
 // Keep numeric usage metadata only. Discard text, arrays and unbounded provider extensions.
 function usageNumbers(raw: ObjectValue, depth = 0): ObjectValue {
   const result: ObjectValue = {};
@@ -35,7 +25,7 @@ function usageNumbers(raw: ObjectValue, depth = 0): ObjectValue {
   return result;
 }
 
-/** 仅保留用量元数据和脱敏后的错误消息。 */
+/** 仅保留用量元数据和脱敏后的错误消息；字段结构由端点协议解析。 */
 export class UsageCollector {
   usage?: Usage;
   upstreamId?: string;
@@ -53,26 +43,21 @@ export class UsageCollector {
   private malformed = false;
   private readonly search = new SearchUsageCollector();
   private readonly endpoint: Endpoint;
-  // 压缩轮次的用量只在 usage.iterations 中报告，不计入顶层用量。
-  private compaction?: CompactionUsage;
-  private iterationsInvalid = false;
-  private summaryRequested = false;
-  private compactionRequested = false;
+  private readonly protocol: ApiProtocol;
+  private readonly reader: UsageReader;
   constructor(endpoint: Endpoint) {
     this.endpoint = endpoint;
+    this.protocol = protocolFor(endpoint);
+    this.reader = this.protocol.createUsageReader();
   }
 
   configureSearch(request: SearchRequest) {
     this.search.configure(request);
   }
 
-  configureCompaction(body: ObjectValue) {
-    if (this.endpoint !== '/v1/messages') return;
-    const edits = object(body.context_management)?.edits;
-    this.summaryRequested = body.compaction != null;
-    this.compactionRequested =
-      this.summaryRequested ||
-      (Array.isArray(edits) && edits.some((edit) => String(object(edit)?.type).startsWith('compact_')));
+  /** 按请求体配置协议需要关注的用量项，例如 Messages 的压缩轮次。 */
+  configureRequest(body: ObjectValue) {
+    this.reader.configure?.(body);
   }
 
   markInvalid(error: unknown) {
@@ -94,23 +79,20 @@ export class UsageCollector {
       this.unknownCosts ||
       this.observationIncomplete ||
       this.failed ||
-      // 压缩轮次可能在请求中途发生，顶层用量无法反映摘要消耗。
-      this.compactionRequested ||
-      this.compaction?.iterations ||
+      this.reader.blocksDisconnectEstimate?.() ||
       !this.estimate.started ||
       !this.estimate.input
     )
       return;
     const raw = this.reportedUsage;
-    const inputKey = this.endpoint === '/v1/chat/completions' ? 'prompt_tokens' : 'input_tokens';
-    const outputKey = this.endpoint === '/v1/chat/completions' ? 'completion_tokens' : 'output_tokens';
+    const { inputKey, outputKey } = this.reader;
     const reportedInput = count(raw[inputKey]);
     // 缓存命中无法从请求内容估算，缺少上游输入及缓存报告时交给人工核对。
     if (reportedInput === undefined || reportedCacheReadTokens(this.endpoint, raw) === null) return;
     const tail = this.estimate.output.count();
     const output = (this.reportedOutput ?? 0n) + tail;
     if (output > BigInt(Number.MAX_SAFE_INTEGER)) return;
-    const searchSource = this.search.estimate(this.endpoint);
+    const searchSource = this.search.estimate(this.protocol.responseFeatures);
     this.normalize({
       ...raw,
       [inputKey]:
@@ -154,13 +136,10 @@ export class UsageCollector {
   observe(value: unknown) {
     const data = object(value);
     if (!data) return;
-    this.estimate.observe(this.endpoint, data);
-    if (data.error || data.type === 'error' || data.type === 'response.failed') this.failed = true;
-    const envelope = this.endpoint.startsWith('/v1/responses')
-      ? (object(data.response) ?? data)
-      : this.endpoint === '/v1/messages'
-        ? (object(data.message) ?? data)
-        : data;
+    const { reader } = this;
+    this.estimate.observe(this.protocol, data);
+    const envelope = reader.envelope(data);
+    if (data.error || data.type === 'error' || reader.failed?.(data, envelope)) this.failed = true;
     const upstreamError = data.error ?? envelope.error;
     const message =
       typeof upstreamError === 'string'
@@ -168,22 +147,12 @@ export class UsageCollector {
         : (object(upstreamError)?.message ??
           (['error', 'response.error'].includes(String(data.type)) ? data.message : undefined));
     if (typeof message === 'string') this.errorMessage = safeErrorMessage(message);
-    if (this.endpoint.startsWith('/v1/responses')) {
-      if (envelope.error || envelope.status === 'failed' || data.type === 'response.error') this.failed = true;
-      if (
-        (this.endpoint === '/v1/responses/compact' && data.object === 'response.compaction') ||
-        responseTerminalEvents.has(String(data.type)) ||
-        responseTerminalStatuses.has(String(envelope.status))
-      )
-        this.complete = true;
-    }
+    if (reader.terminal(data, envelope)) this.complete = true;
     if (typeof envelope.id === 'string') this.upstreamId = envelope.id.slice(0, 256);
     const usage = object(envelope.usage);
     if (usage) {
-      const reportedInput = count(usage[this.endpoint === '/v1/chat/completions' ? 'prompt_tokens' : 'input_tokens']);
-      const reportedOutput = count(
-        usage[this.endpoint === '/v1/chat/completions' ? 'completion_tokens' : 'output_tokens'],
-      );
+      const reportedInput = count(usage[reader.inputKey]);
+      const reportedOutput = count(usage[reader.outputKey]);
       if (reportedInput !== undefined || reportedOutput !== undefined) this.estimate.started = true;
       if (reportedOutput !== undefined) {
         if (this.reportedOutput !== undefined && reportedOutput < this.reportedOutput) this.malformed = true;
@@ -191,155 +160,52 @@ export class UsageCollector {
         this.estimate.output.reset();
       }
     }
-    if (this.endpoint === '/v1/messages') {
-      if (data.type === 'message_stop' || ((!data.type || data.type === 'message') && data.stop_reason))
-        this.complete = true;
-      this.search.observe(this.endpoint, data, envelope, usage, this.complete);
-      this.syncSearchUsage();
-      if (usage) {
-        this.observeIterations(usage.iterations);
-        this.normalize({ ...this.reportedUsage, ...usage });
-      }
-      // 按需压缩的摘要消耗只出现在 iterations 中，缺失时不能按顶层的 0 用量结算。
-      if (this.complete && this.usage && !this.invalid && (!this.summaryRequested || this.compaction))
-        this.finalUsage = true;
-    } else {
-      this.search.observe(this.endpoint, data, envelope, usage, this.complete);
-      this.syncSearchUsage();
-      if (usage) {
-        const detailsKey = this.endpoint === '/v1/chat/completions' ? 'prompt_tokens_details' : 'input_tokens_details';
-        this.normalize({
-          ...this.reportedUsage,
-          ...usage,
-          [detailsKey]: { ...object(this.reportedUsage[detailsKey]), ...object(usage[detailsKey]) },
-        });
-        if (
-          this.usage &&
-          !this.invalid &&
-          (this.complete ||
-            (this.endpoint === '/v1/chat/completions' &&
-              (data.object === 'chat.completion' || (Array.isArray(data.choices) && data.choices.length === 0))))
-        )
-          this.finalUsage = true;
-      }
-    }
+    this.search.observe(this.protocol.responseFeatures, data, envelope, usage, this.complete);
+    this.syncSearchUsage();
+    if (usage) this.normalize(reader.merge(this.reportedUsage, usage));
+    if (this.usage && !this.invalid && reader.finalizes(data, this.complete, usage !== undefined))
+      this.finalUsage = true;
   }
 
+  /** 收到 [DONE] 或非流式响应结束；只有以此为完成标志的协议生效。 */
   done() {
-    if (this.endpoint === '/v1/chat/completions') {
-      this.complete = true;
-      if (this.usage && !this.invalid) this.finalUsage = true;
-    }
-  }
-
-  /** 流式事件中的 iterations 为累计值，以最近一次报告为准。 */
-  private observeIterations(value: unknown) {
-    if (value == null) return;
-    if (!Array.isArray(value) || value.length > maxUsageIterations) {
-      this.iterationsInvalid = true;
-      return;
-    }
-    const total: CompactionUsage = { iterations: 0n, input: 0n, output: 0n, read: 0n, write: 0n };
-    for (const entry of value) {
-      const item = object(entry);
-      if (typeof item?.type !== 'string') {
-        this.iterationsInvalid = true;
-        return;
-      }
-      // message 轮次已计入顶层用量。
-      if (item.type === 'message') continue;
-      // advisor、fallback 等轮次按其他模型计价，交给人工核对。
-      if (item.type !== 'compaction') {
-        this.unknownCosts = true;
-        continue;
-      }
-      const input = count(item.input_tokens);
-      const output = count(item.output_tokens);
-      const read = item.cache_read_input_tokens == null ? 0n : count(item.cache_read_input_tokens);
-      const write = item.cache_creation_input_tokens == null ? 0n : count(item.cache_creation_input_tokens);
-      if (input === undefined || output === undefined || read === undefined || write === undefined) {
-        this.iterationsInvalid = true;
-        return;
-      }
-      total.iterations++;
-      total.input += input;
-      total.output += output;
-      total.read += read;
-      total.write += write;
-    }
-    this.compaction = total;
+    if (!this.reader.completesOnDone) return;
+    this.complete = true;
+    if (this.usage && !this.invalid) this.finalUsage = true;
   }
 
   private normalize(raw: ObjectValue) {
     this.reportedUsage = usageNumbers(raw);
-    const isChat = this.endpoint === '/v1/chat/completions';
-    const anthropic = this.endpoint === '/v1/messages';
-    const compaction = anthropic ? this.compaction : undefined;
-    const reportedInput = count(raw[isChat ? 'prompt_tokens' : 'input_tokens']);
-    const reportedOutput = count(raw[isChat ? 'completion_tokens' : 'output_tokens']);
-    const input = reportedInput === undefined ? undefined : reportedInput + (compaction?.input ?? 0n);
-    const output = reportedOutput === undefined ? undefined : reportedOutput + (compaction?.output ?? 0n);
-    const details = object(raw[isChat ? 'prompt_tokens_details' : 'input_tokens_details']);
-    for (const part of [raw, details, object(raw.completion_tokens_details), object(raw.output_tokens_details)]) {
-      if (
-        part &&
-        ['audio_tokens', 'video_tokens'].some((key) => typeof part[key] === 'number' && (part[key] as number) > 0)
-      )
-        this.unknownCosts = true;
-    }
-    // 输入图像已包含在输入总量中；图像输出和未标明方向的图像费用仍需核对。
-    for (const part of [raw, object(raw.completion_tokens_details), object(raw.output_tokens_details)]) {
-      if (part && typeof part.image_tokens === 'number' && part.image_tokens > 0) this.unknownCosts = true;
-    }
-    const readValue = anthropic ? raw.cache_read_input_tokens : details?.cached_tokens;
-    const writeValue = anthropic ? raw.cache_creation_input_tokens : details?.cache_write_tokens;
-    const reportedRead = readValue === undefined ? 0n : count(readValue);
-    const reportedWrite = writeValue === undefined ? 0n : count(writeValue);
-    const read = reportedRead === undefined ? undefined : reportedRead + (compaction?.read ?? 0n);
-    const write = reportedWrite === undefined ? undefined : reportedWrite + (compaction?.write ?? 0n);
-    const image = details?.image_tokens === undefined ? 0n : count(details.image_tokens);
+    const normalized = this.reader.normalize(raw);
+    if (normalized.unknownCosts) this.unknownCosts = true;
+    if (!normalized.valid) return this.rejectUsage();
+    const { input, output, read, write, image, inputIncludesCache } = normalized;
     if (
-      (anthropic && this.iterationsInvalid) ||
-      (raw[isChat ? 'prompt_tokens' : 'input_tokens'] !== undefined && input === undefined) ||
-      (raw[isChat ? 'completion_tokens' : 'output_tokens'] !== undefined && output === undefined) ||
-      read === undefined ||
-      write === undefined ||
-      image === undefined ||
-      (input !== undefined && image > (anthropic ? input + read + write : input)) ||
-      (!anthropic && input !== undefined && input < read + write)
-    ) {
-      this.invalid = true;
-      this.malformed = true;
-      this.usage = undefined;
-      return;
-    }
+      input !== undefined &&
+      (image > (inputIncludesCache ? input : input + read + write) || (inputIncludesCache && input < read + write))
+    )
+      return this.rejectUsage();
     this.invalid = this.search.invalid;
     if (input === undefined || output === undefined) {
       this.usage = undefined;
       return;
     }
     this.usage = {
-      inputTokens: anthropic ? input : input - read - write,
+      inputTokens: inputIncludesCache ? input - read - write : input,
       outputTokens: output,
       cacheReadTokens: read,
       cacheWriteTokens: write,
-      contextTokens: anthropic ? input + read + write : input,
+      contextTokens: inputIncludesCache ? input : input + read + write,
       webSearchCalls: this.search.webSearchCalls,
       webSearchPreviewCalls: this.search.webSearchPreviewCalls,
-      rawUsage: compaction?.iterations
-        ? {
-            ...usageNumbers(raw),
-            // 原始 iterations 为数组，usageNumbers 不会保留，单独记录压缩轮次合计以便核对账单。
-            compaction_iterations: {
-              count: Number(compaction.iterations),
-              input_tokens: Number(compaction.input),
-              output_tokens: Number(compaction.output),
-              cache_read_input_tokens: Number(compaction.read),
-              cache_creation_input_tokens: Number(compaction.write),
-            },
-          }
-        : usageNumbers(raw),
+      rawUsage: normalized.extraRaw ? { ...usageNumbers(raw), ...normalized.extraRaw } : usageNumbers(raw),
     };
+  }
+
+  private rejectUsage() {
+    this.invalid = true;
+    this.malformed = true;
+    this.usage = undefined;
   }
 }
 

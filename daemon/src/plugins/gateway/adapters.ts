@@ -1,8 +1,8 @@
 import { GatewayError } from '../../core/errors.ts';
 import type { CredentialVault } from '../../core/vault.ts';
+import { protocolFor, type RequestTarget } from '../../protocols/index.ts';
 import type { ChannelType, channels } from '../database/schema/catalog.ts';
 import type { Endpoint } from '../database/schema/index.ts';
-import { upstreamBody, upstreamHeaders, upstreamUrl } from './protocol.ts';
 import { type ForwardResponseOptions, forwardResponse } from './response.ts';
 
 type PrepareRequestOptions = {
@@ -10,6 +10,7 @@ type PrepareRequestOptions = {
   channel: typeof channels.$inferSelect;
   request: Request;
   endpoint: Endpoint;
+  target: RequestTarget;
   parsed: Record<string, unknown>;
   bytes: Buffer<ArrayBuffer>;
   vault: CredentialVault;
@@ -23,6 +24,8 @@ type PreparedRequest = {
   headers: Headers;
   body: Buffer<ArrayBuffer>;
   release?: () => void;
+  /** 上游不采用请求中的输出上限时，按模型输出上限预占。 */
+  usesModelOutputLimit?: boolean;
   onResponse?: (response: Response) => Promise<void>;
 };
 /** 订阅渠道由订阅模块实现，网关只依赖这一接口。 */
@@ -42,16 +45,16 @@ export interface ChannelAdapter {
 }
 
 const apiAdapter: ChannelAdapter = {
-  prepareRequest({ channel, request, endpoint, parsed, bytes, vault }) {
+  prepareRequest({ channel, request, endpoint, target, parsed, bytes, vault }) {
     if (!channel.baseUrl || !channel.credentialEncrypted)
       throw new GatewayError(503, 'channel_unavailable', 'The API channel connection is not configured');
-    const body = upstreamBody(endpoint, parsed, bytes);
+    const { upstream } = protocolFor(endpoint);
+    const body = upstream.body ? upstream.body(parsed, bytes) : bytes;
     const credential = vault.decrypt(channel.credentialEncrypted);
-    return {
-      url: upstreamUrl(channel.baseUrl, endpoint),
-      headers: upstreamHeaders(request, endpoint, parsed.stream === true, credential),
-      body,
-    };
+    const headers = upstream.headers(request, credential);
+    headers.set('content-type', 'application/json');
+    headers.set('accept', target.streaming ? 'text/event-stream' : 'application/json');
+    return { url: upstream.url(channel.baseUrl, target), headers, body };
   },
   forwardResponse,
 };

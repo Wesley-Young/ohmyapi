@@ -1,32 +1,14 @@
+import { protocolFor } from '../../protocols/index.ts';
 import type { Endpoint } from '../database/schema/index.ts';
 
+/** 请求的会话标识，按协议约定的候选字段取第一个非空值。 */
 export function requestSession(request: Request, body: Record<string, unknown>, endpoint: Endpoint) {
-  const metadata = endpoint === '/v1/messages' ? body.metadata : body.client_metadata;
-  const fields =
-    metadata && typeof metadata === 'object' && !Array.isArray(metadata)
-      ? (metadata as Record<string, unknown>)
-      : undefined;
-  const family = endpoint === '/v1/responses' || endpoint === '/v1/responses/compact' ? 'responses' : endpoint;
-  const candidates: unknown[] =
-    family === 'responses'
-      ? [
-          body.prompt_cache_key,
-          request.headers.get('session_id'),
-          request.headers.get('session-id'),
-          request.headers.get('conversation_id'),
-          request.headers.get('thread_id'),
-          request.headers.get('thread-id'),
-          fields?.session_id,
-          fields?.conversation_id,
-          fields?.thread_id,
-        ]
-      : endpoint === '/v1/messages'
-        ? [fields?.user_id]
-        : [];
-  for (const raw of candidates) {
+  const session = protocolFor(endpoint).session;
+  if (!session) return undefined;
+  for (const raw of session.candidates(request, body)) {
     if (typeof raw !== 'string' || raw.length > 4096) continue;
     const value = raw.trim();
-    if (value) return { family, value };
+    if (value) return { family: session.family, value };
   }
   return undefined;
 }

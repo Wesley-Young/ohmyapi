@@ -1,7 +1,7 @@
 import { GatewayError } from '../../core/errors.ts';
 
 /**
- * 读取并校验 JSON 请求体：限制大小，响应取消和超时信号，要求包含模型名称。
+ * 读取 JSON 请求体：限制大小，响应取消和超时信号，要求请求体为对象。
  * 返回解析结果和原始字节，原始字节用于原样转发。
  */
 export async function readJsonBody(
@@ -53,18 +53,8 @@ export async function readJsonBody(
   } catch {
     throw new GatewayError(400, 'invalid_json', 'Invalid JSON body');
   }
-  if (
-    !parsed ||
-    typeof parsed !== 'object' ||
-    Array.isArray(parsed) ||
-    typeof parsed.model !== 'string' ||
-    !parsed.model ||
-    parsed.model.length > 128 ||
-    (parsed.stream !== undefined && typeof parsed.stream !== 'boolean')
-  )
+  // 模型和流式选项由端点协议解析，请求体至少是一个对象。
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new GatewayError(400, 'invalid_request', 'A model name and a boolean stream option are required');
-  // Async/background Responses retrieval is outside this synchronous gateway's scope.
-  if (parsed.background === true)
-    throw new GatewayError(400, 'unsupported_mode', 'Background responses are not supported');
   return { parsed, bytes };
 }

@@ -1,6 +1,6 @@
 import { GatewayError } from '../../../core/errors.ts';
+import { codexRequestHeaders } from '../../../protocols/index.ts';
 import type { ChannelAdapter } from '../../gateway/adapters.ts';
-import { codexRequestHeaders } from '../../gateway/protocol.ts';
 import type { SubscriptionRuntime } from '../runtime.ts';
 import { accountHeaders, codexBaseUrl } from './client.ts';
 import { prepareBody } from './request.ts';
@@ -31,6 +31,8 @@ export function openAIAdapter(service: SubscriptionRuntime): ChannelAdapter {
         headers,
         body: Buffer.from(JSON.stringify(body)),
         release: lease.release,
+        // Codex 不接受请求中的输出上限，按模型上限预占。
+        usesModelOutputLimit: true,
         onResponse: (response) =>
           service.reportStatus(id, response.status, response.headers, lease.credentials.accessToken),
       };

@@ -2,7 +2,7 @@ import { Tiktoken } from 'js-tiktoken/lite';
 import o200kBase from 'js-tiktoken/ranks/o200k_base';
 
 import type { Endpoint } from '../database/schema/index.ts';
-import { imageInputTypes, requestContentBlocks } from './content.ts';
+import { imageInputType, requestContentBlocks } from './content.ts';
 import { estimateImageTokens } from './image-estimation.ts';
 
 // A local approximation for arbitrary upstream models, not a billing tokenizer.
@@ -62,8 +62,9 @@ export function estimateReservation(
   const images = new WeakSet<object>();
   let inputImageCount = 0;
   let settlementImageTokens = 0;
+  const imageType = imageInputType(endpoint);
   for (const block of requestContentBlocks(body, endpoint)) {
-    if (block.type !== imageInputTypes[endpoint]) continue;
+    if (block.type !== imageType) continue;
     images.add(block);
     inputImageCount++;
     const image = block.image_url;
@@ -72,7 +73,7 @@ export function estimateReservation(
   }
   // 预占跳过图像 URL、文件引用和 Base64 载荷，转发请求保持原样。
   const text = JSON.stringify(body, (_key, value: unknown) =>
-    value && typeof value === 'object' && images.has(value) ? { type: imageInputTypes[endpoint] } : value,
+    value && typeof value === 'object' && images.has(value) ? { type: imageType } : value,
   );
   const inputImageTokens = inputImageCount * imageReservationTokens;
   let inputContentTokens = 0;

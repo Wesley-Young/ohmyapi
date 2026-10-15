@@ -107,6 +107,33 @@
       }
     },
     {
+      "includes": ["daemon/src/protocols/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/plugins/**",
+                      "**/trpc/**",
+                      "**/openapi/**",
+                      "**/kernel.ts",
+                      "**/app.ts",
+                      "**/config.ts"
+                    ],
+                    "message": "protocols \u53ea\u63cf\u8ff0 API \u534f\u8bae\uff0c\u53ea\u80fd\u4f9d\u8d56 core\u3002"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["daemon/src/plugins/**"],
       "linter": {
         "rules": {

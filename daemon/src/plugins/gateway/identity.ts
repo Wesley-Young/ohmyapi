@@ -1,14 +1,15 @@
 import { GatewayError } from '../../core/errors.ts';
 import type { Database } from '../database/client.ts';
-import type { Endpoint } from '../database/schema/index.ts';
 import { apiKeyPattern, findKeyIdentity } from '../keys/access.ts';
 
-/** 从 Authorization 或 x-api-key 解析 API Key，返回有效的 Key、所属用户及绑定渠道。 */
-export async function identifyApiKey(db: Database, req: Request, endpoint: Endpoint | '/v1/models') {
+/**
+ * 从 Authorization 或协议约定的请求头解析 API Key，返回有效的 Key、所属用户及绑定渠道。
+ * 例如 Messages 和模型列表同时服务 Anthropic 客户端，接受 x-api-key。
+ */
+export async function identifyApiKey(db: Database, req: Request, apiKeyHeaders: readonly string[]) {
   const authorization = req.headers.get('authorization');
   const bearer = authorization?.match(/^Bearer (sk-[A-Za-z0-9_-]{43})$/i)?.[1];
-  // Messages 和模型列表同时服务 Anthropic 客户端，接受 x-api-key。
-  const headerKey = endpoint === '/v1/messages' || endpoint === '/v1/models' ? req.headers.get('x-api-key') : null;
+  const headerKey = apiKeyHeaders.map((name) => req.headers.get(name)).find(Boolean) ?? null;
   if ((authorization && !bearer) || (bearer && headerKey && bearer !== headerKey))
     throw new GatewayError(401, 'invalid_api_key', 'Invalid API Key');
   const token = bearer ?? headerKey;

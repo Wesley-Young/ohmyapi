@@ -5,6 +5,7 @@ import type { GatewayConfig } from '../../config.ts';
 import { GatewayError } from '../../core/errors.ts';
 import { createLogSampler, type EventLogger, errorDetails, formatEvent } from '../../core/logging.ts';
 import type { CredentialVault } from '../../core/vault.ts';
+import { protocolFor } from '../../protocols/index.ts';
 import { validateBillableRequest } from '../billing/admission.ts';
 import { searchRequest } from '../billing/search.ts';
 import type { BillingService } from '../billing/service.ts';
@@ -98,7 +99,7 @@ export class GatewayService implements Disposable {
     const startedAt = Date.now();
     try {
       if (this.stopping) throw new GatewayError(503, 'server_stopping', 'Gateway is stopping');
-      const identity = await identifyApiKey(this.db, req, '/v1/models');
+      const identity = await identifyApiKey(this.db, req, ['x-api-key']);
       if (!identity.channelId)
         throw new GatewayError(403, 'channel_unbound', 'Bind this legacy API Key to a channel before using it');
       const [channel] = await this.db
@@ -129,7 +130,9 @@ export class GatewayService implements Disposable {
     }
   }
 
-  async forward(req: Request, endpoint: Endpoint): Promise<Response> {
+  /** params 为路由中的路径参数，由端点协议解析请求目标。 */
+  async forward(req: Request, endpoint: Endpoint, params: Readonly<Record<string, string>> = {}): Promise<Response> {
+    const protocol = protocolFor(endpoint);
     const lifecycle = new RequestLifecycle(req, () => this.running.delete(lifecycle.id));
     const { id, receivedAt, abort } = lifecycle;
     this.running.set(id, lifecycle);
@@ -165,14 +168,14 @@ export class GatewayService implements Disposable {
 
     try {
       if (this.stopping) throw new GatewayError(503, 'server_stopping', 'Gateway is stopping');
-      if (endpoint === '/v1/messages' && /^claude-(?:cli|code)\//i.test(req.headers.get('user-agent')?.trim() ?? ''))
+      if (protocol.family === 'messages' && /^claude-(?:cli|code)\//i.test(req.headers.get('user-agent')?.trim() ?? ''))
         throw new GatewayError(
           403,
           'client_not_allowed',
           '此端点不支持 Claude Code 客户端，请在其他兼容 Anthropic Messages 的客户端中使用。',
         );
       this.billing.assertReady();
-      const identity = await identifyApiKey(this.db, req, endpoint);
+      const identity = await identifyApiKey(this.db, req, protocol.apiKeyHeaders);
       session.userId = identity.user.id;
       session.channelId = identity.channelId ?? undefined;
       lifecycle.releaseCapacity = this.rateLimiter.acquire(identity.user.id);
@@ -182,7 +185,11 @@ export class GatewayService implements Disposable {
         this.config.bodyIdleTimeoutMs,
         (progress) => readJsonBody(req, abort.signal, session.bodyStats, progress, this.config.maxBodyBytes),
       );
-      const streaming = parsed.stream === true;
+      const target = protocol.target(req, parsed, params);
+      // Async/background Responses retrieval is outside this synchronous gateway's scope.
+      if (parsed.background === true)
+        throw new GatewayError(400, 'unsupported_mode', 'Background responses are not supported');
+      const streaming = target.streaming;
       session.streaming = streaming;
       const requestedEffort = reasoningEffort(endpoint, parsed);
 
@@ -193,18 +200,19 @@ export class GatewayService implements Disposable {
         userId: identity.user.id,
         apiKeyId: identity.key.id,
         channelId: identity.channelId,
-        requestedModel: parsed.model as string,
+        requestedModel: target.model,
         endpoint,
         streaming,
         reasoningEffort: requestedEffort,
       });
       session.recorded = true;
-      const { model, channel } = await resolveEntryRoute(this.db, identity, parsed.model as string, endpoint, session);
+      const { model, channel } = await resolveEntryRoute(this.db, identity, target.model, endpoint, session);
       const { channel: executionChannel, affinity } = await selectExecutionChannel(
         this.db,
         this.subscriptions,
         channel,
         parsed,
+        target.model,
         endpoint,
         req,
         this.affinity,
@@ -227,12 +235,8 @@ export class GatewayService implements Disposable {
       const lockedPrice = await this.pricing.lockRoute(model.id, receivedAt, channel.id, executionChannel.id);
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
       const requestedOutputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
-      const outputLimit =
-        executionChannel.type === 'subscription' && endpoint !== '/v1/messages'
-          ? model.outputTokenLimit
-          : requestedOutputLimit;
       session.collector.configureSearch(searchRequest(parsed, endpoint));
-      session.collector.configureCompaction(parsed);
+      session.collector.configureRequest(parsed);
       const timeoutMs = Math.min(channel.timeoutMs, executionChannel.timeoutMs);
       session.upstreamTimeoutMs = timeoutMs;
       lifecycle.setTimeout('upstream_timeout', timeoutMs);
@@ -242,6 +246,7 @@ export class GatewayService implements Disposable {
         channel: executionChannel,
         request: req,
         endpoint,
+        target,
         parsed,
         bytes,
         vault: this.vault,
@@ -249,6 +254,7 @@ export class GatewayService implements Disposable {
       });
 
       lifecycle.releaseUpstream = prepared.release;
+      const outputLimit = prepared.usesModelOutputLimit ? model.outputTokenLimit : requestedOutputLimit;
       const { url, body, headers } = prepared;
       const request = this.outbound.forProxy(
         executionChannel.proxyUrlEncrypted ? this.vault.decrypt(executionChannel.proxyUrlEncrypted) : null,

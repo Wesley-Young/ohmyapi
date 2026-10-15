@@ -21,7 +21,7 @@ export type ForwardResponseOptions = {
 };
 
 export async function forwardResponse(options: ForwardResponseOptions): Promise<Response> {
-  const { upstream, endpoint, streaming, lifecycle, collector, config, onCheckpoint, onFinish, onError } = options;
+  const { upstream, streaming, lifecycle, collector, config, onCheckpoint, onFinish, onError } = options;
   const { id, abort } = lifecycle;
   if (upstream.status >= 300 && upstream.status < 400) {
     await upstream.body?.cancel();
@@ -64,7 +64,7 @@ export async function forwardResponse(options: ForwardResponseOptions): Promise<
       if (!isSse && !collector.observationIncomplete) {
         try {
           collector.observe(JSON.parse(Buffer.concat(jsonChunks).toString('utf8')));
-          if (endpoint === '/v1/chat/completions') collector.done();
+          collector.done();
         } catch (error) {
           collector.invalid = true;
           collector.errorMessage = safeErrorMessage(error);

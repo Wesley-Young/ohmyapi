@@ -7,6 +7,7 @@ import { serialize } from 'hono/utils/cookie';
 import { errorDetails, formatEvent } from '../../core/logging.ts';
 import { definePlugin } from '../../kernel.ts';
 import { createPublicApi } from '../../openapi/router.ts';
+import { protocols } from '../../protocols/index.ts';
 import { createAppRouter } from '../../trpc/router.ts';
 import { AuthService } from '../auth/service.ts';
 import { AdminTokens } from '../auth/tokens.ts';
@@ -18,7 +19,6 @@ import { ChannelGrants } from '../catalog/grants.ts';
 import { ModelCatalog } from '../catalog/models.ts';
 import { CatalogService } from '../catalog/service.ts';
 import { DatabaseService } from '../database/index.ts';
-import { endpoints } from '../database/schema/index.ts';
 import { RequestHistory } from '../gateway/history.ts';
 import { GatewayService } from '../gateway/service.ts';
 import { GroupService } from '../groups/service.ts';
@@ -188,12 +188,13 @@ export const HttpPlugin = definePlugin({
     app.all('/v1/models', () =>
       ctx.gateway.error('/v1/models', 405, 'method_not_allowed', 'Only GET is supported', crypto.randomUUID()),
     );
-    for (const endpoint of endpoints) {
-      app.post(endpoint, (c) => ctx.gateway.forward(c.req.raw, endpoint));
-      app.all(endpoint, () =>
-        ctx.gateway.error(endpoint, 405, 'method_not_allowed', 'Only POST is supported', crypto.randomUUID()),
-      );
-    }
+    for (const { endpoint, routes } of protocols)
+      for (const route of routes) {
+        app.post(route, (c) => ctx.gateway.forward(c.req.raw, endpoint, c.req.param()));
+        app.all(route, () =>
+          ctx.gateway.error(endpoint, 405, 'method_not_allowed', 'Only POST is supported', crypto.randomUUID()),
+        );
+      }
     if (ctx.config.serveWeb) serveWeb(app);
     app.notFound((c) => c.json({ error: 'Not found' }, 404));
     app.onError((error, c) => {

@@ -1,35 +1,15 @@
 import { GatewayError } from '../../core/errors.ts';
+import { type ApiProtocol, protocolFor } from '../../protocols/index.ts';
 import type { Endpoint } from '../database/schema/index.ts';
 import { ruleTimeMatcher } from '../pricing/rules.ts';
 import type { LockedPrice } from '../pricing/service.ts';
-import { imageInputTypes, requestContentBlocks } from './content.ts';
-import { type SearchRequest, searchRequest, searchToolKind } from './search.ts';
+import { requestContentBlocks } from './content.ts';
+import { type SearchRequest, searchRequest } from './search.ts';
 
-function isBillableTool(value: unknown, endpoint: Endpoint): boolean {
+/** 计费只支持客户端执行的工具和按次计价的搜索工具。 */
+function isBillableTool(value: unknown, protocol: ApiProtocol): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const tool = value as Record<string, unknown>;
-  if (tool.type === 'function' || tool.type === 'custom') return true;
-  if (searchToolKind(tool, endpoint)) return true;
-  if (endpoint.startsWith('/v1/responses') && tool.type === 'namespace')
-    return (
-      typeof tool.name === 'string' &&
-      tool.name.length > 0 &&
-      Array.isArray(tool.tools) &&
-      tool.tools.every(
-        (child) =>
-          child &&
-          typeof child === 'object' &&
-          !Array.isArray(child) &&
-          (child.type === 'function' || child.type === 'custom'),
-      )
-    );
-  return (
-    endpoint === '/v1/messages' &&
-    tool.type === undefined &&
-    typeof tool.name === 'string' &&
-    Boolean(tool.input_schema) &&
-    typeof tool.input_schema === 'object'
-  );
+  return protocol.request.toolKind(value as Record<string, unknown>) !== undefined;
 }
 
 /** Reserve against estimated usage and the most expensive reachable rule at receipt. */
@@ -63,18 +43,15 @@ export function reservationAmount(
 }
 
 export function validateBillableRequest(body: Record<string, unknown>, endpoint: Endpoint, outputLimit: number) {
-  const fields = endpoint.startsWith('/v1/responses')
-    ? ['max_output_tokens']
-    : endpoint === '/v1/messages'
-      ? ['max_tokens']
-      : ['max_completion_tokens', 'max_tokens'];
+  const protocol = protocolFor(endpoint);
+  const { fields, required, minimum: suppliedMinimum } = protocol.request.outputLimit;
   const supplied = fields.filter((field) => body[field] != null);
-  const defaultOutput = endpoint !== '/v1/messages' && supplied.length === 0;
+  const defaultOutput = !required && supplied.length === 0;
   if (!defaultOutput && supplied.length !== 1)
     throw new GatewayError(400, 'output_limit_required', `Provide exactly one output limit: ${fields.join(' or ')}`);
   // 缺省上限只用于预占估算，保留上游请求中的缺省值或 null。
   const output = defaultOutput ? outputLimit : body[supplied[0]];
-  const minimum = endpoint.startsWith('/v1/responses') && !defaultOutput ? 16 : 1;
+  const minimum = defaultOutput ? 1 : suppliedMinimum;
   if (typeof output !== 'number' || !Number.isSafeInteger(output) || output < minimum || output > outputLimit)
     throw new GatewayError(
       400,
@@ -91,7 +68,7 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
     throw new GatewayError(400, 'unsupported_billing_mode', 'Only text modalities are supported');
   if (body.tools !== undefined && body.tools !== null && !Array.isArray(body.tools))
     throw new GatewayError(400, 'invalid_request', 'tools must be an array');
-  if (Array.isArray(body.tools) && body.tools.some((tool) => !isBillableTool(tool, endpoint)))
+  if (Array.isArray(body.tools) && body.tools.some((tool) => !isBillableTool(tool, protocol)))
     throw new GatewayError(
       400,
       'unsupported_billing_mode',
@@ -107,27 +84,16 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
     'video',
     'computer_use',
   ]);
-  if (!endpoint.startsWith('/v1/responses') && Array.isArray(body.messages)) {
-    for (const message of body.messages) {
-      if (message && typeof message === 'object' && !Array.isArray(message) && message.audio != null)
-        throw new GatewayError(400, 'unsupported_billing_mode', 'Audio messages are not supported for billing');
-    }
-  }
+  if (protocol.request.messages(body).some((message) => message.audio != null))
+    throw new GatewayError(400, 'unsupported_billing_mode', 'Audio messages are not supported for billing');
   // 按协议检查消息、内容块和工具结果，schema、examples 与业务数据保持原样。
+  const { imageType, serverSearchBlock } = protocol.request;
   for (const object of requestContentBlocks(body, endpoint)) {
-    if (
-      ['image', 'image_url', 'input_image'].includes(String(object.type)) &&
-      object.type !== imageInputTypes[endpoint]
-    )
-      throw new GatewayError(
-        400,
-        'invalid_request',
-        `Use ${imageInputTypes[endpoint]} for image inputs on ${endpoint}`,
-      );
+    if (['image', 'image_url', 'input_image'].includes(String(object.type)) && object.type !== imageType)
+      throw new GatewayError(400, 'invalid_request', `Use ${imageType} for image inputs on ${endpoint}`);
     if (
       (typeof object.type === 'string' && forbidden.has(object.type)) ||
-      (object.type === 'server_tool_use' && (endpoint !== '/v1/messages' || object.name !== 'web_search')) ||
-      (object.type === 'web_search_tool_result' && endpoint !== '/v1/messages')
+      ((object.type === 'server_tool_use' || object.type === 'web_search_tool_result') && !serverSearchBlock?.(object))
     )
       throw new GatewayError(
         400,

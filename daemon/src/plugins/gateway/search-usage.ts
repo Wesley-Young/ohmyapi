@@ -1,5 +1,6 @@
-import type { SearchKind, SearchRequest } from '../billing/search.ts';
-import type { Endpoint, UsageEstimate } from '../database/schema/index.ts';
+import type { ApiProtocol, SearchKind } from '../../protocols/index.ts';
+import type { SearchRequest } from '../billing/search.ts';
+import type { UsageEstimate } from '../database/schema/index.ts';
 import { maxSearchCalls } from '../pricing/rules.ts';
 
 type Data = Record<string, unknown>;
@@ -77,8 +78,14 @@ export class SearchUsageCollector {
     this.setCount(kind, Number(previous) + 1);
   }
 
-  observe(endpoint: Endpoint, data: Data, envelope: Data, usage: Data | undefined, terminal: boolean) {
-    if (endpoint.startsWith('/v1/responses')) {
+  observe(
+    features: ApiProtocol['responseFeatures'],
+    data: Data,
+    envelope: Data,
+    usage: Data | undefined,
+    terminal: boolean,
+  ) {
+    if (features.searchOutputItems) {
       if (data.type === 'response.output_item.added') this.observeItem(data.item, data.output_index, false);
       if (data.type === 'response.output_item.done') this.observeItem(data.item, data.output_index);
       if (terminal && Array.isArray(envelope.output))
@@ -86,7 +93,11 @@ export class SearchUsageCollector {
           this.observeItem(item, index);
         });
     }
-    const blocks = Array.isArray(envelope.content) ? envelope.content : [data.content_block];
+    const blocks = !features.serverTools
+      ? []
+      : Array.isArray(envelope.content)
+        ? envelope.content
+        : [data.content_block];
     for (const value of blocks) {
       const block = object(value);
       if (block?.type === 'web_search_tool_result' && Array.isArray(block.content)) {
@@ -125,17 +136,16 @@ export class SearchUsageCollector {
     } else if (usage && this.request.implicit && !this.reported) {
       this.setCount(this.request.kind as SearchKind, 1);
     }
-    if (endpoint === '/v1/messages' && terminal && this.serverSearch && !this.serverSearchReported)
-      this.incomplete = true;
+    if (features.serverTools && terminal && this.serverSearch && !this.serverSearchReported) this.incomplete = true;
   }
 
-  estimate(endpoint: Endpoint): UsageEstimate['searchSource'] {
+  estimate(features: ApiProtocol['responseFeatures']): UsageEstimate['searchSource'] {
     if (this.reported) return 'upstream';
     if (this.request.implicit) {
       this.setCount(this.request.kind as SearchKind, 1);
       return 'request';
     }
-    if (endpoint === '/v1/messages') this.setCount('webSearch', this.searchResults.size);
+    if (features.serverTools) this.setCount('webSearch', this.searchResults.size);
     return this.request.kind || this.serverSearch || this.searchResults.size ? 'observed' : 'none';
   }
 }

@@ -1,24 +1,12 @@
+import { protocolFor } from '../../protocols/index.ts';
 import type { Endpoint } from '../database/schema/index.ts';
 
-export const imageInputTypes: Record<Endpoint, string> = {
-  '/v1/chat/completions': 'image_url',
-  '/v1/responses': 'input_image',
-  '/v1/responses/compact': 'input_image',
-  '/v1/messages': 'image',
-};
+/** 端点使用的图片内容块类型。 */
+export const imageInputType = (endpoint: Endpoint) => protocolFor(endpoint).request.imageType;
 
 /** 只遍历协议内容，工具定义和业务对象保持原样。 */
 export function* requestContentBlocks(body: Record<string, unknown>, endpoint: Endpoint) {
-  const stack: unknown[] = [];
-  if (endpoint.startsWith('/v1/responses')) stack.push(body.input);
-  else {
-    if (endpoint === '/v1/messages') stack.push(body.system);
-    if (Array.isArray(body.messages)) {
-      for (const message of body.messages) {
-        if (message && typeof message === 'object' && !Array.isArray(message)) stack.push(message.content);
-      }
-    }
-  }
+  const stack: unknown[] = [...protocolFor(endpoint).request.contentRoots(body)];
   while (stack.length) {
     const item = stack.pop();
     if (!item || typeof item !== 'object') continue;

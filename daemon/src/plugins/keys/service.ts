@@ -4,6 +4,7 @@ import { and, desc, eq, gt, inArray, isNull, or, type SQL, sql } from 'drizzle-o
 import { AppError } from '../../core/errors.ts';
 import { formatMoney } from '../../core/money.ts';
 import { toPage } from '../../core/pagination.ts';
+import { protocolFor } from '../../protocols/index.ts';
 import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
 import type { Database, Transaction } from '../database/client.ts';
@@ -283,9 +284,11 @@ export class KeyService {
         ])
       : [[], []];
     const usageByKey = new Map(usage.map((row) => [row.keyId, row]));
-    // CC Switch export needs an available channel that serves more than the Anthropic Messages endpoint.
+    // CC Switch export needs an available channel that serves an OpenAI protocol.
     const exportableChannels = new Set(
-      offerings.filter((row) => row.endpoint !== '/v1/messages').map((row) => row.channelId),
+      offerings
+        .filter((row) => ['chat', 'responses'].includes(protocolFor(row.endpoint).family))
+        .map((row) => row.channelId),
     );
     return {
       items: items.map((key) => ({
