@@ -120,6 +120,13 @@
       "when": 1791997180781,
       "tag": "0016_admin_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792032995836,
+      "tag": "0017_channels_read_scope",
+      "breakpoints": true
     }
   ]
 }

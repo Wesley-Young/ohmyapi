@@ -257,6 +257,21 @@ export class SubscriptionService implements Disposable {
     return this.claudeQuota.get(this.runtime.claudeTokens, id, force);
   }
 
+  /** 按渠道的订阅平台查询额度窗口。 */
+  async quota(principal: Principal, channelId: string) {
+    const { id, provider } = await this.enabledAccountForChannel(principal, channelId);
+    const quota = await (provider === 'claude'
+      ? this.claudeQuota.get(this.runtime.claudeTokens, id)
+      : this.openaiQuota.get(this.runtime.tokens, id));
+    return {
+      provider,
+      plan: quota.plan,
+      fiveHour: quota.fiveHour,
+      sevenDay: quota.sevenDay,
+      fetchedAt: quota.fetchedAt,
+    };
+  }
+
   async listOpenAIResetCredits(principal: Principal, channelId: string) {
     const id = await this.providerAccountForChannel(principal, channelId, 'openai');
     return this.openaiResetCredits.list(this.runtime.tokens, id);
@@ -408,15 +423,20 @@ export class SubscriptionService implements Disposable {
     }
   }
 
-  private async providerAccountForChannel(principal: Principal, channelId: string, provider: SubscriptionProvider) {
+  private async enabledAccountForChannel(principal: Principal, channelId: string) {
     const id = await this.accountForChannel(principal, channelId);
     const [account] = await this.db
       .select({ provider: subscriptionAccounts.provider, enabled: subscriptionAccounts.enabled })
       .from(subscriptionAccounts)
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
-    if (account?.provider !== provider || !account.enabled)
-      throw new AppError('bad_request', '订阅平台不匹配，或渠道未启用、已删除');
-    return id;
+    if (!account?.enabled) throw new AppError('bad_request', '订阅渠道未启用');
+    return { id, provider: account.provider };
+  }
+
+  private async providerAccountForChannel(principal: Principal, channelId: string, provider: SubscriptionProvider) {
+    const account = await this.enabledAccountForChannel(principal, channelId);
+    if (account.provider !== provider) throw new AppError('bad_request', '订阅平台不匹配');
+    return account.id;
   }
 
   private async accountForChannel(principal: Principal, channelId: string) {

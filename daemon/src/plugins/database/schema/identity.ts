@@ -101,7 +101,7 @@ export const apiKeys = pgTable(
 );
 
 /** 管理令牌的权限范围，顺序即界面展示顺序。 */
-export const adminScopes = ['users:read', 'users:write', 'wallet:read', 'wallet:write'] as const;
+export const adminScopes = ['users:read', 'users:write', 'wallet:read', 'wallet:write', 'channels:read'] as const;
 export type AdminScope = (typeof adminScopes)[number];
 export const adminScope = pgEnum('admin_scope', adminScopes);
 

@@ -9,6 +9,7 @@ export const adminScopeLabels = {
   'users:write': '管理用户',
   'wallet:read': '查看余额',
   'wallet:write': '调整余额',
+  'channels:read': '查看渠道',
 } satisfies Record<AdminScope, string>;
 
 export const adminScopes = Object.keys(adminScopeLabels) as AdminScope[];

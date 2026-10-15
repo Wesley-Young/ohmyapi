@@ -3,12 +3,12 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import { AppError } from '../../core/errors.ts';
 import { formatMoney, parseMoney } from '../../core/money.ts';
-import { decodeCursor, toCursorPage, toPage } from '../../core/pagination.ts';
+import { createdCursor, decodeCursor, toCursorPage, toPage } from '../../core/pagination.ts';
 import { recordAudit } from '../auth/audit.ts';
 import { generatePassword, hashPassword } from '../auth/password.ts';
 import { type AuthService, type Principal, publicUser } from '../auth/service.ts';
 import type { Database } from '../database/client.ts';
-import { containsText, paginate } from '../database/query.ts';
+import { containsText, createdBefore, createdPosition, paginate } from '../database/query.ts';
 import {
   adminTokens,
   apiKeys,
@@ -20,7 +20,6 @@ import {
 } from '../database/schema/index.ts';
 import type { GroupService } from '../groups/service.ts';
 import { postLedgerEntry } from '../wallet/ledger.ts';
-import { userCursor } from './schemas.ts';
 
 export class UserService {
   static readonly token = serviceToken<UserService>('ohmyapi/users');
@@ -67,17 +66,15 @@ export class UserService {
 
   /** 按创建时间倒序的游标分页，可按用户名精确查找；不含已删除的用户。 */
   async page({ cursor, limit, username }: { cursor?: string; limit: number; username?: string }) {
-    const after = cursor ? decodeCursor(cursor, userCursor) : undefined;
+    const after = cursor ? decodeCursor(cursor, createdCursor) : undefined;
     const rows = await this.db
-      .select({ user: users, position: sql<string>`${users.createdAt}::text` })
+      .select({ user: users, position: createdPosition(users.createdAt) })
       .from(users)
       .where(
         and(
           isNull(users.deletedAt),
           username === undefined ? undefined : eq(users.username, username),
-          after
-            ? sql`(${users.createdAt}, ${users.id}) < (${after.createdAt}::timestamptz, ${after.id}::uuid)`
-            : undefined,
+          createdBefore(users.createdAt, users.id, after),
         ),
       )
       .orderBy(desc(users.createdAt), desc(users.id))

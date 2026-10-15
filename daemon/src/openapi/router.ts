@@ -4,8 +4,12 @@ import { HTTPException } from 'hono/http-exception';
 import { AppError } from '../core/errors.ts';
 import { type EventLogger, errorDetails, formatEvent } from '../core/logging.ts';
 import type { AdminTokens } from '../plugins/auth/tokens.ts';
+import { channelApi } from '../plugins/catalog/api.ts';
+import type { ChannelDirectory } from '../plugins/catalog/directory.ts';
 import { keyApi } from '../plugins/keys/api.ts';
 import type { KeyService } from '../plugins/keys/service.ts';
+import { subscriptionApi } from '../plugins/subscription/api.ts';
+import type { SubscriptionService } from '../plugins/subscription/service.ts';
 import { userApi } from '../plugins/users/api.ts';
 import type { UserService } from '../plugins/users/service.ts';
 import { walletApi } from '../plugins/wallet/api.ts';
@@ -19,6 +23,8 @@ export interface ApiServices {
   adminTokens: AdminTokens;
   users: UserService;
   wallet: WalletService;
+  channels: ChannelDirectory;
+  subscription: SubscriptionService;
 }
 
 export interface ApiOptions {
@@ -46,6 +52,8 @@ export function createPublicApi(services: ApiServices, { logger, requestId }: Ap
   api.route('/', keyApi(services.keys, auth));
   api.route('/', walletApi(services.wallet, auth));
   api.route('/', userApi(services.users, auth));
+  api.route('/', channelApi(services.channels, auth));
+  api.route('/', subscriptionApi(services.subscription, auth));
 
   api.openAPIRegistry.registerComponent('securitySchemes', 'apiKey', {
     type: 'http',

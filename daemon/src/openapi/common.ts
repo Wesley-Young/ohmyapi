@@ -60,6 +60,17 @@ export const userIdParams = z.object({
   userId: z.uuid('用户标识无效').meta({ param: { name: 'userId', in: 'path' } }),
 });
 
+/** 路径中的渠道标识。 */
+export const channelIdParams = z.object({
+  channelId: z.uuid('渠道标识无效').meta({ param: { name: 'channelId', in: 'path' } }),
+});
+
+/** 管理接口共用的认证错误响应。 */
+export const adminErrors = {
+  401: errorResponse('缺少管理令牌，或令牌无效、已过期'),
+  403: errorResponse('令牌缺少所需权限'),
+};
+
 /** 各模块的路由都用它创建，统一参数校验失败时的响应。 */
 export function createApi() {
   return new OpenAPIHono<ApiEnv>({

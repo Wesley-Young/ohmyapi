@@ -1,7 +1,7 @@
 import { and, type Column, eq, gt, isNull, like, or, sql } from 'drizzle-orm';
 import type { PgSelect } from 'drizzle-orm/pg-core';
 
-import { pageSize } from '../../core/pagination.ts';
+import { type CreatedCursor, pageSize } from '../../core/pagination.ts';
 import { apiKeys, channels, models, subscriptionAccounts, users } from './schema/index.ts';
 
 // ---- 可用性条件：软删除、启用状态与有效期 ----
@@ -36,6 +36,14 @@ export function availableSubscription() {
 /** 按页读取，多取一条用于判断是否还有下一页；配合 core/pagination 的 toPage 使用。 */
 export function paginate<T extends PgSelect>(query: T, page: number) {
   return query.limit(pageSize + 1).offset(page * pageSize);
+}
+
+/** 游标中记录的创建时间，以文本读取以保留微秒精度。 */
+export const createdPosition = (createdAt: Column) => sql<string>`${createdAt}::text`;
+
+/** 按（创建时间, id）倒序排列时，位于游标之后的行。 */
+export function createdBefore(createdAt: Column, id: Column, cursor: CreatedCursor | undefined) {
+  return cursor ? sql`(${createdAt}, ${id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)` : undefined;
 }
 
 /** 包含匹配；转义 LIKE 通配符，空字符串不加条件。 */

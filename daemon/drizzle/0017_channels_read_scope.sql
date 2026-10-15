@@ -1,0 +1,1 @@
+ALTER TYPE "public"."admin_scope" ADD VALUE 'channels:read';

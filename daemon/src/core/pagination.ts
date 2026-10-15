@@ -14,6 +14,13 @@ export function toPage<T>(rows: T[]) {
   return { items: rows.slice(0, pageSize), hasMore: rows.length > pageSize };
 }
 
+/** 按（创建时间, id）定位的游标；时间是 PostgreSQL 输出的 timestamptz 文本，保留微秒精度。 */
+export const createdCursor = z.object({
+  createdAt: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/),
+  id: z.uuid(),
+});
+export type CreatedCursor = z.infer<typeof createdCursor>;
+
 /** 游标分页的每页条数。 */
 export const cursorLimitInput = z.coerce
   .number({ error: '每页条数需为 1–100 的整数' })

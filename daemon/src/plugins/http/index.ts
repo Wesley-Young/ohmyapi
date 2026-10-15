@@ -13,6 +13,7 @@ import { AdminTokens } from '../auth/tokens.ts';
 import { BillingRecords } from '../billing/records.ts';
 import { BillingReview } from '../billing/review.ts';
 import { BillingService } from '../billing/service.ts';
+import { ChannelDirectory } from '../catalog/directory.ts';
 import { ChannelGrants } from '../catalog/grants.ts';
 import { ModelCatalog } from '../catalog/models.ts';
 import { CatalogService } from '../catalog/service.ts';
@@ -38,6 +39,7 @@ export const HttpPlugin = definePlugin({
     catalog: CatalogService,
     modelCatalog: ModelCatalog,
     channelGrants: ChannelGrants,
+    channelDirectory: ChannelDirectory,
     gateway: GatewayService,
     requestHistory: RequestHistory,
     pricing: PricingService,
@@ -135,7 +137,14 @@ export const HttpPlugin = definePlugin({
     app.route(
       '/',
       createPublicApi(
-        { keys: ctx.keys, adminTokens: ctx.adminTokens, users: ctx.users, wallet: ctx.wallet },
+        {
+          keys: ctx.keys,
+          adminTokens: ctx.adminTokens,
+          users: ctx.users,
+          wallet: ctx.wallet,
+          channels: ctx.channelDirectory,
+          subscription: ctx.subscription,
+        },
         { logger: ctx.logger, requestId: (req: Request) => requestInfo(req).requestId },
       ),
     );
