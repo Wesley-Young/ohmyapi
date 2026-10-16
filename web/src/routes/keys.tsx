@@ -8,7 +8,7 @@ import { CCSwitchDialog } from '../components/cc-switch-dialog';
 import { IconButton } from '../components/icon-button';
 import { KeyForm } from '../components/key-form';
 import { KeyUsageDialog } from '../components/key-usage-dialog';
-import { ErrorText, Loading, NameAction, PageControls, PrimaryButton, Title } from '../components/ui';
+import { ErrorText, Loading, NameAction, PageControls, PrimaryButton, pinnedColumn, Title } from '../components/ui';
 import { displayMoney, formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 
@@ -87,14 +87,13 @@ export default function Keys() {
         data.data && (
           <>
             <Box overflowX="auto">
-              <Table.Root size="sm">
+              <Table.Root size="sm" whiteSpace="nowrap">
                 <Table.Header>
                   <Table.Row>
-                    {['名称', 'Key', '渠道', '有效期', '状态', currency ? `消费（${currency}）` : '消费', '操作'].map(
-                      (h) => (
-                        <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
-                      ),
-                    )}
+                    {['名称', 'Key', '渠道', '有效期', '状态', currency ? `消费（${currency}）` : '消费'].map((h) => (
+                      <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
+                    ))}
+                    <Table.ColumnHeader {...pinnedColumn}>操作</Table.ColumnHeader>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -104,7 +103,7 @@ export default function Keys() {
                       <Table.Row key={key.id}>
                         <Table.Cell>
                           {key.revokedAt ? (
-                            <Text overflowWrap="anywhere">{key.name}</Text>
+                            <Text>{key.name}</Text>
                           ) : (
                             <NameAction
                               aria-haspopup="dialog"
@@ -118,7 +117,7 @@ export default function Keys() {
                             </NameAction>
                           )}
                         </Table.Cell>
-                        <Table.Cell whiteSpace="nowrap">
+                        <Table.Cell>
                           <HStack gap="2">
                             <Text as="span" fontFamily="mono">
                               {key.token.slice(0, 12)}…
@@ -149,14 +148,14 @@ export default function Keys() {
                             </IconButton>
                           </HStack>
                         </Table.Cell>
-                        <Table.Cell whiteSpace="nowrap">
-                          <HStack gap="2" flexWrap="wrap">
+                        <Table.Cell>
+                          <HStack gap="2">
                             <Text>{key.channelName ?? '未绑定'}</Text>
                             {key.channelDeleted && <Badge colorPalette="gray">已删除</Badge>}
                           </HStack>
                         </Table.Cell>
-                        <Table.Cell whiteSpace="nowrap">{key.expiresAt ? localDate(key.expiresAt) : '长期'}</Table.Cell>
-                        <Table.Cell whiteSpace="nowrap">
+                        <Table.Cell>{key.expiresAt ? localDate(key.expiresAt) : '长期'}</Table.Cell>
+                        <Table.Cell>
                           {key.revokedAt
                             ? '已撤销'
                             : expired
@@ -167,7 +166,7 @@ export default function Keys() {
                                   ? '待绑定'
                                   : '有效'}
                         </Table.Cell>
-                        <Table.Cell whiteSpace="nowrap">
+                        <Table.Cell>
                           <Grid
                             as="dl"
                             templateColumns="auto auto"
@@ -191,8 +190,8 @@ export default function Keys() {
                             ))}
                           </Grid>
                         </Table.Cell>
-                        <Table.Cell>
-                          <HStack gap="2" flexWrap="wrap">
+                        <Table.Cell {...pinnedColumn}>
+                          <HStack gap="2">
                             <Button
                               type="button"
                               aria-label={`导出「${key.name}」到 CC Switch`}

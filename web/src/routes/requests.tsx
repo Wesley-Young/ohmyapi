@@ -9,7 +9,7 @@ import { BillingAction, BulkZeroBilling } from '../components/billing-review';
 import { IconButton } from '../components/icon-button';
 import { RequestDetail } from '../components/request-detail';
 import { useReviewCount } from '../components/review-badge';
-import { ErrorText, Loading, PageControls, Title } from '../components/ui';
+import { ErrorText, Loading, PageControls, pinnedColumn, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { formError, localDate } from '../lib/format';
 import { trpc } from '../lib/trpc';
@@ -40,16 +40,6 @@ const durationColors = {
 };
 
 type RequestItem = RouterOutputs['requests']['items'][number];
-
-// 表格横向滚动时操作列固定在右侧；只设左边框颜色，保留行分隔线。
-const pinnedColumn = {
-  position: 'sticky',
-  right: '0',
-  zIndex: '1',
-  bg: 'white',
-  borderLeftWidth: '1px',
-  borderLeftColor: 'gray.100',
-} as const;
 
 /** 网关测量的输出速度；流式请求只统计首个内容之后的生成阶段。 */
 function outputRate(r: RequestItem) {

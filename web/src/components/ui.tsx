@@ -94,6 +94,17 @@ export function Centered({ children, footer }: { children: ReactNode; footer?: R
     </Flex>
   );
 }
+
+// 表格不换行，横向滚动时操作列固定在右侧；只设左边框颜色，保留行分隔线。
+export const pinnedColumn = {
+  position: 'sticky',
+  right: '0',
+  zIndex: '1',
+  bg: 'white',
+  borderLeftWidth: '1px',
+  borderLeftColor: 'gray.100',
+} as const;
+
 export function Panel({ children }: { children: ReactNode }) {
   return (
     <Box borderWidth="1px" borderColor="gray.200" borderRadius="xl" p={{ base: 5, md: 6 }}>

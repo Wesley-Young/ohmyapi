@@ -6,7 +6,7 @@ import { Link as RouterLink, useNavigate, useParams } from 'react-router';
 import { GroupAccessActions } from '../components/group-access';
 import { GroupForm } from '../components/group-form';
 import { GroupMembersDialog } from '../components/group-members';
-import { ConfirmAction, ErrorText, Loading, PageControls, Panel, Title } from '../components/ui';
+import { ConfirmAction, ErrorText, Loading, PageControls, Panel, pinnedColumn, Title } from '../components/ui';
 import { refreshGrants } from '../lib/cache';
 import { formError } from '../lib/format';
 import { trpc, trpcClient } from '../lib/trpc';
@@ -82,23 +82,23 @@ function Channels({ groupId, groupName }: { groupId: string; groupName: string }
           channels.data &&
           (channels.data.items.length ? (
             <Box overflowX="auto">
-              <Table.Root size="sm">
+              <Table.Root size="sm" whiteSpace="nowrap">
                 <Table.Header>
                   <Table.Row>
                     <Table.ColumnHeader>渠道</Table.ColumnHeader>
-                    <Table.ColumnHeader>成员授权</Table.ColumnHeader>
+                    <Table.ColumnHeader {...pinnedColumn}>成员授权</Table.ColumnHeader>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
                   {channels.data.items.map((channel) => (
                     <Table.Row key={channel.id}>
                       <Table.Cell>
-                        <HStack gap="2" flexWrap="wrap">
-                          <Text overflowWrap="anywhere">{channel.name}</Text>
+                        <HStack gap="2">
+                          <Text>{channel.name}</Text>
                           {!channel.enabled && <Badge colorPalette="gray">已禁用</Badge>}
                         </HStack>
                       </Table.Cell>
-                      <Table.Cell>
+                      <Table.Cell {...pinnedColumn}>
                         <GroupAccessActions
                           groupId={groupId}
                           groupName={groupName}

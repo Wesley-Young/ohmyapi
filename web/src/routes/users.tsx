@@ -15,6 +15,7 @@ import {
   PageControls,
   Panel,
   PrimaryButton,
+  pinnedColumn,
   Title,
 } from '../components/ui';
 import { UserRoleAction } from '../components/user-role-action';
@@ -299,7 +300,7 @@ export default function Users() {
           <>
             {data.data.items.length ? (
               <Box overflowX="auto">
-                <Table.Root size="sm">
+                <Table.Root size="sm" whiteSpace="nowrap">
                   <Table.Header>
                     <Table.Row>
                       <Table.ColumnHeader>用户名</Table.ColumnHeader>
@@ -307,7 +308,7 @@ export default function Users() {
                       <Table.ColumnHeader>状态</Table.ColumnHeader>
                       <Table.ColumnHeader textAlign="end">余额（{data.data.currency}）</Table.ColumnHeader>
                       <Table.ColumnHeader>创建时间</Table.ColumnHeader>
-                      <Table.ColumnHeader>操作</Table.ColumnHeader>
+                      <Table.ColumnHeader {...pinnedColumn}>操作</Table.ColumnHeader>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -318,14 +319,14 @@ export default function Users() {
                             <RouterLink to={`/console/users/${user.id}`}>{user.username}</RouterLink>
                           </NameAction>
                         </Table.Cell>
-                        <Table.Cell whiteSpace="nowrap">
+                        <Table.Cell>
                           <Badge>{user.role === 'admin' ? '管理员' : '普通用户'}</Badge>
                         </Table.Cell>
-                        <Table.Cell whiteSpace="nowrap" color={user.status === 'disabled' ? 'gray.500' : undefined}>
+                        <Table.Cell color={user.status === 'disabled' ? 'gray.500' : undefined}>
                           {user.status === 'active' ? '启用' : '已禁用'}
                         </Table.Cell>
                         <Table.Cell textAlign="end" fontVariantNumeric="tabular-nums">
-                          <HStack justify="end" gap="1" whiteSpace="nowrap">
+                          <HStack justify="end" gap="1">
                             <Text as="span">{displayMoney(user.balance)}</Text>
                             <IconButton
                               type="button"
@@ -339,8 +340,8 @@ export default function Users() {
                             </IconButton>
                           </HStack>
                         </Table.Cell>
-                        <Table.Cell whiteSpace="nowrap">{localDate(user.createdAt)}</Table.Cell>
-                        <Table.Cell>
+                        <Table.Cell>{localDate(user.createdAt)}</Table.Cell>
+                        <Table.Cell {...pinnedColumn}>
                           <HStack gap="1">
                             <IconButton size="sm" variant="ghost" aria-label="管理用户" asChild>
                               <RouterLink to={`/console/users/${user.id}`}>

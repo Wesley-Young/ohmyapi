@@ -217,7 +217,7 @@ export function ModelImport({
               ) : (
                 <>
                   <Box maxH="380px" overflow="auto" borderWidth="1px" borderColor="gray.200" borderRadius="lg">
-                    <Table.Root size="sm" stickyHeader>
+                    <Table.Root size="sm" whiteSpace="nowrap" stickyHeader>
                       <Table.Header>
                         <Table.Row>
                           <Table.ColumnHeader>选择</Table.ColumnHeader>
@@ -251,18 +251,18 @@ export function ModelImport({
                                   <Checkbox.Control />
                                 </Checkbox.Root>
                               </Table.Cell>
-                              <Table.Cell minW="180px" maxW="380px">
+                              <Table.Cell>
                                 <Stack gap="1">
-                                  <Text fontSize="sm" fontWeight="500" overflowWrap="anywhere">
+                                  <Text fontSize="sm" fontWeight="500">
                                     {model.name}
                                   </Text>
                                   {model.displayName !== model.name && (
-                                    <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
+                                    <Text fontSize="xs" color="gray.500">
                                       {model.displayName}
                                     </Text>
                                   )}
                                   {(alreadyExists || otherSource) && (
-                                    <HStack gap="2" flexWrap="wrap">
+                                    <HStack gap="2">
                                       {unpriced.has(model.name) && <Badge colorPalette="yellow">未定价</Badge>}
                                       {alreadyExists && <Badge colorPalette="gray">将覆盖</Badge>}
                                       {otherSource && <Badge colorPalette="gray">已选其他来源</Badge>}
@@ -271,10 +271,8 @@ export function ModelImport({
                                 </Stack>
                               </Table.Cell>
                               <Table.Cell>
-                                <HStack gap="2" flexWrap="wrap">
-                                  <Badge colorPalette="gray" whiteSpace="normal" overflowWrap="anywhere">
-                                    {model.providerName}
-                                  </Badge>
+                                <HStack gap="2">
+                                  <Badge colorPalette="gray">{model.providerName}</Badge>
                                   {model.official && <Badge colorPalette="green">官方</Badge>}
                                 </HStack>
                               </Table.Cell>
@@ -368,7 +366,7 @@ export function ModelImport({
                       </Box>
                       {rules && (
                         <Box overflowX="auto">
-                          <Table.Root size="sm">
+                          <Table.Root size="sm" whiteSpace="nowrap">
                             <Table.Caption textAlign="start" mt="2">
                               {currency ?? 'USD'} / 百万 Token
                             </Table.Caption>
@@ -399,7 +397,7 @@ export function ModelImport({
                                     )}
                                   </Table.Cell>
                                   {priceColumns.map(([key]) => (
-                                    <Table.Cell key={key} whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
+                                    <Table.Cell key={key} fontVariantNumeric="tabular-nums">
                                       {priceText(rule[key])}
                                     </Table.Cell>
                                   ))}

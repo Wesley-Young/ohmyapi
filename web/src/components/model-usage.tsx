@@ -80,12 +80,12 @@ export default function ModelUsage({ currency, scope = 'self' }: { currency?: st
           usage.data &&
           (usage.data.length ? (
             <Box overflowX="auto">
-              <Table.Root size="sm" aria-labelledby={titleId}>
+              <Table.Root size="sm" whiteSpace="nowrap" aria-labelledby={titleId}>
                 <Table.Header>
                   <Table.Row>
                     <Table.ColumnHeader>模型</Table.ColumnHeader>
                     {columns.map((column) => (
-                      <Table.ColumnHeader key={column.key} textAlign="end" whiteSpace="nowrap">
+                      <Table.ColumnHeader key={column.key} textAlign="end">
                         {column.key === 'charged' && currency
                           ? `${column.label}（${currency}）`
                           : column.key === 'share'
@@ -100,16 +100,11 @@ export default function ModelUsage({ currency, scope = 'self' }: { currency?: st
                 <Table.Body>
                   {usage.data.map((row) => (
                     <Table.Row key={row.modelId ?? (row.others ? 'others' : 'unknown')}>
-                      <Table.Cell color={row.name ? undefined : 'gray.500'} overflowWrap="anywhere">
+                      <Table.Cell color={row.name ? undefined : 'gray.500'}>
                         {row.name ?? (row.others ? `其他 ${row.others} 个模型` : '未识别模型')}
                       </Table.Cell>
                       {columns.map((column) => (
-                        <Table.Cell
-                          key={column.key}
-                          textAlign="end"
-                          whiteSpace="nowrap"
-                          fontVariantNumeric="tabular-nums"
-                        >
+                        <Table.Cell key={column.key} textAlign="end" fontVariantNumeric="tabular-nums">
                           {column.value(row, total, scope)}
                         </Table.Cell>
                       ))}

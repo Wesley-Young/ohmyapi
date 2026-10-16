@@ -6,7 +6,7 @@ import { Link as RouterLink, useNavigate } from 'react-router';
 
 import { GroupForm } from '../components/group-form';
 import { IconButton } from '../components/icon-button';
-import { ConfirmAction, ErrorText, Loading, NameAction, PrimaryButton, Title } from '../components/ui';
+import { ConfirmAction, ErrorText, Loading, NameAction, PrimaryButton, pinnedColumn, Title } from '../components/ui';
 import { refreshGrants } from '../lib/cache';
 import { formError, localDate } from '../lib/format';
 import { trpc, trpcClient } from '../lib/trpc';
@@ -43,12 +43,13 @@ export default function Groups() {
         data.data &&
         (data.data.length ? (
           <Box overflowX="auto">
-            <Table.Root size="sm">
+            <Table.Root size="sm" whiteSpace="nowrap">
               <Table.Header>
                 <Table.Row>
-                  {['名称', '成员数', '创建时间', '操作'].map((h) => (
+                  {['名称', '成员数', '创建时间'].map((h) => (
                     <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                   ))}
+                  <Table.ColumnHeader {...pinnedColumn}>操作</Table.ColumnHeader>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -60,8 +61,8 @@ export default function Groups() {
                       </NameAction>
                     </Table.Cell>
                     <Table.Cell>{group.memberCount}</Table.Cell>
-                    <Table.Cell whiteSpace="nowrap">{localDate(group.createdAt)}</Table.Cell>
-                    <Table.Cell>
+                    <Table.Cell>{localDate(group.createdAt)}</Table.Cell>
+                    <Table.Cell {...pinnedColumn}>
                       <HStack gap="1">
                         <IconButton size="sm" variant="ghost" aria-label={`管理「${group.name}」`} asChild>
                           <RouterLink to={`/console/groups/${group.id}`}>

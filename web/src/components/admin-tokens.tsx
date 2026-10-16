@@ -7,7 +7,7 @@ import { adminScopeLabels, adminScopes } from '../lib/admin-scopes';
 import { formError, localDate } from '../lib/format';
 import { queryClient, trpc, trpcClient } from '../lib/trpc';
 import { AdminTokenForm } from './admin-token-form';
-import { ConfirmAction, ErrorText, Loading, PrimaryButton } from './ui';
+import { ConfirmAction, ErrorText, Loading, PrimaryButton, pinnedColumn } from './ui';
 
 /** 当前管理员的公开 API 管理令牌。 */
 export function AdminTokens() {
@@ -29,12 +29,13 @@ export function AdminTokens() {
         <Loading />
       ) : tokens.data?.length ? (
         <Box overflowX="auto">
-          <Table.Root size="sm">
+          <Table.Root size="sm" whiteSpace="nowrap">
             <Table.Header>
               <Table.Row>
-                {['名称', '权限', '有效期', '最近使用', '操作'].map((h) => (
+                {['名称', '权限', '有效期', '最近使用'].map((h) => (
                   <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                 ))}
+                <Table.ColumnHeader {...pinnedColumn}>操作</Table.ColumnHeader>
               </Table.Row>
             </Table.Header>
             <Table.Body>
@@ -44,14 +45,14 @@ export function AdminTokens() {
                   <Table.Row key={token.id}>
                     <Table.Cell>
                       <Stack gap="0.5">
-                        <Text overflowWrap="anywhere">{token.name}</Text>
-                        <Text fontFamily="mono" fontSize="xs" color="gray.500" whiteSpace="nowrap">
+                        <Text>{token.name}</Text>
+                        <Text fontFamily="mono" fontSize="xs" color="gray.500">
                           oma_admin_…{token.hint}
                         </Text>
                       </Stack>
                     </Table.Cell>
                     <Table.Cell>
-                      <HStack gap="1.5" flexWrap="wrap">
+                      <HStack gap="1.5">
                         {adminScopes
                           .filter((scope) => token.scopes.includes(scope))
                           .map((scope) => (
@@ -61,16 +62,14 @@ export function AdminTokens() {
                           ))}
                       </HStack>
                     </Table.Cell>
-                    <Table.Cell whiteSpace="nowrap">
+                    <Table.Cell>
                       <HStack gap="2">
                         <Text>{token.expiresAt ? localDate(token.expiresAt) : '长期'}</Text>
                         {expired && <Badge colorPalette="red">已过期</Badge>}
                       </HStack>
                     </Table.Cell>
-                    <Table.Cell whiteSpace="nowrap">
-                      {token.lastUsedAt ? localDate(token.lastUsedAt) : '从未使用'}
-                    </Table.Cell>
-                    <Table.Cell>
+                    <Table.Cell>{token.lastUsedAt ? localDate(token.lastUsedAt) : '从未使用'}</Table.Cell>
+                    <Table.Cell {...pinnedColumn}>
                       <ConfirmAction
                         label="吊销"
                         icon={<Trash2 size={16} aria-hidden="true" />}

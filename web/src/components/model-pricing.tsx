@@ -9,7 +9,7 @@ import { queryClient, trpc } from '../lib/trpc';
 import { IconButton } from './icon-button';
 import { PricingPreview } from './pricing-preview';
 import { RuleForm } from './pricing-rule-form';
-import { ErrorText, Loading, NameAction, PrimaryButton } from './ui';
+import { ErrorText, Loading, NameAction, PrimaryButton, pinnedColumn } from './ui';
 
 export function ModelPricing({
   modelId,
@@ -102,22 +102,15 @@ export function ModelPricing({
         <>
           <ErrorText>{formError(save.error)?.message}</ErrorText>
           <Box overflowX="auto">
-            <Table.Root size="sm">
+            <Table.Root size="sm" whiteSpace="nowrap">
               <Table.Header>
                 <Table.Row>
-                  {[
-                    '规则名称',
-                    '条件',
-                    '输入',
-                    '输出',
-                    '缓存读',
-                    '缓存写',
-                    '搜索 / 千次',
-                    '预览搜索 / 千次',
-                    '操作',
-                  ].map((h) => (
-                    <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
-                  ))}
+                  {['规则名称', '条件', '输入', '输出', '缓存读', '缓存写', '搜索 / 千次', '预览搜索 / 千次'].map(
+                    (h) => (
+                      <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
+                    ),
+                  )}
+                  <Table.ColumnHeader {...pinnedColumn}>操作</Table.ColumnHeader>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -160,7 +153,7 @@ export function ModelPricing({
                     <Table.Cell>
                       {r.webSearchPreviewPrice ?? data.data.searchDefaults.webSearchPreviewPrice ?? '—'}
                     </Table.Cell>
-                    <Table.Cell>
+                    <Table.Cell {...pinnedColumn}>
                       <HStack gap="1">
                         <IconButton
                           aria-label="编辑价格规则"

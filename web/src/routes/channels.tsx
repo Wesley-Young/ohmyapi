@@ -10,7 +10,7 @@ import { ChannelUsersDialog } from '../components/channel-grants';
 import { IconButton } from '../components/icon-button';
 import { PlanBadge } from '../components/plan-badge';
 import { SubscriptionQuota } from '../components/subscription-quota';
-import { ConfirmAction, ErrorText, Loading, NameAction, PrimaryButton, Title } from '../components/ui';
+import { ConfirmAction, ErrorText, Loading, NameAction, PrimaryButton, pinnedColumn, Title } from '../components/ui';
 import { refreshCatalog } from '../lib/cache';
 import { formError, localDateTime } from '../lib/format';
 import { subscriptionProviderLabels } from '../lib/subscription';
@@ -90,12 +90,13 @@ export default function Channels() {
               />
             )}
             <Box overflowX="auto">
-              <Table.Root size="sm">
+              <Table.Root size="sm" whiteSpace="nowrap">
                 <Table.Header>
                   <Table.Row>
-                    {['名称', '类型', '扣费倍率', '状态', '额度', '操作'].map((h) => (
+                    {['名称', '类型', '扣费倍率', '状态', '额度'].map((h) => (
                       <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                     ))}
+                    <Table.ColumnHeader {...pinnedColumn}>操作</Table.ColumnHeader>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -107,7 +108,7 @@ export default function Channels() {
                         </NameAction>
                       </Table.Cell>
                       <Table.Cell>
-                        <HStack gap="2" flexWrap="wrap">
+                        <HStack gap="2">
                           <Text>
                             {channelTypeLabels[c.type]}{' '}
                             {c.subscription && `(${subscriptionProviderLabels[c.subscription.provider]})`}
@@ -126,7 +127,7 @@ export default function Channels() {
                           </Text>
                         )}
                         {c.subscription && (
-                          <Text fontSize="xs" color="gray.500" overflowWrap="anywhere">
+                          <Text fontSize="xs" color="gray.500">
                             {c.subscription.email ?? '未获取邮箱'}
                           </Text>
                         )}
@@ -146,9 +147,9 @@ export default function Channels() {
                             )}
                         </Stack>
                       </Table.Cell>
-                      <Table.Cell whiteSpace="nowrap">
+                      <Table.Cell>
                         <Stack gap="2" align="start">
-                          <HStack gap="2" flexWrap="wrap">
+                          <HStack gap="2">
                             <Badge colorPalette={c.enabled ? 'green' : 'gray'}>{c.enabled ? '启用' : '禁用'}</Badge>
                             <Badge colorPalette="gray">{c.isPublic ? '公开' : '非公开'}</Badge>
                           </HStack>
@@ -201,8 +202,8 @@ export default function Channels() {
                           <Text color="gray.500">—</Text>
                         )}
                       </Table.Cell>
-                      <Table.Cell>
-                        <HStack gap="1" flexWrap="wrap">
+                      <Table.Cell {...pinnedColumn}>
+                        <HStack gap="1">
                           {!c.isPublic && (
                             <IconButton
                               aria-label={`为「${c.name}」授权用户`}

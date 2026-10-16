@@ -5,7 +5,7 @@ import { Eye } from 'lucide-react';
 import { useState } from 'react';
 
 import { IconButton } from '../components/icon-button';
-import { ErrorText, FormDialog, Loading, NameAction, Title } from '../components/ui';
+import { ErrorText, FormDialog, Loading, NameAction, pinnedColumn, Title } from '../components/ui';
 import { displayMoney, displayRange, formatCount, formError } from '../lib/format';
 import { minuteText } from '../lib/pricing';
 import { trpc } from '../lib/trpc';
@@ -92,14 +92,16 @@ export default function ModelPlaza() {
         query.data &&
         (models.length ? (
           <Box overflowX="auto">
-            <Table.Root size="sm">
+            <Table.Root size="sm" whiteSpace="nowrap">
               <Table.Caption srOnly>模型定价，输入、输出及缓存价格均按百万 Token 计费</Table.Caption>
               <Table.Header>
                 <Table.Row>
                   <Table.ColumnHeader>模型</Table.ColumnHeader>
                   <Table.ColumnHeader>输入 / 输出</Table.ColumnHeader>
                   <Table.ColumnHeader>缓存读取 / 缓存写入</Table.ColumnHeader>
-                  <Table.ColumnHeader textAlign="end">操作</Table.ColumnHeader>
+                  <Table.ColumnHeader textAlign="end" {...pinnedColumn}>
+                    操作
+                  </Table.ColumnHeader>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -115,14 +117,14 @@ export default function ModelPlaza() {
                       </Table.Cell>
                       <Table.Cell>
                         <Stack gap="0.5" lineHeight="1.35">
-                          <HStack gap="2" fontSize="sm" flexWrap="wrap" aria-label="输入 / 输出价格">
+                          <HStack gap="2" fontSize="sm" aria-label="输入 / 输出价格">
                             <Price value={model.lowestPrice?.inputPrice} symbol={symbol} />
                             <Text as="span" color="gray.300" aria-hidden="true">
                               /
                             </Text>
                             <Price value={model.lowestPrice?.outputPrice} symbol={symbol} />
                           </HStack>
-                          <HStack gap="2" flexWrap="wrap">
+                          <HStack gap="2">
                             <Text fontSize="xs" color="gray.500">
                               / 1M tokens
                             </Text>
@@ -136,7 +138,7 @@ export default function ModelPlaza() {
                       </Table.Cell>
                       <Table.Cell>
                         <Stack gap="0.5" lineHeight="1.35">
-                          <HStack gap="2" fontSize="sm" flexWrap="wrap" aria-label="缓存读取 / 写入价格">
+                          <HStack gap="2" fontSize="sm" aria-label="缓存读取 / 写入价格">
                             <Price value={model.lowestPrice?.cacheReadPrice} symbol={symbol} />
                             <Text as="span" color="gray.300" aria-hidden="true">
                               /
@@ -148,7 +150,7 @@ export default function ModelPlaza() {
                           </Text>
                         </Stack>
                       </Table.Cell>
-                      <Table.Cell textAlign="end">
+                      <Table.Cell textAlign="end" {...pinnedColumn}>
                         <IconButton
                           aria-label={`查看「${model.name}」定价详情`}
                           title="查看详情"
@@ -195,7 +197,7 @@ export default function ModelPlaza() {
                 )}
                 {channel.rules.length ? (
                   <Box overflowX="auto">
-                    <Table.Root size="sm">
+                    <Table.Root size="sm" whiteSpace="nowrap">
                       <Table.Header>
                         <Table.Row>
                           <Table.ColumnHeader>规则</Table.ColumnHeader>
@@ -211,7 +213,7 @@ export default function ModelPlaza() {
                               <RuleConditions rule={rule} />
                             </Table.Cell>
                             {categories.map(([key]) => (
-                              <Table.Cell key={key} whiteSpace="nowrap">
+                              <Table.Cell key={key}>
                                 <Price value={rule[key]} maximum={rule.maximum[key]} symbol={symbol} />
                               </Table.Cell>
                             ))}

@@ -137,13 +137,13 @@ export function SubscriptionCycleDialog({ channelId, onClose }: { channelId: str
           )}
           {data.models.length ? (
             <Box overflowX="auto">
-              <Table.Root size="sm" aria-label="按模型统计">
+              <Table.Root size="sm" whiteSpace="nowrap" aria-label="按模型统计">
                 <Table.Header>
                   <Table.Row>
                     <Table.ColumnHeader>模型</Table.ColumnHeader>
                     <Table.ColumnHeader textAlign="end">请求</Table.ColumnHeader>
                     {tokenColumns.map(([key, label]) => (
-                      <Table.ColumnHeader key={key} textAlign="end" whiteSpace="nowrap">
+                      <Table.ColumnHeader key={key} textAlign="end">
                         {label}
                       </Table.ColumnHeader>
                     ))}
@@ -153,15 +153,13 @@ export function SubscriptionCycleDialog({ channelId, onClose }: { channelId: str
                 <Table.Body>
                   {data.models.map((row) => (
                     <Table.Row key={row.modelId ?? 'unknown'}>
-                      <Table.Cell color={row.name ? undefined : 'gray.500'} overflowWrap="anywhere">
-                        {row.name ?? '未识别模型'}
-                      </Table.Cell>
+                      <Table.Cell color={row.name ? undefined : 'gray.500'}>{row.name ?? '未识别模型'}</Table.Cell>
                       {[
                         ['requests', formatCount(row.requests)],
                         ...tokenColumns.map(([key]) => [key, formatCount(row[key])]),
                         ['amount', formatUsd(row.amount)],
                       ].map(([key, value]) => (
-                        <Table.Cell key={key} textAlign="end" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
+                        <Table.Cell key={key} textAlign="end" fontVariantNumeric="tabular-nums">
                           {value}
                         </Table.Cell>
                       ))}

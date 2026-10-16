@@ -122,7 +122,7 @@ export function PricingPreview({ modelId }: { modelId: string }) {
               </Text>
             )}
             <Box overflowX="auto">
-              <Table.Root size="sm">
+              <Table.Root size="sm" whiteSpace="nowrap">
                 <Table.Header>
                   <Table.Row>
                     <Table.ColumnHeader>类别</Table.ColumnHeader>

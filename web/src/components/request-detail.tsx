@@ -166,7 +166,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                     </Badge>
                   </HStack>
                   <Box overflowX="auto">
-                    <Table.Root size="sm">
+                    <Table.Root size="sm" whiteSpace="nowrap">
                       <Table.Header>
                         <Table.Row>
                           <Table.ColumnHeader>类别</Table.ColumnHeader>
@@ -220,7 +220,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                 关联流水
               </Heading>
               <Box overflowX="auto">
-                <Table.Root size="sm">
+                <Table.Root size="sm" whiteSpace="nowrap">
                   <Table.Header>
                     <Table.Row>
                       {['类型', '时间', '余额变化', '冻结变化'].map((h) => (

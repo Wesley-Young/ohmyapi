@@ -48,7 +48,7 @@ export function Ledger({ items }: { items: Output['wallet']['ledger']['items'] }
     );
   return (
     <Box overflowX="auto">
-      <Table.Root size="sm">
+      <Table.Root size="sm" whiteSpace="nowrap">
         <Table.Header>
           <Table.Row>
             <Table.ColumnHeader>时间</Table.ColumnHeader>
@@ -64,21 +64,21 @@ export function Ledger({ items }: { items: Output['wallet']['ledger']['items'] }
         <Table.Body>
           {items.map((item) => (
             <Table.Row key={item.id}>
-              <Table.Cell whiteSpace="nowrap">{localDate(item.createdAt)}</Table.Cell>
-              <Table.Cell whiteSpace="nowrap">{kinds[item.kind]}</Table.Cell>
-              <Table.Cell textAlign="end" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
+              <Table.Cell>{localDate(item.createdAt)}</Table.Cell>
+              <Table.Cell>{kinds[item.kind]}</Table.Cell>
+              <Table.Cell textAlign="end" fontVariantNumeric="tabular-nums">
                 {displayMoney(item.amount)}
               </Table.Cell>
-              <Table.Cell textAlign="end" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
+              <Table.Cell textAlign="end" fontVariantNumeric="tabular-nums">
                 {displayMoney(item.reservedAmount)}
               </Table.Cell>
-              <Table.Cell textAlign="end" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
+              <Table.Cell textAlign="end" fontVariantNumeric="tabular-nums">
                 {displayMoney(item.balanceAfter)}
               </Table.Cell>
-              <Table.Cell minW="150px" maxW="340px" overflowWrap="anywhere">
+              <Table.Cell minW="150px" maxW="340px" whiteSpace="normal" overflowWrap="anywhere">
                 {item.reason || '—'}
               </Table.Cell>
-              <Table.Cell whiteSpace="nowrap">{item.actorName ?? '系统'}</Table.Cell>
+              <Table.Cell>{item.actorName ?? '系统'}</Table.Cell>
               <Table.Cell>
                 {item.requestId && (
                   <Link asChild color={brandColor} fontSize="xs">
