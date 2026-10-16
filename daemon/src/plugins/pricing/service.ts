@@ -116,6 +116,7 @@ export class PricingService {
             .map((row) => ({
               id: row.channelId,
               name: row.channelName,
+              isPublic: row.channelIsPublic,
               multiplier: formatMoney(row.multiplierMicros),
               maxMultiplier: formatMoney(row.maxMultiplierMicros),
               pricingMode: row.pricingMode,

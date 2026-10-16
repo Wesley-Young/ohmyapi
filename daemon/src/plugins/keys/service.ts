@@ -84,6 +84,7 @@ export class KeyService {
         channelId: channels.id,
         channelName: channels.name,
         channelType: channels.type,
+        channelIsPublic: channels.isPublic,
         channelMultiplierMicros: channels.multiplierMicros,
         multiplierMicros: channelModelPrices.multiplierMicros,
         pricingMode: channels.pricingMode,
