@@ -112,6 +112,37 @@ export function Panel({ children }: { children: ReactNode }) {
     </Box>
   );
 }
+/** 弹窗内的分区，以细分隔线代替卡片边框。 */
+export function Section({
+  title,
+  hint,
+  action,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Stack as="section" gap="4" pt="6" borderTopWidth="1px" borderColor="gray.100">
+      <HStack justify="space-between" align="start" gap="3" flexWrap="wrap">
+        <Stack gap="1" minW="0">
+          <Heading as="h3" fontSize="md" fontWeight="600">
+            {title}
+          </Heading>
+          {hint && (
+            <Text fontSize="sm" color="gray.500">
+              {hint}
+            </Text>
+          )}
+        </Stack>
+        {action}
+      </HStack>
+      {children}
+    </Stack>
+  );
+}
 export function Title({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <HStack justify="space-between" align="start" gap="4" flexWrap="wrap">

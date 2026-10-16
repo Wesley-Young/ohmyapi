@@ -2,7 +2,6 @@ import { Badge, Box, Button, Checkbox, Code, HStack, Input, Stack, Table, Text }
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Pencil, Settings2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import { Link as RouterLink } from 'react-router';
 
 import { IconButton } from '../components/icon-button';
 import {
@@ -18,6 +17,7 @@ import {
   pinnedColumn,
   Title,
 } from '../components/ui';
+import { UserDialog } from '../components/user-dialog';
 import { UserRoleAction } from '../components/user-role-action';
 import { WalletAdjustmentDialog } from '../components/wallet-adjustment';
 import { refreshGrants, refreshUser } from '../lib/cache';
@@ -30,6 +30,7 @@ export default function Users() {
   const [draftSearch, setDraftSearch] = useState('');
   const data = useQuery(trpc.admin.users.list.queryOptions({ page, search }));
   const [creating, setCreating] = useState(false);
+  const [managing, setManaging] = useState<string>();
   const [adjustingUser, setAdjustingUser] = useState<{ id: string; username: string; balance: string } | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -77,6 +78,7 @@ export default function Users() {
       >
         用户
       </Title>
+      {managing && <UserDialog key={managing} userId={managing} onClose={() => setManaging(undefined)} />}
       {adjustingUser && data.data && (
         <WalletAdjustmentDialog
           key={adjustingUser.id}
@@ -134,8 +136,8 @@ export default function Users() {
               >
                 关闭
               </Button>
-              <Button variant="ghost" size="sm">
-                <RouterLink to={`/console/users/${credentials.user.id}`}>管理用户</RouterLink>
+              <Button variant="ghost" size="sm" onClick={() => setManaging(credentials.user.id)}>
+                管理用户
               </Button>
             </HStack>
             <ErrorText>{copyError ?? error?.message}</ErrorText>
@@ -315,9 +317,7 @@ export default function Users() {
                     {data.data.items.map((user) => (
                       <Table.Row key={user.id}>
                         <Table.Cell>
-                          <NameAction asChild>
-                            <RouterLink to={`/console/users/${user.id}`}>{user.username}</RouterLink>
-                          </NameAction>
+                          <NameAction onClick={() => setManaging(user.id)}>{user.username}</NameAction>
                         </Table.Cell>
                         <Table.Cell>
                           <Badge>{user.role === 'admin' ? '管理员' : '普通用户'}</Badge>
@@ -343,10 +343,13 @@ export default function Users() {
                         <Table.Cell>{localDate(user.createdAt)}</Table.Cell>
                         <Table.Cell {...pinnedColumn}>
                           <HStack gap="1">
-                            <IconButton size="sm" variant="ghost" aria-label="管理用户" asChild>
-                              <RouterLink to={`/console/users/${user.id}`}>
-                                <Settings2 size={16} aria-hidden="true" />
-                              </RouterLink>
+                            <IconButton
+                              size="sm"
+                              variant="ghost"
+                              aria-label={`管理「${user.username}」`}
+                              onClick={() => setManaging(user.id)}
+                            >
+                              <Settings2 size={16} aria-hidden="true" />
                             </IconButton>
                             <UserRoleAction user={user} compact />
                             {user.role === 'user' && (

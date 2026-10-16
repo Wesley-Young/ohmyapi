@@ -1,4 +1,4 @@
-import { Badge, Button, Checkbox, Heading, HStack, Stack, Text } from '@chakra-ui/react';
+import { Badge, Button, Checkbox, HStack, Stack, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -7,7 +7,7 @@ import { refreshGrants } from '../lib/cache';
 import { formError } from '../lib/format';
 import { trpc } from '../lib/trpc';
 import { ChannelGroupAccess } from './group-access';
-import { ErrorText, FormDialog, FormInput, Loading, PageControls, Panel, PrimaryButton } from './ui';
+import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton, Section } from './ui';
 
 export function ChannelUsersDialog({
   channelId,
@@ -160,11 +160,8 @@ function UserChannelChecklist({
   const [draft, setDraft] = useState<string[]>();
   const selected = draft ?? current ?? [];
   return (
-    <Panel>
+    <Section title={title}>
       <Stack gap="5">
-        <Heading as="h2" fontSize="lg">
-          {title}
-        </Heading>
         <ErrorText>{formError(error)?.message}</ErrorText>
         {loading ? (
           <Loading />
@@ -217,7 +214,7 @@ function UserChannelChecklist({
           )
         )}
       </Stack>
-    </Panel>
+    </Section>
   );
 }
 

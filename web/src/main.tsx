@@ -12,7 +12,6 @@ import About from './routes/about';
 import ChangePassword from './routes/change-password';
 import Channels from './routes/channels';
 import Console from './routes/console';
-import GroupDetail from './routes/group-detail';
 import Groups from './routes/groups';
 import Keys from './routes/keys';
 import Landing from './routes/landing';
@@ -23,7 +22,6 @@ import NotFound from './routes/not-found';
 import Overview from './routes/overview';
 import Profile from './routes/profile';
 import Requests from './routes/requests';
-import UserDetail from './routes/user-detail';
 import Users from './routes/users';
 
 const Playground = lazy(() => import('./routes/playground'));
@@ -62,9 +60,7 @@ createRoot(root).render(
                     <Route path="models" element={<Models />} />
                     <Route path="models/:modelId/pricing" element={<Models />} />
                     <Route path="users" element={<Users />} />
-                    <Route path="users/:userId" element={<UserDetail />} />
                     <Route path="groups" element={<Groups />} />
-                    <Route path="groups/:groupId" element={<GroupDetail />} />
                   </Route>
                 </Route>
               </Route>

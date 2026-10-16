@@ -1,11 +1,11 @@
-import { Badge, Button, Checkbox, Heading, HStack, Stack, Text } from '@chakra-ui/react';
+import { Badge, Button, Checkbox, HStack, Stack, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
 
 import { refreshGrants } from '../lib/cache';
 import { formError } from '../lib/format';
 import { trpc } from '../lib/trpc';
-import { ErrorText, FormDialog, FormInput, Loading, PageControls, Panel, PrimaryButton } from './ui';
+import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton, Section } from './ui';
 
 function SyncCheckbox({
   checked,
@@ -190,11 +190,8 @@ export function UserGroups({ userId }: { userId: string }) {
   const selected = draft ?? current.data?.map((group) => group.id) ?? [];
   const joining = selected.some((id) => !current.data?.some((group) => group.id === id));
   return (
-    <Panel>
+    <Section title="用户组">
       <Stack gap="5">
-        <Heading as="h2" fontSize="lg">
-          用户组
-        </Heading>
         <ErrorText>{formError(groups.error ?? current.error ?? task.error)?.message}</ErrorText>
         {groups.isPending || current.isPending ? (
           <Loading />
@@ -248,6 +245,6 @@ export function UserGroups({ userId }: { userId: string }) {
           )
         )}
       </Stack>
-    </Panel>
+    </Section>
   );
 }

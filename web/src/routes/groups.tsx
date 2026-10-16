@@ -2,8 +2,8 @@ import { Box, HStack, Stack, Table, Text } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { Pencil, Settings2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import { Link as RouterLink, useNavigate } from 'react-router';
 
+import { GroupDialog } from '../components/group-dialog';
 import { GroupForm } from '../components/group-form';
 import { IconButton } from '../components/icon-button';
 import { ConfirmAction, ErrorText, Loading, NameAction, PrimaryButton, pinnedColumn, Title } from '../components/ui';
@@ -12,9 +12,9 @@ import { formError, localDate } from '../lib/format';
 import { trpc, trpcClient } from '../lib/trpc';
 
 export default function Groups() {
-  const navigate = useNavigate();
   const data = useQuery(trpc.admin.groups.list.queryOptions());
   const [edit, setEdit] = useState<{ id?: string; name: string }>();
+  const [managing, setManaging] = useState<string>();
   return (
     <Stack gap="7">
       <Title
@@ -32,10 +32,11 @@ export default function Groups() {
           group={edit.id ? { id: edit.id, name: edit.name } : undefined}
           onClose={() => setEdit(undefined)}
           onSaved={(group) => {
-            if (!edit.id) navigate(`/console/groups/${group.id}`);
+            if (!edit.id) setManaging(group.id);
           }}
         />
       )}
+      {managing && <GroupDialog key={managing} groupId={managing} onClose={() => setManaging(undefined)} />}
       <ErrorText>{formError(data.error)?.message}</ErrorText>
       {data.isPending ? (
         <Loading />
@@ -56,18 +57,19 @@ export default function Groups() {
                 {data.data.map((group) => (
                   <Table.Row key={group.id}>
                     <Table.Cell>
-                      <NameAction asChild>
-                        <RouterLink to={`/console/groups/${group.id}`}>{group.name}</RouterLink>
-                      </NameAction>
+                      <NameAction onClick={() => setManaging(group.id)}>{group.name}</NameAction>
                     </Table.Cell>
                     <Table.Cell>{group.memberCount}</Table.Cell>
                     <Table.Cell>{localDate(group.createdAt)}</Table.Cell>
                     <Table.Cell {...pinnedColumn}>
                       <HStack gap="1">
-                        <IconButton size="sm" variant="ghost" aria-label={`管理「${group.name}」`} asChild>
-                          <RouterLink to={`/console/groups/${group.id}`}>
-                            <Settings2 size={16} aria-hidden="true" />
-                          </RouterLink>
+                        <IconButton
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`管理「${group.name}」`}
+                          onClick={() => setManaging(group.id)}
+                        >
+                          <Settings2 size={16} aria-hidden="true" />
                         </IconButton>
                         <IconButton
                           size="sm"
@@ -81,7 +83,7 @@ export default function Groups() {
                           label="删除"
                           icon={<Trash2 size={16} aria-hidden="true" />}
                           danger
-                          description={`删除用户组「${group.name}」后，成员已有的渠道授权保持不变。`}
+                          description={`删除用户组「${group.name}」后，成员已有的渠道授权和屏蔽保持不变。`}
                           action={() => trpcClient.admin.groups.delete.mutate({ groupId: group.id })}
                           onSuccess={refreshGrants}
                         />
