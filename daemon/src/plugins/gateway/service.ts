@@ -38,7 +38,7 @@ const foreignHistory = (affinity: AffinitySelection | undefined, channelId: stri
 
 /**
  * 网关请求流程：鉴权与限流 → 读取请求体 → 入库 → 解析路由 → 锁定价格 → 预占 → 转发 → 收尾计费。
- * 停止时中止所有进行中的请求并等待其完成计费收尾。
+ * 平滑停止时拒绝新请求，等待进行中的请求自然结束；强制停止时中止进行中的请求，并等待其完成计费收尾。
  */
 export class GatewayService implements Disposable {
   static readonly token = serviceToken<GatewayService>('ohmyapi/gateway');
@@ -75,6 +75,16 @@ export class GatewayService implements Disposable {
     this.config = deps.config;
     this.logger = deps.logger;
     this.rateLimiter = new UserRateLimiter(deps.config);
+  }
+
+  get activeRequests() {
+    return this.running.size;
+  }
+
+  /** 拒绝新请求，等待进行中的请求自然结束并完成计费收尾。 */
+  async drain() {
+    this.stopping = true;
+    while (this.running.size > 0) await Promise.allSettled([...this.running.values()].map((e) => e.done));
   }
 
   dispose() {

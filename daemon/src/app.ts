@@ -1,6 +1,7 @@
 import HonoPlugin from '@fraqjs/plugin-hono';
 
 import type { AppConfig } from './config.ts';
+import { GracefulHttpServer } from './core/http-server.ts';
 import { logHandler } from './core/logging.ts';
 import { AppContext } from './kernel.ts';
 import { AuthPlugin } from './plugins/auth/index.ts';
@@ -19,6 +20,7 @@ import { CredentialVaultPlugin } from './plugins/vault/index.ts';
 import { WalletPlugin } from './plugins/wallet/index.ts';
 
 export function createApp(config: AppConfig) {
+  const server = new GracefulHttpServer();
   const ctx = AppContext.create(config);
   ctx.logBus.on('log', logHandler);
   ctx.install(DatabasePlugin);
@@ -34,7 +36,7 @@ export function createApp(config: AppConfig) {
   ctx.install(SubscriptionPlugin);
   ctx.install(CatalogPlugin);
   ctx.install(GatewayPlugin);
-  ctx.install(HonoPlugin, config.server);
+  ctx.install(HonoPlugin, { ...config.server, serveOptions: { createServer: server.createServer } });
   ctx.install(HttpPlugin);
-  return ctx;
+  return { ctx, server };
 }
