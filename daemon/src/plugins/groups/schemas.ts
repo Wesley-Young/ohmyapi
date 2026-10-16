@@ -29,3 +29,7 @@ export const setGroupChannelAccessInput = groupIdInput.extend({
   channelIds: z.array(z.uuid()).min(1, '请选择渠道').max(100),
   granted: z.boolean(),
 });
+export const setGroupChannelBlocksInput = groupIdInput.extend({
+  channelIds: z.array(z.uuid()).min(1, '请选择渠道').max(100),
+  blocked: z.boolean(),
+});

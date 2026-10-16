@@ -34,7 +34,7 @@ function SyncCheckbox({
   );
 }
 
-/** 维护组成员；可为新成员授予组内原有成员共有的非公开渠道。 */
+/** 维护组成员；可为新成员同步组内原有成员共有的渠道授权和屏蔽。 */
 export function GroupMembersDialog({
   groupId,
   groupName,
@@ -138,13 +138,13 @@ export function GroupMembersDialog({
             {sync && shared.data && (
               <HStack gap="2" flexWrap="wrap">
                 {shared.data.map((channel) => (
-                  <Badge key={channel.id} colorPalette="gray">
-                    {channel.name}
+                  <Badge key={`${channel.blocked}-${channel.id}`} colorPalette={channel.blocked ? 'red' : 'gray'}>
+                    {channel.blocked ? `屏蔽 ${channel.name}` : channel.name}
                   </Badge>
                 ))}
                 {!shared.data.length && (
                   <Text fontSize="sm" color="gray.500">
-                    现有成员没有共有的非公开渠道
+                    现有成员没有共有的渠道授权或屏蔽
                   </Text>
                 )}
               </HStack>
@@ -225,7 +225,7 @@ export function UserGroups({ userId }: { userId: string }) {
               {draft !== undefined && joining && (
                 <SyncCheckbox checked={sync} disabled={task.isPending} onChange={setSync}>
                   <Text fontSize="sm" color="gray.500">
-                    授予新加入的组中现有成员共有的非公开渠道
+                    同步新加入的组中现有成员共有的渠道授权和屏蔽
                   </Text>
                 </SyncCheckbox>
               )}

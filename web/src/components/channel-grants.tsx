@@ -1,4 +1,5 @@
 import { Badge, Button, Checkbox, Heading, HStack, Stack, Text } from '@chakra-ui/react';
+import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -126,40 +127,57 @@ export function ChannelUsersDialog({
   );
 }
 
-export function ChannelGrants({ userId }: { userId: string }) {
-  const catalog = useQuery(trpc.admin.catalog.list.queryOptions());
-  const grants = useQuery(trpc.admin.catalog.grants.queryOptions({ userId }));
+type CatalogChannel = RouterOutputs['admin']['catalog']['list']['channels'][number];
+
+/** 用户详情中按渠道勾选的面板，由非公开渠道授权和公开渠道屏蔽共用。 */
+function UserChannelChecklist({
+  title,
+  empty,
+  saveLabel,
+  savedText,
+  channels,
+  current,
+  loading,
+  error,
+  pending,
+  saved,
+  onEdit,
+  onSave,
+}: {
+  title: string;
+  empty: string;
+  saveLabel: string;
+  savedText: string;
+  channels: CatalogChannel[];
+  current: string[] | undefined;
+  loading: boolean;
+  error: unknown;
+  pending: boolean;
+  saved: boolean;
+  onEdit: () => void;
+  onSave: (channelIds: string[], done: () => void) => void;
+}) {
   const [draft, setDraft] = useState<string[]>();
-  const task = useMutation(
-    trpc.admin.catalog.setGrants.mutationOptions({
-      onSuccess: async () => {
-        await refreshGrants();
-        setDraft(undefined);
-      },
-    }),
-  );
-  const privateChannels = catalog.data?.channels.filter((channel) => !channel.isPublic) ?? [];
-  const selected = draft ?? grants.data?.map((g) => g.channelId) ?? [];
+  const selected = draft ?? current ?? [];
   return (
     <Panel>
       <Stack gap="5">
         <Heading as="h2" fontSize="lg">
-          非公开渠道授权
+          {title}
         </Heading>
-        <ErrorText>{formError(catalog.error ?? grants.error ?? task.error)?.message}</ErrorText>
-        {catalog.isPending || grants.isPending ? (
+        <ErrorText>{formError(error)?.message}</ErrorText>
+        {loading ? (
           <Loading />
         ) : (
-          catalog.data &&
-          grants.data && (
+          current && (
             <>
-              {privateChannels.map((channel) => (
+              {channels.map((channel) => (
                 <Checkbox.Root
                   key={channel.id}
                   checked={selected.includes(channel.id)}
-                  disabled={task.isPending}
+                  disabled={pending}
                   onCheckedChange={(e) => {
-                    task.reset();
+                    onEdit();
                     setDraft(e.checked ? [...selected, channel.id] : selected.filter((id) => id !== channel.id));
                   }}
                 >
@@ -175,23 +193,23 @@ export function ChannelGrants({ userId }: { userId: string }) {
                   </Checkbox.Label>
                 </Checkbox.Root>
               ))}
-              {!privateChannels.length && (
+              {!channels.length && (
                 <Text color="gray.500" fontSize="sm">
-                  暂无非公开渠道
+                  {empty}
                 </Text>
               )}
               <HStack gap="3" flexWrap="wrap">
                 <PrimaryButton
                   alignSelf="start"
-                  loading={task.isPending}
+                  loading={pending}
                   disabled={draft === undefined}
-                  onClick={() => task.mutate({ userId, channelIds: selected })}
+                  onClick={() => onSave(selected, () => setDraft(undefined))}
                 >
-                  保存授权
+                  {saveLabel}
                 </PrimaryButton>
-                {task.isSuccess && (
+                {saved && (
                   <Text role="status" fontSize="sm">
-                    授权已保存
+                    {savedText}
                   </Text>
                 )}
               </HStack>
@@ -200,5 +218,69 @@ export function ChannelGrants({ userId }: { userId: string }) {
         )}
       </Stack>
     </Panel>
+  );
+}
+
+export function ChannelGrants({ userId }: { userId: string }) {
+  const catalog = useQuery(trpc.admin.catalog.list.queryOptions());
+  const grants = useQuery(trpc.admin.catalog.grants.queryOptions({ userId }));
+  const task = useMutation(trpc.admin.catalog.setGrants.mutationOptions());
+  return (
+    <UserChannelChecklist
+      title="非公开渠道授权"
+      empty="暂无非公开渠道"
+      saveLabel="保存授权"
+      savedText="授权已保存"
+      channels={catalog.data?.channels.filter((channel) => !channel.isPublic) ?? []}
+      current={catalog.data && grants.data?.map((grant) => grant.channelId)}
+      loading={catalog.isPending || grants.isPending}
+      error={catalog.error ?? grants.error ?? task.error}
+      pending={task.isPending}
+      saved={task.isSuccess}
+      onEdit={task.reset}
+      onSave={(channelIds, done) =>
+        task.mutate(
+          { userId, channelIds },
+          {
+            onSuccess: async () => {
+              await refreshGrants();
+              done();
+            },
+          },
+        )
+      }
+    />
+  );
+}
+
+export function ChannelBlocks({ userId }: { userId: string }) {
+  const catalog = useQuery(trpc.admin.catalog.list.queryOptions());
+  const blocks = useQuery(trpc.admin.catalog.blocks.queryOptions({ userId }));
+  const task = useMutation(trpc.admin.catalog.setBlocks.mutationOptions());
+  return (
+    <UserChannelChecklist
+      title="公开渠道屏蔽"
+      empty="暂无公开渠道"
+      saveLabel="保存屏蔽"
+      savedText="屏蔽已保存"
+      channels={catalog.data?.channels.filter((channel) => channel.isPublic) ?? []}
+      current={catalog.data && blocks.data?.map((block) => block.channelId)}
+      loading={catalog.isPending || blocks.isPending}
+      error={catalog.error ?? blocks.error ?? task.error}
+      pending={task.isPending}
+      saved={task.isSuccess}
+      onEdit={task.reset}
+      onSave={(channelIds, done) =>
+        task.mutate(
+          { userId, channelIds },
+          {
+            onSuccess: async () => {
+              await refreshGrants();
+              done();
+            },
+          },
+        )
+      }
+    />
   );
 }

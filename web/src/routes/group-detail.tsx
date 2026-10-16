@@ -62,35 +62,82 @@ function Members({ groupId, groupName }: { groupId: string; groupName: string })
   );
 }
 
-function Channels({ groupId, groupName }: { groupId: string; groupName: string }) {
-  const channels = useQuery(trpc.admin.groups.channels.queryOptions({ groupId }));
+const channelPanels = {
+  grant: {
+    title: '非公开渠道授权',
+    hint: '授予和撤销只作用于当前成员。新成员加入时，可选择同步现有成员共有的渠道。',
+    column: '成员授权',
+    empty: '暂无非公开渠道',
+  },
+  block: {
+    title: '公开渠道屏蔽',
+    hint: '屏蔽和解除只作用于当前成员。被屏蔽的成员看不到也无法调用该渠道。',
+    column: '成员屏蔽',
+    empty: '暂无公开渠道',
+  },
+} as const;
+
+type ChannelCounts = { memberCount: number; items: { id: string; name: string; enabled: boolean; count: number }[] };
+
+function GrantedChannels({ groupId, groupName }: { groupId: string; groupName: string }) {
+  const query = useQuery(trpc.admin.groups.channels.queryOptions({ groupId }));
+  const data = query.data && {
+    memberCount: query.data.memberCount,
+    items: query.data.items.map((channel) => ({ ...channel, count: channel.granted })),
+  };
+  return <Channels kind="grant" groupId={groupId} groupName={groupName} query={query} data={data} />;
+}
+
+function BlockedChannels({ groupId, groupName }: { groupId: string; groupName: string }) {
+  const query = useQuery(trpc.admin.groups.channelBlocks.queryOptions({ groupId }));
+  const data = query.data && {
+    memberCount: query.data.memberCount,
+    items: query.data.items.map((channel) => ({ ...channel, count: channel.blocked })),
+  };
+  return <Channels kind="block" groupId={groupId} groupName={groupName} query={query} data={data} />;
+}
+
+function Channels({
+  kind,
+  groupId,
+  groupName,
+  query,
+  data,
+}: {
+  kind: 'grant' | 'block';
+  groupId: string;
+  groupName: string;
+  query: { error: unknown; isPending: boolean };
+  data: ChannelCounts | undefined;
+}) {
+  const text = channelPanels[kind];
   return (
     <Panel>
       <Stack gap="5">
         <Stack gap="1">
           <Heading as="h2" fontSize="lg">
-            非公开渠道授权
+            {text.title}
           </Heading>
           <Text fontSize="sm" color="gray.500">
-            授予和撤销只作用于当前成员。新成员加入时，可选择同步现有成员共有的渠道。
+            {text.hint}
           </Text>
         </Stack>
-        <ErrorText>{formError(channels.error)?.message}</ErrorText>
-        {channels.isPending ? (
+        <ErrorText>{formError(query.error)?.message}</ErrorText>
+        {query.isPending ? (
           <Loading />
         ) : (
-          channels.data &&
-          (channels.data.items.length ? (
+          data &&
+          (data.items.length ? (
             <Box overflowX="auto">
               <Table.Root size="sm" whiteSpace="nowrap">
                 <Table.Header>
                   <Table.Row>
                     <Table.ColumnHeader>渠道</Table.ColumnHeader>
-                    <Table.ColumnHeader {...pinnedColumn}>成员授权</Table.ColumnHeader>
+                    <Table.ColumnHeader {...pinnedColumn}>{text.column}</Table.ColumnHeader>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                  {channels.data.items.map((channel) => (
+                  {data.items.map((channel) => (
                     <Table.Row key={channel.id}>
                       <Table.Cell>
                         <HStack gap="2">
@@ -100,12 +147,13 @@ function Channels({ groupId, groupName }: { groupId: string; groupName: string }
                       </Table.Cell>
                       <Table.Cell {...pinnedColumn}>
                         <GroupAccessActions
+                          kind={kind}
                           groupId={groupId}
                           groupName={groupName}
                           channelId={channel.id}
                           channelName={channel.name}
-                          granted={channel.granted}
-                          members={channels.data.memberCount}
+                          granted={channel.count}
+                          members={data.memberCount}
                         />
                       </Table.Cell>
                     </Table.Row>
@@ -115,7 +163,7 @@ function Channels({ groupId, groupName }: { groupId: string; groupName: string }
             </Box>
           ) : (
             <Text color="gray.500" fontSize="sm">
-              暂无非公开渠道
+              {text.empty}
             </Text>
           ))
         )}
@@ -149,7 +197,7 @@ export default function GroupDetail() {
                   <ConfirmAction
                     label="删除用户组"
                     danger
-                    description={`删除用户组「${group.data.name}」后，成员已有的渠道授权保持不变。`}
+                    description={`删除用户组「${group.data.name}」后，成员已有的渠道授权和屏蔽保持不变。`}
                     action={() => trpcClient.admin.groups.delete.mutate({ groupId })}
                     onSuccess={async () => {
                       navigate('/console/groups', { replace: true });
@@ -166,7 +214,8 @@ export default function GroupDetail() {
             </Title>
             {renaming && <GroupForm group={group.data} onClose={() => setRenaming(false)} />}
             <Members key={`members-${groupId}`} groupId={groupId} groupName={group.data.name} />
-            <Channels key={`channels-${groupId}`} groupId={groupId} groupName={group.data.name} />
+            <GrantedChannels key={`channels-${groupId}`} groupId={groupId} groupName={group.data.name} />
+            <BlockedChannels key={`blocks-${groupId}`} groupId={groupId} groupName={group.data.name} />
           </>
         )
       )}

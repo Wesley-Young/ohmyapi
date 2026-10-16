@@ -6,8 +6,16 @@ import { formError } from '../lib/format';
 import { trpc, trpcClient } from '../lib/trpc';
 import { ConfirmAction, ErrorText, Loading } from './ui';
 
-/** 为组的当前成员一次性授予或撤销某个渠道；不改变组本身。 */
+const actionText = {
+  grant: { done: '已授权', apply: '授予全部', undo: '撤销全部', applyVerb: '授予', undoVerb: '授权' },
+  block: { done: '已屏蔽', apply: '屏蔽全部', undo: '解除全部', applyVerb: '屏蔽', undoVerb: '屏蔽' },
+} as const;
+
+/**
+ * 为组的当前成员一次性授予或撤销非公开渠道（grant），或屏蔽或解除公开渠道（block）；不改变组本身。
+ */
 export function GroupAccessActions({
+  kind = 'grant',
   groupId,
   groupName,
   channelId,
@@ -15,38 +23,49 @@ export function GroupAccessActions({
   granted,
   members,
 }: {
+  kind?: 'grant' | 'block';
   groupId: string;
   groupName: string;
   channelId: string;
   channelName: string;
+  /** 已授权（grant）或已屏蔽（block）的成员数。 */
   granted: number;
   members: number;
 }) {
-  const task = useMutation(trpc.admin.groups.setChannelAccess.mutationOptions({ onSuccess: refreshGrants }));
+  const grant = useMutation(trpc.admin.groups.setChannelAccess.mutationOptions({ onSuccess: refreshGrants }));
+  const block = useMutation(trpc.admin.groups.setChannelBlocks.mutationOptions({ onSuccess: refreshGrants }));
+  const task = kind === 'grant' ? grant : block;
+  const text = actionText[kind];
+  const undo = () =>
+    kind === 'grant'
+      ? trpcClient.admin.groups.setChannelAccess.mutate({ groupId, channelIds: [channelId], granted: false })
+      : trpcClient.admin.groups.setChannelBlocks.mutate({ groupId, channelIds: [channelId], blocked: false });
   return (
     <Stack gap="2" align="start">
       <HStack gap="2" flexWrap="wrap">
-        <Badge colorPalette={members > 0 && granted === members ? 'green' : 'gray'}>
-          已授权 {granted}/{members}
+        <Badge colorPalette={members > 0 && granted === members ? (kind === 'grant' ? 'green' : 'red') : 'gray'}>
+          {text.done} {granted}/{members}
         </Badge>
         <Button
           size="sm"
           variant="outline"
-          aria-label={`为「${groupName}」全部成员授予「${channelName}」`}
+          aria-label={`为「${groupName}」全部成员${text.applyVerb}「${channelName}」`}
           disabled={granted >= members}
           loading={task.isPending}
-          onClick={() => task.mutate({ groupId, channelIds: [channelId], granted: true })}
+          onClick={() =>
+            kind === 'grant'
+              ? grant.mutate({ groupId, channelIds: [channelId], granted: true })
+              : block.mutate({ groupId, channelIds: [channelId], blocked: true })
+          }
         >
-          授予全部
+          {text.apply}
         </Button>
         <ConfirmAction
-          label="撤销全部"
-          danger
+          label={text.undo}
+          danger={kind === 'grant'}
           disabled={granted === 0 || task.isPending}
-          description={`将撤销「${groupName}」中 ${granted} 个成员对「${channelName}」的授权，包括单独授予或经其他用户组授予的授权。`}
-          action={() =>
-            trpcClient.admin.groups.setChannelAccess.mutate({ groupId, channelIds: [channelId], granted: false })
-          }
+          description={`将${kind === 'grant' ? '撤销' : '解除'}「${groupName}」中 ${granted} 个成员对「${channelName}」的${text.undoVerb}，包括单独${text.applyVerb}或经其他用户组${text.applyVerb}的${text.undoVerb}。`}
+          action={undo}
           onSuccess={refreshGrants}
         />
       </HStack>

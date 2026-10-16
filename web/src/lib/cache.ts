@@ -27,14 +27,16 @@ export const refreshCatalog = () =>
     queryClient.invalidateQueries(trpc.keys.list.pathFilter()),
     queryClient.invalidateQueries(trpc.keys.playgroundOptions.queryFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.catalog.blocks.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.channelGrants.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.groups.pathFilter()),
   ]);
 
-/** 渠道授权或用户组变化后，刷新授权、用户组及依赖授权的 Key 和模型广场。 */
+/** 渠道授权、屏蔽或用户组变化后，刷新授权、屏蔽、用户组及依赖它们的 Key 和模型广场。 */
 export const refreshGrants = () =>
   Promise.all([
     queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.catalog.blocks.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.channelGrants.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.groups.pathFilter()),
     queryClient.invalidateQueries(trpc.keys.pathFilter()),

@@ -92,6 +92,7 @@ export const setChannelGrantsInput = z.object({
     .refine((grants) => new Set(grants.map((grant) => grant.userId)).size === grants.length, '用户不能重复'),
 });
 export const setGrantsInput = userIdInput.extend({ channelIds: z.array(z.uuid()).max(100) });
+export const setBlocksInput = setGrantsInput;
 
 export type ChannelInput = z.infer<typeof channelInput>;
 export type FetchChannelModelsInput = z.infer<typeof fetchChannelModelsInput>;

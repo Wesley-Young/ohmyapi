@@ -11,17 +11,17 @@ import {
   effectiveChannelModels,
   models,
   priceRules,
-  userChannelGrants,
 } from '../database/schema/index.ts';
-import type { KeyIdentity } from '../keys/access.ts';
+import { canUseChannel, type KeyIdentity } from '../keys/access.ts';
 
 /** Key 在绑定渠道上可调用且已定价的模型；指定端点时只返回该端点可用的模型。 */
-export function availableModels(
+export async function availableModels(
   db: Database,
   identity: KeyIdentity & { channelId: string },
   channel: typeof channels.$inferSelect,
   endpoint?: Endpoint,
 ): Promise<ModelInfo[]> {
+  if (!(await canUseChannel(db, identity.user, channel))) return [];
   return db
     .selectDistinct({
       name: models.name,
@@ -37,22 +37,12 @@ export function availableModels(
       apiKeyModelGrants,
       and(eq(apiKeyModelGrants.modelId, models.id), eq(apiKeyModelGrants.apiKeyId, identity.key.id)),
     )
-    .leftJoin(
-      userChannelGrants,
-      and(
-        eq(userChannelGrants.channelId, effectiveChannelModels.channelId),
-        eq(userChannelGrants.userId, identity.user.id),
-      ),
-    )
     .where(
       and(
         eq(effectiveChannelModels.channelId, identity.channelId),
         endpoint ? eq(effectiveChannelEndpoints.endpoint, endpoint) : undefined,
         activeModel(),
         identity.key.restrictModels ? eq(apiKeyModelGrants.apiKeyId, identity.key.id) : undefined,
-        identity.user.role !== 'admin' && !channel.isPublic
-          ? eq(userChannelGrants.userId, identity.user.id)
-          : undefined,
       ),
     )
     .orderBy(models.name);

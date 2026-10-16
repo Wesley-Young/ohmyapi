@@ -10,6 +10,7 @@ import {
   importModelsInput,
   modelIdInput,
   modelInput,
+  setBlocksInput,
   setChannelGrantsInput,
   setGrantsInput,
 } from './schemas.ts';
@@ -46,5 +47,9 @@ export function catalogAdminRoutes(catalog: CatalogService, modelCatalog: ModelC
     setGrants: adminProcedure
       .input(setGrantsInput)
       .mutation(({ ctx, input }) => grants.setGrants(ctx.principal, input.userId, input.channelIds)),
+    blocks: adminProcedure.input(userIdInput).query(({ input }) => grants.blocks(input.userId)),
+    setBlocks: adminProcedure
+      .input(setBlocksInput)
+      .mutation(({ ctx, input }) => grants.setBlocks(ctx.principal, input.userId, input.channelIds)),
   };
 }

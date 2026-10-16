@@ -21,9 +21,8 @@ import {
   models,
   priceRules,
   requests,
-  userChannelGrants,
 } from '../database/schema/index.ts';
-import { findKeyIdentity, type KeyIdentity } from './access.ts';
+import { channelAccessible, findKeyIdentity, type KeyIdentity } from './access.ts';
 import type { CreateKeyInput, UpdateKeyInput } from './schemas.ts';
 
 import { randomBytes } from 'node:crypto';
@@ -76,9 +75,7 @@ export class KeyService {
   }
 
   /** 用户可调用的渠道、模型和端点组合；在事务中调用时传入 tx 以读取一致的授权状态。 */
-  async offerings({ id: userId, role }: { id: string; role: string }, db: Database | Transaction = this.db) {
-    const allowed =
-      role === 'admin' ? undefined : or(eq(channels.isPublic, true), eq(userChannelGrants.userId, userId));
+  async offerings(user: { id: string; role: string }, db: Database | Transaction = this.db) {
     const base = db
       .selectDistinct({
         channelId: channels.id,
@@ -102,11 +99,7 @@ export class KeyService {
         and(eq(channelModelPrices.channelId, channels.id), eq(channelModelPrices.modelId, models.id)),
       )
       .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, channels.id))
-      .leftJoin(
-        userChannelGrants,
-        and(eq(userChannelGrants.channelId, channels.id), eq(userChannelGrants.userId, userId)),
-      )
-      .where(and(activeChannel(), availableSubscription(), activeModel(), allowed))
+      .where(and(activeChannel(), availableSubscription(), activeModel(), channelAccessible(user)))
       .orderBy(channels.name, models.name);
     const rows = await base;
     const ranges = new Map<string, (typeof rows)[number] & { maxMultiplierMicros: bigint }>();
@@ -165,10 +158,6 @@ export class KeyService {
         apiKeyModelGrants,
         and(eq(apiKeyModelGrants.apiKeyId, apiKeys.id), eq(apiKeyModelGrants.modelId, models.id)),
       )
-      .leftJoin(
-        userChannelGrants,
-        and(eq(userChannelGrants.userId, principal.user.id), eq(userChannelGrants.channelId, channels.id)),
-      )
       .where(
         and(
           eq(apiKeys.userId, principal.user.id),
@@ -183,9 +172,7 @@ export class KeyService {
           availableSubscription(),
           activeModel(),
           or(eq(apiKeys.restrictModels, false), eq(apiKeyModelGrants.apiKeyId, apiKeys.id)),
-          principal.user.role === 'admin'
-            ? undefined
-            : or(eq(channels.isPublic, true), eq(userChannelGrants.userId, principal.user.id)),
+          channelAccessible(principal.user),
         ),
       )
       .orderBy(apiKeys.name, apiKeys.id, models.name);

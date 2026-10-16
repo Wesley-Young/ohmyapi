@@ -4,8 +4,8 @@ import { adminAuditLogs } from '../database/schema/index.ts';
 /** 需要留痕的管理操作。审计记录只追加、不可修改。 */
 export type AuditAction =
   | 'system.bootstrap'
-  | `user.${'create' | 'set_role' | 'enable' | 'disable' | 'revoke_sessions' | 'reset_password' | 'delete' | 'channels' | 'groups'}`
-  | `group.${'create' | 'rename' | 'delete' | 'members' | 'channels'}`
+  | `user.${'create' | 'set_role' | 'enable' | 'disable' | 'revoke_sessions' | 'reset_password' | 'delete' | 'channels' | 'channel_blocks' | 'groups'}`
+  | `group.${'create' | 'rename' | 'delete' | 'members' | 'channels' | 'channel_blocks'}`
   | 'wallet.adjust'
   | 'key.delete'
   | `admin_token.${'create' | 'revoke'}`

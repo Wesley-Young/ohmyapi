@@ -6,10 +6,10 @@ import { toPage } from '../../core/pagination.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
 import type { Database } from '../database/client.ts';
 import { containsText, paginate } from '../database/query.ts';
-import { channels, userChannelGrants, users } from '../database/schema/index.ts';
+import { channels, userChannelBlocks, userChannelGrants, users } from '../database/schema/index.ts';
 import { auditCatalog } from './audit.ts';
 
-/** 非公开渠道的用户授权：可按用户或按渠道维护。 */
+/** 非公开渠道的用户授权（可按用户或按渠道维护），以及公开渠道的用户屏蔽。 */
 export class ChannelGrants {
   static readonly token = serviceToken<ChannelGrants>('ohmyapi/channel-grants');
   private readonly db: Database;
@@ -108,6 +108,40 @@ export class ChannelGrants {
       await tx.delete(userChannelGrants).where(eq(userChannelGrants.userId, userId));
       if (ids.length) await tx.insert(userChannelGrants).values(ids.map((channelId) => ({ userId, channelId })));
       await auditCatalog(tx, actor.id, 'user.channels', userId, { channelIds: ids });
+      return { success: true };
+    });
+  }
+
+  /** 用户被屏蔽的公开渠道。 */
+  async blocks(userId: string) {
+    return this.db
+      .select({ channelId: userChannelBlocks.channelId })
+      .from(userChannelBlocks)
+      .innerJoin(channels, eq(channels.id, userChannelBlocks.channelId))
+      .where(and(eq(userChannelBlocks.userId, userId), isNull(channels.deletedAt), eq(channels.isPublic, true)));
+  }
+
+  /** 设置用户被屏蔽的公开渠道，替换已有的屏蔽。 */
+  async setBlocks(principal: Principal, userId: string, channelIds: string[]) {
+    return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
+      const [user] = await tx.select().from(users).where(eq(users.id, userId)).for('update');
+      if (user?.role !== 'user' || user.deletedAt)
+        throw new AppError('bad_request', '仅为未删除的普通用户设置渠道屏蔽');
+      const ids = [...new Set(channelIds)];
+      if (
+        ids.length &&
+        (
+          await tx
+            .select({ id: channels.id })
+            .from(channels)
+            .where(and(inArray(channels.id, ids), isNull(channels.deletedAt), eq(channels.isPublic, true)))
+            .for('share')
+        ).length !== ids.length
+      )
+        throw new AppError('bad_request', '渠道不存在或未公开');
+      await tx.delete(userChannelBlocks).where(eq(userChannelBlocks.userId, userId));
+      if (ids.length) await tx.insert(userChannelBlocks).values(ids.map((channelId) => ({ userId, channelId })));
+      await auditCatalog(tx, actor.id, 'user.channel_blocks', userId, { channelIds: ids });
       return { success: true };
     });
   }

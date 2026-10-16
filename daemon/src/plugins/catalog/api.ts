@@ -16,7 +16,7 @@ import type { ChannelDirectory } from './directory.ts';
 const identityFields = { id: z.uuid(), name: z.string() };
 const commonFields = {
   enabled: z.boolean(),
-  isPublic: z.boolean().meta({ description: '为 true 时所有用户可用；为 false 时仅对授权的用户可用' }),
+  isPublic: z.boolean().meta({ description: '为 true 时对未被屏蔽的用户可用；为 false 时仅对授权的用户可用' }),
   multiplier: moneySchema.meta({ description: '渠道倍率', example: '1.000000' }),
   timeoutMs: z.number().int().meta({ description: '上游请求超时，毫秒' }),
   endpoints: z.array(z.enum(endpoints)).meta({ description: '渠道支持的端点；聚合渠道为子渠道端点的并集' }),

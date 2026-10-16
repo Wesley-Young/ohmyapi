@@ -147,6 +147,20 @@ export const userChannelGrants = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.channelId] })],
 );
 
+/** 公开渠道对个别用户的屏蔽；渠道改为非公开时不生效。 */
+export const userChannelBlocks = pgTable(
+  'user_channel_blocks',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channels.id),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.channelId] })],
+);
+
 export const apiKeyModelGrants = pgTable(
   'api_key_model_grants',
   {

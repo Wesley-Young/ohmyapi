@@ -7,14 +7,26 @@ import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
 import type { Database, Transaction } from '../database/client.ts';
 import { containsText, paginate } from '../database/query.ts';
-import { channels, userChannelGrants, userGroupMembers, userGroups, users } from '../database/schema/index.ts';
+import {
+  channels,
+  userChannelBlocks,
+  userChannelGrants,
+  userGroupMembers,
+  userGroups,
+  users,
+} from '../database/schema/index.ts';
 
 const eligibleUser = () => and(eq(users.role, 'user'), isNull(users.deletedAt));
-const privateChannel = () => and(eq(channels.isPublic, false), isNull(channels.deletedAt));
+
+/** 非公开渠道的授权（grant）和公开渠道的屏蔽（block）。 */
+type AccessKind = 'grant' | 'block';
+const accessTable = { grant: userChannelGrants, block: userChannelBlocks } as const;
+const accessChannel = (kind: AccessKind) => and(eq(channels.isPublic, kind === 'block'), isNull(channels.deletedAt));
+const privateChannel = () => accessChannel('grant');
 
 /**
- * 用户组是普通用户的标签，不保存渠道授权。
- * 组级授权和撤销在操作时展开写入成员的渠道授权；成员加入或离开组不改变已有授权。
+ * 用户组是普通用户的标签，不保存渠道授权或屏蔽。
+ * 组级的授权、屏蔽及撤销在操作时展开写入成员的记录；成员加入或离开组不改变已有记录。
  */
 export class GroupService {
   static readonly token = serviceToken<GroupService>('ohmyapi/groups');
@@ -111,20 +123,26 @@ export class GroupService {
     return toPage(rows);
   }
 
-  /** 组内所有成员都拥有的非公开渠道授权；没有成员时为空。 */
+  /** 组内所有成员共有的非公开渠道授权和公开渠道屏蔽；没有成员时为空。 */
   async sharedChannels(groupId: string) {
     await this.get(groupId);
-    const memberIds = await this.db
-      .select({ userId: userGroupMembers.userId })
-      .from(userGroupMembers)
-      .where(eq(userGroupMembers.groupId, groupId));
-    return this.commonChannels(
-      this.db,
-      memberIds.map((row) => row.userId),
-    );
+    const memberIds = (
+      await this.db
+        .select({ userId: userGroupMembers.userId })
+        .from(userGroupMembers)
+        .where(eq(userGroupMembers.groupId, groupId))
+    ).map((row) => row.userId);
+    const [granted, blocked] = await Promise.all([
+      this.commonChannels(this.db, memberIds, 'grant'),
+      this.commonChannels(this.db, memberIds, 'block'),
+    ]);
+    return [
+      ...granted.map((channel) => ({ ...channel, blocked: false })),
+      ...blocked.map((channel) => ({ ...channel, blocked: true })),
+    ];
   }
 
-  /** 修改成员；sync 时为新成员授予组内原有成员共有的渠道。 */
+  /** 修改成员；sync 时为新成员同步组内原有成员共有的渠道授权和屏蔽。 */
   async setMembers(
     principal: Principal,
     groupId: string,
@@ -147,23 +165,28 @@ export class GroupService {
       );
       const added = changes.filter((c) => c.member && !existing.has(c.userId)).map((c) => c.userId);
       const removed = changes.filter((c) => !c.member && existing.has(c.userId)).map((c) => c.userId);
-      const shared = sync && added.length ? await this.commonChannels(tx, [...existing], true) : [];
+      const shared = { grant: [] as string[], block: [] as string[] };
+      if (sync && added.length)
+        for (const kind of ['grant', 'block'] as const)
+          shared[kind] = (await this.commonChannels(tx, [...existing], kind, true)).map((channel) => channel.id);
       if (removed.length)
         await tx
           .delete(userGroupMembers)
           .where(and(eq(userGroupMembers.groupId, groupId), inArray(userGroupMembers.userId, removed)));
       if (added.length) await tx.insert(userGroupMembers).values(added.map((userId) => ({ groupId, userId })));
-      await this.grant(
-        tx,
-        added,
-        shared.map((channel) => channel.id),
-      );
+      await this.insertAccess(tx, 'grant', added, shared.grant);
+      await this.insertAccess(tx, 'block', added, shared.block);
       await this.audit(tx, actor.id, 'group.members', groupId, {
         added,
         removed,
-        syncedChannelIds: shared.map((channel) => channel.id),
+        syncedChannelIds: shared.grant,
+        syncedBlockedChannelIds: shared.block,
       });
-      return { added: added.length, removed: removed.length, syncedChannels: shared.length };
+      return {
+        added: added.length,
+        removed: removed.length,
+        syncedChannels: shared.grant.length + shared.block.length,
+      };
     });
   }
 
@@ -176,7 +199,7 @@ export class GroupService {
       .orderBy(asc(userGroups.name), asc(userGroups.id));
   }
 
-  /** 设置用户所属的组；sync 时为新加入的每个组授予该组原有成员共有的渠道。 */
+  /** 设置用户所属的组；sync 时同步新加入的每个组中原有成员共有的渠道授权和屏蔽。 */
   async setUserGroups(principal: Principal, userId: string, groupIds: string[], sync: boolean) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const ids = await this.lockGroups(tx, groupIds);
@@ -199,14 +222,14 @@ export class GroupService {
         action: 'user.groups',
         targetType: 'user',
         targetId: userId,
-        metadata: { joined, left, syncedChannelIds: synced },
+        metadata: { joined, left, syncedChannelIds: synced.grant, syncedBlockedChannelIds: synced.block },
       });
-      return { joined: joined.length, left: left.length, syncedChannels: synced.length };
+      return { joined: joined.length, left: left.length, syncedChannels: synced.grant.length + synced.block.length };
     });
   }
 
   /**
-   * 在创建用户的事务中把新用户加入用户组；sync 时授予各组原有成员共有的渠道。
+   * 在创建用户的事务中把新用户加入用户组；sync 时同步各组原有成员共有的渠道授权和屏蔽。
    * 新用户在事务提交前对其他事务不可见，无需再锁定。
    */
   async addNewUser(tx: Transaction, actorId: string, userId: string, groupIds: string[], sync: boolean) {
@@ -218,9 +241,9 @@ export class GroupService {
       action: 'user.groups',
       targetType: 'user',
       targetId: userId,
-      metadata: { joined: ids, left: [], syncedChannelIds: synced },
+      metadata: { joined: ids, left: [], syncedChannelIds: synced.grant, syncedBlockedChannelIds: synced.block },
     });
-    return { joined: ids.length, syncedChannels: synced.length };
+    return { joined: ids.length, syncedChannels: synced.grant.length + synced.block.length };
   }
 
   /** 该组成员对每个非公开渠道的授权人数。 */
@@ -240,6 +263,28 @@ export class GroupService {
         and(eq(userGroupMembers.userId, userChannelGrants.userId), eq(userGroupMembers.groupId, groupId)),
       )
       .where(privateChannel())
+      .groupBy(channels.id)
+      .orderBy(asc(channels.name), asc(channels.id));
+    return { memberCount: group.memberCount, items: rows };
+  }
+
+  /** 该组成员对每个公开渠道的屏蔽人数。 */
+  async channelBlocks(groupId: string) {
+    const group = await this.get(groupId);
+    const rows = await this.db
+      .select({
+        id: channels.id,
+        name: channels.name,
+        enabled: channels.enabled,
+        blocked: sql<number>`count(${userGroupMembers.userId})::int`,
+      })
+      .from(channels)
+      .leftJoin(userChannelBlocks, eq(userChannelBlocks.channelId, channels.id))
+      .leftJoin(
+        userGroupMembers,
+        and(eq(userGroupMembers.userId, userChannelBlocks.userId), eq(userGroupMembers.groupId, groupId)),
+      )
+      .where(accessChannel('block'))
       .groupBy(channels.id)
       .orderBy(asc(channels.name), asc(channels.id));
     return { memberCount: group.memberCount, items: rows };
@@ -269,7 +314,22 @@ export class GroupService {
    * 为组的当前成员授予或撤销渠道。撤销会删除成员对这些渠道的全部授权，
    * 包括单独授予或经其他组授予的授权。
    */
-  async setChannelAccess(principal: Principal, groupId: string, channelIds: string[], granted: boolean) {
+  setChannelAccess(principal: Principal, groupId: string, channelIds: string[], granted: boolean) {
+    return this.applyAccess(principal, 'grant', groupId, channelIds, granted);
+  }
+
+  /** 为组的当前成员屏蔽或解除屏蔽公开渠道。解除会删除成员对这些渠道的全部屏蔽。 */
+  setChannelBlocks(principal: Principal, groupId: string, channelIds: string[], blocked: boolean) {
+    return this.applyAccess(principal, 'block', groupId, channelIds, blocked);
+  }
+
+  private async applyAccess(
+    principal: Principal,
+    kind: AccessKind,
+    groupId: string,
+    channelIds: string[],
+    enabled: boolean,
+  ) {
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       await this.lockGroup(tx, groupId);
       const memberIds = (
@@ -283,21 +343,27 @@ export class GroupService {
       const locked = await tx
         .select({ id: channels.id })
         .from(channels)
-        .where(and(inArray(channels.id, ids), privateChannel()))
+        .where(and(inArray(channels.id, ids), accessChannel(kind)))
         .orderBy(asc(channels.id))
         .for('share');
-      if (locked.length !== ids.length) throw new AppError('bad_request', '渠道不存在或已公开');
+      if (locked.length !== ids.length)
+        throw new AppError('bad_request', kind === 'grant' ? '渠道不存在或已公开' : '渠道不存在或未公开');
+      const table = accessTable[kind];
       let affected: string[] = [];
-      if (granted) affected = await this.grant(tx, userIds, ids);
+      if (enabled) affected = await this.insertAccess(tx, kind, userIds, ids);
       else if (userIds.length)
         affected = (
           await tx
-            .delete(userChannelGrants)
-            .where(and(inArray(userChannelGrants.userId, userIds), inArray(userChannelGrants.channelId, ids)))
-            .returning({ userId: userChannelGrants.userId })
+            .delete(table)
+            .where(and(inArray(table.userId, userIds), inArray(table.channelId, ids)))
+            .returning({ userId: table.userId })
         ).map((row) => row.userId);
       const affectedUsers = [...new Set(affected)];
-      await this.audit(tx, actor.id, 'group.channels', groupId, { channelIds: ids, granted, userIds: affectedUsers });
+      await this.audit(tx, actor.id, kind === 'grant' ? 'group.channels' : 'group.channel_blocks', groupId, {
+        channelIds: ids,
+        [kind === 'grant' ? 'granted' : 'blocked']: enabled,
+        userIds: affectedUsers,
+      });
       return { affectedUsers: affectedUsers.length };
     });
   }
@@ -318,26 +384,26 @@ export class GroupService {
 
   /**
    * 把用户加入尚未加入的组（调用方已锁定组和用户）。sync 时按加入前的成员，
-   * 授予每个组原有成员共有的渠道，返回同步的渠道。
+   * 同步每个组原有成员共有的渠道授权和屏蔽，返回同步的渠道。
    */
   private async join(tx: Transaction, userId: string, groupIds: string[], sync: boolean) {
-    const synced = new Set<string>();
+    const synced = { grant: new Set<string>(), block: new Set<string>() };
     if (sync)
       for (const groupId of groupIds) {
-        const memberIds = await tx
-          .select({ userId: userGroupMembers.userId })
-          .from(userGroupMembers)
-          .where(eq(userGroupMembers.groupId, groupId));
-        for (const channel of await this.commonChannels(
-          tx,
-          memberIds.map((row) => row.userId),
-          true,
-        ))
-          synced.add(channel.id);
+        const memberIds = (
+          await tx
+            .select({ userId: userGroupMembers.userId })
+            .from(userGroupMembers)
+            .where(eq(userGroupMembers.groupId, groupId))
+        ).map((row) => row.userId);
+        for (const kind of ['grant', 'block'] as const)
+          for (const channel of await this.commonChannels(tx, memberIds, kind, true)) synced[kind].add(channel.id);
       }
     if (groupIds.length) await tx.insert(userGroupMembers).values(groupIds.map((groupId) => ({ groupId, userId })));
-    await this.grant(tx, [userId], [...synced]);
-    return [...synced];
+    const result = { grant: [...synced.grant], block: [...synced.block] };
+    await this.insertAccess(tx, 'grant', [userId], result.grant);
+    await this.insertAccess(tx, 'block', [userId], result.block);
+    return result;
   }
 
   private async lockGroup(tx: Transaction, groupId: string) {
@@ -369,43 +435,43 @@ export class GroupService {
     if (channel.isPublic) throw new AppError('bad_request', '公开渠道默认对所有用户开放');
   }
 
-  /** 给定用户都拥有的非公开渠道授权；lock 时以共享锁锁定这些渠道。 */
-  private async commonChannels(db: Database | Transaction, userIds: string[], lock = false) {
+  /** 给定用户共有的非公开渠道授权或公开渠道屏蔽；lock 时以共享锁锁定这些渠道。 */
+  private async commonChannels(db: Database | Transaction, userIds: string[], kind: AccessKind, lock = false) {
     const ids = [...new Set(userIds)];
     if (!ids.length) return [];
+    const table = accessTable[kind];
     const query = db
       .select({ id: channels.id, name: channels.name })
       .from(channels)
       .where(
         and(
-          privateChannel(),
+          accessChannel(kind),
           sql`(${db
             .select({ total: count() })
-            .from(userChannelGrants)
-            .where(
-              and(eq(userChannelGrants.channelId, channels.id), inArray(userChannelGrants.userId, ids)),
-            )}) = ${ids.length}`,
+            .from(table)
+            .where(and(eq(table.channelId, channels.id), inArray(table.userId, ids)))}) = ${ids.length}`,
         ),
       )
       .orderBy(asc(channels.name), asc(channels.id));
     return lock ? query.for('share') : query;
   }
 
-  /** 插入缺失的授权，返回新获得授权的用户。 */
-  private async grant(tx: Transaction, userIds: string[], channelIds: string[]) {
+  /** 插入缺失的授权或屏蔽，返回新增记录的用户。 */
+  private async insertAccess(tx: Transaction, kind: AccessKind, userIds: string[], channelIds: string[]) {
     if (!userIds.length || !channelIds.length) return [];
+    const table = accessTable[kind];
     const rows = await tx
-      .insert(userChannelGrants)
+      .insert(table)
       .values(userIds.flatMap((userId) => channelIds.map((channelId) => ({ userId, channelId }))))
       .onConflictDoNothing()
-      .returning({ userId: userChannelGrants.userId });
+      .returning({ userId: table.userId });
     return rows.map((row) => row.userId);
   }
 
   private audit(
     tx: Transaction,
     actorId: string,
-    action: `group.${'create' | 'rename' | 'delete' | 'members' | 'channels'}`,
+    action: `group.${'create' | 'rename' | 'delete' | 'members' | 'channels' | 'channel_blocks'}`,
     targetId: string,
     metadata: Record<string, unknown>,
   ) {

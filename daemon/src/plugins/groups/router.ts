@@ -7,6 +7,7 @@ import {
   groupMembersInput,
   renameGroupInput,
   setGroupChannelAccessInput,
+  setGroupChannelBlocksInput,
   setGroupMembersInput,
   setUserGroupsInput,
 } from './schemas.ts';
@@ -42,6 +43,12 @@ export function groupAdminRoutes(groups: GroupService) {
       .input(setGroupChannelAccessInput)
       .mutation(({ ctx, input }) =>
         groups.setChannelAccess(ctx.principal, input.groupId, input.channelIds, input.granted),
+      ),
+    channelBlocks: adminProcedure.input(groupIdInput).query(({ input }) => groups.channelBlocks(input.groupId)),
+    setChannelBlocks: adminProcedure
+      .input(setGroupChannelBlocksInput)
+      .mutation(({ ctx, input }) =>
+        groups.setChannelBlocks(ctx.principal, input.groupId, input.channelIds, input.blocked),
       ),
   };
 }
