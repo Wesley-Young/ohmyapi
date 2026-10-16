@@ -189,14 +189,18 @@ export default function Overview() {
             {[
               { label: '近 24 小时请求数', value: formatCount(stats.data.requestCount), unit: '次' },
               { label: '近 24 小时 Token 量', value: formatCount(stats.data.tokens) },
+              { label: '钱包总余额', value: balanceAmount(wallet.data.balance), unit: wallet.data.currency },
               { label: '近 24 小时消费', value: displayMoney(stats.data.chargedAmount), unit: wallet.data.currency },
-              { label: '本月消费', value: displayMoney(stats.data.monthChargedAmount), unit: wallet.data.currency },
+              {
+                label: '近 7 天消费',
+                value: displayMoney(stats.data.last7DaysChargedAmount),
+                unit: wallet.data.currency,
+              },
               {
                 label: '近 30 天消费',
                 value: displayMoney(stats.data.last30DaysChargedAmount),
                 unit: wallet.data.currency,
               },
-              { label: '钱包总余额', value: balanceAmount(wallet.data.balance), unit: wallet.data.currency },
             ].map((card) => (
               <StatCard key={card.label} {...card} />
             ))}

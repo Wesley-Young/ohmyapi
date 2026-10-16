@@ -79,28 +79,22 @@ export class WalletService {
   }
 
   async stats(userId: string) {
-    // Calendar month in Asia/Shanghai; the 30-day window is rolling.
-    const monthStart = sql`(date_trunc('month', now() at time zone 'Asia/Shanghai') at time zone 'Asia/Shanghai')`;
+    // Rolling windows ending now.
     const settled = (since: SQL) =>
       sql<string>`coalesce(sum(${requests.chargedMicros}) filter (where ${requests.status} = 'settled' and ${requests.receivedAt} >= ${since}), 0)::text`;
     const [stats, [spending]] = await Promise.all([
       this.aggregateStats(userId),
       this.db
         .select({
-          month: settled(monthStart),
+          last7Days: settled(sql`now() - interval '7 days'`),
           last30Days: settled(sql`now() - interval '30 days'`),
         })
         .from(requests)
-        .where(
-          and(
-            eq(requests.userId, userId),
-            sql`${requests.receivedAt} >= least(${monthStart}, now() - interval '30 days') and ${requests.receivedAt} <= now()`,
-          ),
-        ),
+        .where(and(eq(requests.userId, userId), within('30d'))),
     ]);
     return {
       ...stats,
-      monthChargedAmount: formatMoney(BigInt(spending.month)),
+      last7DaysChargedAmount: formatMoney(BigInt(spending.last7Days)),
       last30DaysChargedAmount: formatMoney(BigInt(spending.last30Days)),
     };
   }
