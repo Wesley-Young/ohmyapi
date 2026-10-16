@@ -6,6 +6,16 @@ import type { RequestLifecycle } from './lifecycle.ts';
 import { responseHeaders } from './protocol.ts';
 import { SseObserver, type UsageCollector } from './usage.ts';
 
+/**
+ * 上游没有执行请求或明确不收费的依据：
+ * - redirect：上游返回重定向，请求没有被处理。
+ * - http_error：失败的 HTTP 状态，响应完整读取后没有任何用量。
+ * - error_event：流式响应以错误事件结束，此前没有用量、生成内容或搜索调用。
+ * - not_api_response：成功状态但返回 HTML 页面，通常是地址配置错误。
+ * 适配器可能改写状态码，基于 HTTP 状态的依据由调用方按上游的真实状态复核。
+ */
+export type NoExecution = 'redirect' | 'http_error' | 'error_event' | 'not_api_response';
+
 export type ForwardResponseOptions = {
   upstream: Response;
   endpoint: Endpoint;
@@ -14,7 +24,7 @@ export type ForwardResponseOptions = {
   collector: UsageCollector;
   config: GatewayConfig;
   onCheckpoint: () => Promise<void>;
-  onFinish: (safeRejection: boolean, errorCode?: string) => Promise<void>;
+  onFinish: (noExecution: NoExecution | undefined, errorCode?: string) => Promise<void>;
   onError: (error: unknown) => void;
   stopAtTerminal?: boolean;
   estimateOnDisconnect?: boolean;
@@ -25,19 +35,21 @@ export async function forwardResponse(options: ForwardResponseOptions): Promise<
   const { id, abort } = lifecycle;
   if (upstream.status >= 300 && upstream.status < 400) {
     await upstream.body?.cancel();
+    await onFinish('redirect', 'upstream_redirect');
     throw new GatewayError(502, 'upstream_redirect', 'Upstream redirects are not supported');
   }
   const headers = responseHeaders(upstream.headers, id);
   collector.upstreamId = (upstream.headers.get('x-request-id') ?? upstream.headers.get('request-id'))?.slice(0, 256);
 
-  // 空响应直接完成计费收尾。
+  // 空响应直接完成计费收尾；失败状态的空响应没有执行。
   if (!upstream.body) {
-    await onFinish(false, 'empty_response');
+    await onFinish(upstream.ok ? undefined : 'http_error', 'empty_response');
     return new Response(null, { status: upstream.status, headers });
   }
 
   // 根据实际响应类型观察用量，转发字节保持原样。
-  const isSse = upstream.headers.get('content-type')?.toLowerCase().includes('text/event-stream') ?? false;
+  const contentType = upstream.headers.get('content-type')?.toLowerCase() ?? '';
+  const isSse = contentType.includes('text/event-stream');
   const resetIdleTimeout = () => {
     if (!isSse || abort.signal.aborted) return;
     lifecycle.setTimeout('upstream_idle_timeout', config.streamIdleTimeoutMs);
@@ -55,10 +67,12 @@ export async function forwardResponse(options: ForwardResponseOptions): Promise<
   let clientClosed = false;
   let responseController: ReadableStreamDefaultController<Uint8Array>;
   const abortReason = () => (typeof abort.signal.reason === 'string' ? abort.signal.reason : 'upstream_disconnected');
-  // 读取任务停止后汇总已收到的数据，再执行一次性计费收尾。
-  const finalizeResponse = (errorCode?: string): Promise<void> => {
+  // 读取任务停止后汇总已收到的数据，再执行一次性计费收尾。ended 表示上游响应正常读到结尾。
+  const finalizeResponse = (errorCode?: string, ended = false): Promise<void> => {
     responseFinalization ??= (async () => {
-      observer?.finish(errorCode === 'client_disconnected');
+      observer?.finish(errorCode === 'client_disconnected' && !ended);
+      // 分块传输只有收到结束标记才会正常结束，流在此之后不会再有用量。
+      if (ended && isSse && upstream.ok) collector.streamEnded();
       if (options.estimateOnDisconnect !== false && isSse && upstream.ok && errorCode === 'client_disconnected')
         collector.estimateDisconnected();
       if (!isSse && !collector.observationIncomplete) {
@@ -70,14 +84,23 @@ export async function forwardResponse(options: ForwardResponseOptions): Promise<
           collector.errorMessage = safeErrorMessage(error);
         }
       }
-      const safeRejection =
-        !collector.usage &&
-        collector.failed &&
-        !collector.invalid &&
+      const noCharges =
+        !collector.usageSeen &&
         !collector.observationIncomplete &&
-        [400, 401, 403, 404, 405, 413, 415, 422, 429].includes(upstream.status);
+        !collector.unknownCosts &&
+        !collector.searchObserved;
+      const notApiResponse = noCharges && ended && upstream.ok && !isSse && contentType.startsWith('text/html');
+      const noExecution: NoExecution | undefined = !noCharges
+        ? undefined
+        : !upstream.ok && (ended || (collector.failed && !collector.invalid))
+          ? 'http_error'
+          : notApiResponse
+            ? 'not_api_response'
+            : isSse && collector.failed && !collector.invalid && !collector.estimate.hasOutput
+              ? 'error_event'
+              : undefined;
       reader.releaseLock();
-      await onFinish(safeRejection, errorCode);
+      await onFinish(noExecution, notApiResponse ? (errorCode ?? 'unexpected_response_type') : errorCode);
     })();
     return responseFinalization;
   };
@@ -104,8 +127,9 @@ export async function forwardResponse(options: ForwardResponseOptions): Promise<
     try {
       const { value, done } = await reader.read();
       if (done) {
+        const ended = !abort.signal.aborted;
         await finalizeResponse(
-          abort.signal.aborted
+          !ended
             ? abortReason()
             : !upstream.ok
               ? 'upstream_http_error'
@@ -114,6 +138,7 @@ export async function forwardResponse(options: ForwardResponseOptions): Promise<
                 : lifecycle.clientDisconnected
                   ? 'client_disconnected'
                   : undefined,
+          ended,
         );
         if (abort.signal.aborted) failClient();
         else closeClient();

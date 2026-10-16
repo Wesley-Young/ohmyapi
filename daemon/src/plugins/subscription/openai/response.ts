@@ -149,7 +149,7 @@ export async function forwardOpenAIResponse(options: ForwardResponseOptions): Pr
     const headers = responseHeaders(upstream.headers, lifecycle.id);
     headers.set('content-type', 'application/json');
     await reader.cancel().catch(() => {});
-    await options.onFinish(false, lifecycle.clientDisconnected ? 'client_disconnected' : undefined);
+    await options.onFinish(undefined, lifecycle.clientDisconnected ? 'client_disconnected' : undefined);
     return new Response(JSON.stringify(terminal), { status: 200, headers });
   } finally {
     await reader.cancel().catch(() => {});

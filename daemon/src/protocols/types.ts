@@ -75,7 +75,12 @@ export interface UsageReader {
   /** 协议特有的失败标记；error 字段和 error 事件由调用方统一处理。 */
   failed?(data: Data, envelope: Data): boolean;
   terminal(data: Data, envelope: Data): boolean;
-  /** 当前事件之后已有用量是否为最终用量。complete 为累计的完成状态，hasUsage 表示本事件带有用量。 */
+  /**
+   * 事件携带最终用量，终止事件随后才到达，例如 Messages 带 stop_reason 的 message_delta。
+   * 不影响响应转发，只用于在终止事件缺失时确认用量。
+   */
+  reportsFinalUsage?(data: Data): boolean;
+  /** 当前事件之后已有用量是否为最终用量。complete 为累计的完成状态或已收到最终用量，hasUsage 表示本事件带有用量。 */
   finalizes(data: Data, complete: boolean, hasUsage: boolean): boolean;
   /** 收到 [DONE] 或非流式响应结束时即视为完成。 */
   readonly completesOnDone: boolean;

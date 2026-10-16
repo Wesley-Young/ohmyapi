@@ -20,6 +20,7 @@ import { channelAdapter, type SubscriptionChannels } from './adapters.ts';
 import { type AffinitySelection, ChannelAffinity } from './affinity.ts';
 import { ForwardBillingSession } from './billing-session.ts';
 import { readJsonBody } from './body.ts';
+import { requestNotSent } from './dispatch.ts';
 import { type ApiKeySources, identifyApiKey } from './identity.ts';
 import { RequestLifecycle } from './lifecycle.ts';
 import { availableModels, modelListResponse } from './models.ts';
@@ -373,16 +374,23 @@ export class GatewayService implements Disposable {
         executionChannel.type === 'subscription' ? 60_000 : this.config.disconnectDrainTimeoutMs,
       );
       session.dispatched = true;
-      const upstream = await request(url, {
-        method: 'POST',
-        headers,
-        body,
-        signal: abort.signal,
-        redirect: 'manual',
-      });
+      let upstream: Response;
+      try {
+        upstream = await request(url, {
+          method: 'POST',
+          headers,
+          body,
+          signal: abort.signal,
+          redirect: 'manual',
+        });
+      } catch (error) {
+        if (requestNotSent(error)) session.notSent = true;
+        throw error;
+      }
       if (prepared.onResponse) await prepared.onResponse(upstream).catch(() => {});
       session.httpStatus = upstream.status;
       session.upstreamStatus = upstream.status;
+      const upstreamFailed = !upstream.ok;
       return await (prepared.forwardResponse ?? adapter.forwardResponse)({
         upstream,
         endpoint,
@@ -391,8 +399,11 @@ export class GatewayService implements Disposable {
         collector: session.collector,
         config: this.config,
         onCheckpoint: () => session.checkpoint(),
-        onFinish: (safeRejection, errorCode) => {
-          session.safeRejection = safeRejection;
+        onFinish: (noExecution, errorCode) => {
+          // 适配器可能把上游的成功响应改写为失败状态（如合并后的错误事件），按状态判断时只采用上游的真实状态。
+          session.safeRejection =
+            noExecution !== undefined &&
+            (upstreamFailed || (noExecution !== 'http_error' && noExecution !== 'redirect'));
           return finish(errorCode);
         },
         onError: (error) => {
@@ -404,11 +415,13 @@ export class GatewayService implements Disposable {
       const failure =
         error instanceof GatewayError
           ? error
-          : new GatewayError(
-              abort.signal.reason === 'upstream_timeout' ? 504 : 502,
-              abort.signal.reason === 'upstream_timeout' ? 'upstream_timeout' : 'gateway_error',
-              'Unable to complete the upstream request',
-            );
+          : session.notSent
+            ? new GatewayError(502, 'upstream_unreachable', 'Unable to connect to the upstream service')
+            : new GatewayError(
+                abort.signal.reason === 'upstream_timeout' ? 504 : 502,
+                abort.signal.reason === 'upstream_timeout' ? 'upstream_timeout' : 'gateway_error',
+                'Unable to complete the upstream request',
+              );
       session.httpStatus = failure.status;
       await finish(failure.code);
       return this.error(endpoint, failure.status, failure.code, failure.message, id);

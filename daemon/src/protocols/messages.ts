@@ -33,6 +33,11 @@ class MessagesUsageReader implements UsageReader {
     return data.type === 'message_stop' || ((!data.type || data.type === 'message') && Boolean(data.stop_reason));
   }
 
+  // message_delta 的用量是累计值，给出 stop_reason 后不再变化；message_stop 只是收尾标记。
+  reportsFinalUsage(data: Data) {
+    return data.type === 'message_delta' && object(data.delta)?.stop_reason != null;
+  }
+
   // 按需压缩的摘要消耗只出现在 iterations 中，缺失时不能按顶层的 0 用量结算。
   finalizes(_data: Data, complete: boolean) {
     return complete && (!this.summaryRequested || this.compaction !== undefined);

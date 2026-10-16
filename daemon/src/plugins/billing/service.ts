@@ -27,9 +27,15 @@ import { type ExecutionRoute, lockAdmission, lockExecutionRoute, type Reservatio
 import { searchRequest } from './search.ts';
 import { type PricedUsage, priceRequestUsage, releaseRequest, settleRequest } from './settlement.ts';
 
+/** 收尾或恢复连续失败多少次后转入人工核对。 */
+const reviewAfterFailures = 3;
+/** 用量已经确认（最终或估算）的请求只是结算未完成，多半是数据库的暂时故障；按定时任务间隔约重试 5 分钟。 */
+const settlementRetryFailures = 20;
+
 /**
  * 请求计费的运行时流程：预占 → 转发 → 检查点 → 收尾结算。
- * 收尾失败的请求留在内存中定期重试，多次失败后转入人工核对；启动和定时任务会恢复中断的请求。
+ * 收尾失败的请求留在内存中定期重试，多次失败后转入人工核对；已确认用量的请求重试更久。
+ * 启动和定时任务会恢复中断的请求。
  */
 export class BillingService implements Disposable {
   static readonly token = serviceToken<BillingService>('ohmyapi/billing');
@@ -305,16 +311,19 @@ export class BillingService implements Disposable {
       this.pending.set(id, summary);
       const failures = (this.failures.get(id) ?? 0) + 1;
       this.failures.set(id, failures);
-      this.logger[failures >= 3 ? 'error' : 'warn'](
+      const settleable =
+        !summary.blockSettlement && Boolean(summary.usage) && (summary.usageFinal || Boolean(summary.usageEstimate));
+      const limit = settleable ? settlementRetryFailures : reviewAfterFailures;
+      this.logger[failures >= limit ? 'error' : 'warn'](
         formatEvent('计费处理失败', {
           requestId: id,
           attempt: failures,
-          nextAction: failures >= 3 ? 'manual_review' : 'retry',
+          nextAction: failures >= limit ? 'manual_review' : 'retry',
           pendingRetries: this.pending.size,
           ...errorDetails(error),
         }),
       );
-      if (failures >= 3) {
+      if (failures >= limit) {
         try {
           await this.reviewFailed(id, summary, error);
           this.pending.delete(id);
@@ -444,11 +453,27 @@ export class BillingService implements Disposable {
           this.logOutcome(outcome);
           outcome = (await this.settleStored(r.id)) ?? outcome;
         }
+        this.failures.delete(r.id);
       } catch (error) {
         counts.failed++;
-        this.logger.error(formatEvent('历史计费恢复失败', { requestId: r.id, ...errorDetails(error) }));
-        // Isolate a failed bill; database-wide failures still propagate if this write fails.
-        outcome = await this.reviewFailed(r.id, undefined, error);
+        const failures = (this.failures.get(r.id) ?? 0) + 1;
+        this.failures.set(r.id, failures);
+        // 已有最终或估算用量的请求留在原状态，由后续的定时任务继续结算。
+        const limit =
+          r.status === 'settling' || r.usageFinal || r.usageEstimate ? settlementRetryFailures : reviewAfterFailures;
+        this.logger.error(
+          formatEvent('历史计费恢复失败', {
+            requestId: r.id,
+            attempt: failures,
+            nextAction: failures >= limit ? 'manual_review' : 'retry',
+            ...errorDetails(error),
+          }),
+        );
+        if (failures >= limit) {
+          // Isolate a failed bill; database-wide failures still propagate if this write fails.
+          outcome = await this.reviewFailed(r.id, undefined, error);
+          this.failures.delete(r.id);
+        }
       }
       if (outcome?.status === 'settled') counts.settled++;
       else if (outcome?.status === 'released') counts.released++;

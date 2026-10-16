@@ -5,6 +5,12 @@ import { definePlugin } from '../../kernel.ts';
 
 export type OutboundFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
+/** 出站连接无法建立（已关闭或代理配置无效），请求没有发出。 */
+export class OutboundSetupError extends Error {
+  override readonly name = 'OutboundSetupError';
+  readonly code = 'ERR_OUTBOUND_SETUP';
+}
+
 export class OutboundHttp implements Disposable {
   static readonly token = serviceToken<OutboundHttp>('ohmyapi/outbound');
   private readonly direct = new Agent();
@@ -57,10 +63,13 @@ export class OutboundHttp implements Disposable {
 
   forProxy(proxyUrl?: string | null): OutboundFetch {
     return (url, init) => {
-      const options: RequestInit & { dispatcher: Dispatcher } = {
-        ...init,
-        dispatcher: this.dispatcher(proxyUrl),
-      };
+      let dispatcher: Dispatcher;
+      try {
+        dispatcher = this.dispatcher(proxyUrl);
+      } catch (error) {
+        return Promise.reject(new OutboundSetupError('Unable to prepare the outbound connection', { cause: error }));
+      }
+      const options: RequestInit & { dispatcher: Dispatcher } = { ...init, dispatcher };
       // 使用锁定的 undici 版本，保证 CC 协商的 zstd 解压不依赖 Node 内置 fetch 版本。
       return outboundFetch(url, options as Parameters<typeof outboundFetch>[1]) as unknown as Promise<Response>;
     };

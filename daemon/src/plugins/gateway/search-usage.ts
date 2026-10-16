@@ -21,6 +21,17 @@ export class SearchUsageCollector {
   private readonly seen = new Set<string>();
   private readonly searchResults = new Set<string>();
 
+  /** 响应中出现过搜索调用或结果。 */
+  get observed() {
+    return (
+      this.webSearchCalls > 0n ||
+      this.webSearchPreviewCalls > 0n ||
+      this.serverSearch ||
+      this.seen.size > 0 ||
+      this.searchResults.size > 0
+    );
+  }
+
   configure(request: SearchRequest) {
     this.request = request;
   }

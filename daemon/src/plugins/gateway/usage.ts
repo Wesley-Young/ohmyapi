@@ -36,6 +36,8 @@ export class UsageCollector {
   failed = false;
   invalid = false;
   observationIncomplete = false;
+  /** 上游报告过用量对象，包括无法解析的用量。 */
+  usageSeen = false;
   usageEstimate?: UsageEstimate;
   readonly estimate = new StreamUsageEstimate();
   private reportedUsage: ObjectValue = {};
@@ -68,6 +70,11 @@ export class UsageCollector {
 
   get searchIncomplete() {
     return this.search.incomplete;
+  }
+
+  /** 响应中出现过搜索调用或结果。 */
+  get searchObserved() {
+    return this.search.observed;
   }
 
   estimateDisconnected() {
@@ -148,10 +155,12 @@ export class UsageCollector {
           (['error', 'response.error'].includes(String(data.type)) ? data.message : undefined));
     if (typeof message === 'string') this.errorMessage = safeErrorMessage(message);
     if (reader.terminal(data, envelope)) this.complete = true;
+    const final = this.complete || reader.reportsFinalUsage?.(data) === true;
     const upstreamId = reader.upstreamId ? reader.upstreamId(envelope) : envelope.id;
     if (typeof upstreamId === 'string') this.upstreamId = upstreamId.slice(0, 256);
     const usage = object(reader.usage ? reader.usage(envelope) : envelope.usage);
     if (usage) {
+      this.usageSeen = true;
       const reportedInput = count(usage[reader.inputKey]);
       const reportedOutput = count(usage[reader.outputKey]);
       if (reportedInput !== undefined || reportedOutput !== undefined) this.estimate.started = true;
@@ -161,11 +170,15 @@ export class UsageCollector {
         this.estimate.output.reset();
       }
     }
-    this.search.observe(this.protocol.responseFeatures, data, envelope, usage, this.complete);
+    this.search.observe(this.protocol.responseFeatures, data, envelope, usage, final);
     this.syncSearchUsage();
     if (usage) this.normalize(reader.merge(this.reportedUsage, usage));
-    if (this.usage && !this.invalid && reader.finalizes(data, this.complete, usage !== undefined))
-      this.finalUsage = true;
+    if (this.usage && !this.invalid && reader.finalizes(data, final, usage !== undefined)) this.finalUsage = true;
+  }
+
+  /** SSE 正常读到结尾；以 [DONE] 为完成标志的协议缺少 [DONE] 时，结尾同样表示不会再有用量。 */
+  streamEnded() {
+    this.done();
   }
 
   /** 收到 [DONE] 或非流式响应结束；只有以此为完成标志的协议生效。 */

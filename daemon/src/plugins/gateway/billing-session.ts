@@ -36,7 +36,10 @@ export class ForwardBillingSession {
   upstreamTimeoutMs?: number;
   failureDetails: LogFields = {};
   dispatched = false;
+  /** 发送阶段失败且请求没有送达上游，见 dispatch.ts。 */
+  notSent = false;
   recorded = false;
+  /** 上游没有执行或明确不收费，见 NoExecution。 */
   safeRejection = false;
   /** 不计费的辅助操作，没有用量也视为正常完成。 */
   unbilled = false;
@@ -88,7 +91,7 @@ export class ForwardBillingSession {
         (collector.searchIncomplete && !collector.usageEstimate),
       httpStatus,
       upstreamRequestId: collector.upstreamId,
-      noExecution: !dispatched || safeRejection,
+      noExecution: !dispatched || this.notSent || safeRejection,
       errorCode: code,
       errorMessage:
         [requestErrorMessage(code), failureMessage, collector.errorMessage].filter(Boolean).join('\n').slice(0, 4096) ||
