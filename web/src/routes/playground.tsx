@@ -2,23 +2,34 @@ import { useChat } from '@ai-sdk/react';
 import { Box, Button, Flex, Heading, HStack, Link, Stack, Text, Textarea } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUp, RotateCcw, Square, Trash2 } from 'lucide-react';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
 import { IconButton } from '../components/icon-button';
 import { PlaygroundProtocol } from '../components/playground-protocol';
 import { PlaygroundSelector } from '../components/playground-selector';
 import { ErrorText, Loading } from '../components/ui';
+import { useAuth } from '../lib/auth';
 import { formError } from '../lib/format';
-import { messageText, type PlaygroundEndpoint, playgroundEndpoints, playgroundTransport } from '../lib/playground';
+import {
+  loadPlaygroundSelection,
+  messageText,
+  type PlaygroundEndpoint,
+  playgroundEndpoints,
+  playgroundSession,
+  savePlaygroundSelection,
+} from '../lib/playground';
 import { brandColor, brandHoverColor } from '../lib/theme';
-import { queryClient, trpc } from '../lib/trpc';
+import { trpc } from '../lib/trpc';
 
 export default function Playground() {
   const options = useQuery(trpc.keys.playgroundOptions.queryOptions(undefined, { staleTime: 0, gcTime: 0 }));
-  const [keyId, setKeyId] = useState('');
-  const [modelId, setModelId] = useState('');
-  const [endpointChoice, setEndpointChoice] = useState<PlaygroundEndpoint>();
+  // 路由守卫保证已登录，切换账号时页面会重新挂载。
+  const userId = useAuth().data?.id ?? '';
+  const [stored] = useState(() => loadPlaygroundSelection(userId));
+  const [keyId, setKeyId] = useState(stored.keyId ?? '');
+  const [modelId, setModelId] = useState(stored.modelId ?? '');
+  const [endpointChoice, setEndpointChoice] = useState<PlaygroundEndpoint | undefined>(stored.endpoint);
   const [input, setInput] = useState('');
   const scrollArea = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLDivElement>(null);
@@ -29,21 +40,27 @@ export default function Playground() {
   const endpoints = selectedKey ? playgroundEndpoints(selectedKey.endpoints) : [];
   // 选择的协议不再可用时（如切换了 Key）回到推荐协议。
   const endpoint = endpointChoice && endpoints.includes(endpointChoice) ? endpointChoice : endpoints[0];
-  const transport = useMemo(
-    () => playgroundTransport(selectedKey, selectedModel, endpoint),
-    [selectedKey, selectedModel, endpoint],
-  );
+  // 会话保存在内存中，与选择无关：切换 Key、模型或协议后继续当前对话。
+  const session = playgroundSession(userId);
   const { messages, status, error, sendMessage, stop, regenerate, setMessages, clearError } = useChat({
-    id: `${keyId}:${modelId}:${endpoint ?? ''}`,
-    transport,
+    chat: session.chat,
     throttle: 50,
-    onFinish: () => {
-      void queryClient.invalidateQueries(trpc.wallet.pathFilter());
-      void queryClient.invalidateQueries(trpc.requests.pathFilter());
-    },
   });
   const busy = status === 'submitted' || status === 'streaming';
   const ready = Boolean(selectedKey && selectedModel && endpoint && !options.error);
+
+  useLayoutEffect(() => {
+    Object.assign(session.selection, { key: selectedKey, model: selectedModel, endpoint });
+  }, [session, selectedKey, selectedModel, endpoint]);
+
+  const select = (next: { keyId: string; modelId: string; endpoint?: PlaygroundEndpoint }) => {
+    setKeyId(next.keyId);
+    setModelId(next.modelId);
+    setEndpointChoice(next.endpoint);
+    savePlaygroundSelection(userId, next);
+    if (status === 'error') clearError();
+    followOutput.current = true;
+  };
 
   useLayoutEffect(() => {
     const element = composer.current;
@@ -130,7 +147,7 @@ export default function Playground() {
                   <Stack key={message.id} gap="2" align={message.role === 'user' ? 'end' : 'start'} minW="0">
                     {message.role !== 'user' && (
                       <Text fontSize="xs" color="gray.500" fontWeight="500" overflowWrap="anywhere">
-                        {selectedModel?.name ?? 'AI'}
+                        {message.metadata?.model ?? 'AI'}
                       </Text>
                     )}
                     <Box
@@ -253,10 +270,7 @@ export default function Playground() {
                       value={endpoint}
                       disabled={busy || options.isPending}
                       onChange={(next) => {
-                        if (next === endpoint) return;
-                        setEndpointChoice(next);
-                        setInput('');
-                        followOutput.current = true;
+                        if (next !== endpoint) select({ keyId, modelId, endpoint: next });
                       }}
                     />
                   )}
@@ -268,12 +282,8 @@ export default function Playground() {
                     refreshing={options.isFetching}
                     onRefresh={() => void options.refetch()}
                     onSelect={(key, model) => {
-                      if (key.id !== keyId || model.id !== modelId) {
-                        setKeyId(key.id);
-                        setModelId(model.id);
-                        setInput('');
-                        followOutput.current = true;
-                      }
+                      if (key.id !== keyId || model.id !== modelId)
+                        select({ keyId: key.id, modelId: model.id, endpoint: endpointChoice });
                     }}
                   />
                   {busy ? (

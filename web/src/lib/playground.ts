@@ -1,9 +1,18 @@
+import { Chat } from '@ai-sdk/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { type ChatTransport, streamText, toUIMessageStream, type UIMessage } from 'ai';
+
+import { queryClient, trpc } from './trpc';
 
 export type PlaygroundKey = RouterOutputs['keys']['playgroundOptions'][number];
 export type PlaygroundModel = PlaygroundKey['models'][number];
 export type PlaygroundEndpoint = PlaygroundKey['endpoints'][number];
+/** 回复消息记录生成它的模型，换模型后历史消息仍显示原模型。 */
+export type PlaygroundMessage = UIMessage<{ model?: string }>;
+/** 发送消息时使用的 Key、模型和协议，由页面在选择变化后更新。 */
+export type PlaygroundSelection = { key?: PlaygroundKey; model?: PlaygroundModel; endpoint?: PlaygroundEndpoint };
+/** 保存在 localStorage 的选择，只含 ID，不含 Key 的令牌。 */
+export type StoredPlaygroundSelection = { keyId?: string; modelId?: string; endpoint?: PlaygroundEndpoint };
 
 const endpointOrder: PlaygroundEndpoint[] = [
   '/v1/responses',
@@ -20,17 +29,14 @@ export function playgroundEndpoints(endpoints: PlaygroundEndpoint[]) {
 /** 与网关的 Gemini 路径规则一致：名称只含字母、数字、下划线、连字符和点。 */
 const geminiModelName = /^(?!\.+$)[A-Za-z0-9_.-]{1,128}$/;
 
-export function messageText(message: UIMessage) {
+export function messageText(message: PlaygroundMessage) {
   return message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('');
 }
 
-export function playgroundTransport(
-  key: PlaygroundKey | undefined,
-  selectedModel: PlaygroundModel | undefined,
-  endpoint: PlaygroundEndpoint | undefined,
-): ChatTransport<UIMessage> {
+function playgroundTransport(selection: PlaygroundSelection): ChatTransport<PlaygroundMessage> {
   return {
     async sendMessages({ messages, abortSignal }) {
+      const { key, model: selectedModel, endpoint } = selection;
       if (!key || !selectedModel || !endpoint) throw new Error('请选择可用的 API Key 和模型');
       if (key.expiresAt && new Date(key.expiresAt).getTime() <= Date.now())
         throw new Error('API Key 已过期，请选择其他 Key');
@@ -68,6 +74,7 @@ export function playgroundTransport(
       return toUIMessageStream({
         stream: result.stream,
         originalMessages: messages,
+        messageMetadata: ({ part }) => (part.type === 'start' ? { model: selectedModel.name } : undefined),
         sendReasoning: false,
         sendSources: false,
         onError: (error) => (error instanceof Error ? error.message : '请求失败，请重试'),
@@ -77,4 +84,50 @@ export function playgroundTransport(
       return null;
     },
   };
+}
+
+let session: { userId: string; chat: Chat<PlaygroundMessage>; selection: PlaygroundSelection } | undefined;
+
+/** 当前用户的 Playground 会话。只保存在内存中：切换页面后保留，刷新或切换账号后丢弃。 */
+export function playgroundSession(userId: string) {
+  if (session?.userId !== userId) {
+    void session?.chat.stop();
+    const selection: PlaygroundSelection = {};
+    session = {
+      userId,
+      selection,
+      chat: new Chat<PlaygroundMessage>({
+        transport: playgroundTransport(selection),
+        onFinish: () => {
+          void queryClient.invalidateQueries(trpc.wallet.pathFilter());
+          void queryClient.invalidateQueries(trpc.requests.pathFilter());
+        },
+      }),
+    };
+  }
+  return session;
+}
+
+const selectionStorageKey = (userId: string) => `ohmyapi:playground:${userId}`;
+const optionalString = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
+
+/** 读取用户上次的 Key、模型和协议选择；存储不可用或内容无效时返回空选择。 */
+export function loadPlaygroundSelection(userId: string): StoredPlaygroundSelection {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(selectionStorageKey(userId)) ?? 'null');
+    if (!value || typeof value !== 'object') return {};
+    const stored = value as Record<string, unknown>;
+    const endpoint = endpointOrder.find((item) => item === stored.endpoint);
+    return { keyId: optionalString(stored.keyId), modelId: optionalString(stored.modelId), endpoint };
+  } catch {
+    return {};
+  }
+}
+
+export function savePlaygroundSelection(userId: string, selection: StoredPlaygroundSelection) {
+  try {
+    localStorage.setItem(selectionStorageKey(userId), JSON.stringify(selection));
+  } catch {
+    // 存储不可用时只影响下次打开的默认选择。
+  }
 }
