@@ -11,7 +11,7 @@ import type { PricingService } from '../pricing/service.ts';
 import { lockWallet, postLedgerEntry } from '../wallet/ledger.ts';
 import { reservationAmount } from './admission.ts';
 import { reportedCacheReadTokens } from './cache-usage.ts';
-import { estimateReservation } from './estimation.ts';
+import { estimateReservation, minimumHistorySamples, type UsageSample } from './estimation.ts';
 import { BillingOwnership } from './ownership.ts';
 import {
   type BillingOutcome,
@@ -110,31 +110,16 @@ export class BillingService implements Disposable {
 
   async reserve(input: ReservationInput) {
     this.assertReady();
-    const history = await this.db
-      .select({ outputTokens: requestUsage.outputTokens })
-      .from(requests)
-      .innerJoin(requestUsage, eq(requestUsage.requestId, requests.id))
-      .where(
-        and(
-          eq(requests.userId, input.userId),
-          eq(requests.channelId, input.channelId),
-          eq(requests.modelId, input.modelId),
-          eq(requests.endpoint, input.endpoint),
-          eq(requests.status, 'settled'),
-          eq(requests.usageFinal, true),
-        ),
-      )
-      .orderBy(desc(requests.receivedAt), desc(requests.id))
-      .limit(100);
+    const user = await this.usageHistory(input, true);
     const estimate = estimateReservation(
       input.body,
       input.endpoint,
       input.outputLimit,
-      history.map((r) => r.outputTokens),
+      { user, model: user.length >= minimumHistorySamples ? [] : await this.usageHistory(input, false) },
       input.requestedModel,
     );
     const search = searchRequest(input.body, input.endpoint);
-    const amount = reservationAmount(input.price, estimate.inputTokens, estimate.outputTokens, search);
+    const amount = reservationAmount(input.price, estimate, search);
     this.active.add(input.requestId);
     try {
       await this.db.transaction(async (tx) => {
@@ -177,7 +162,7 @@ export class BillingService implements Disposable {
               estimate,
               search,
               amount: formatMoney(amount),
-              strategy: 'request_content_recent_output',
+              strategy: 'expected_usage_v2',
             },
           })
           .where(eq(requests.id, r.id));
@@ -202,6 +187,31 @@ export class BillingService implements Disposable {
       throw error;
     }
     return { amount, estimate };
+  }
+
+  /** 近期已按最终用量结算的请求；按用户时限定用户和入口渠道，否则包含该模型和端点的所有请求。 */
+  private usageHistory(input: ReservationInput, byUser: boolean): Promise<UsageSample[]> {
+    return this.db
+      .select({
+        outputTokens: requestUsage.outputTokens,
+        cacheReadTokens: requestUsage.cacheReadTokens,
+        cacheWriteTokens: requestUsage.cacheWriteTokens,
+        contextTokens: requestUsage.contextTokens,
+      })
+      .from(requests)
+      .innerJoin(requestUsage, eq(requestUsage.requestId, requests.id))
+      .where(
+        and(
+          byUser ? eq(requests.userId, input.userId) : undefined,
+          byUser ? eq(requests.channelId, input.channelId) : undefined,
+          eq(requests.modelId, input.modelId),
+          eq(requests.endpoint, input.endpoint),
+          eq(requests.status, 'settled'),
+          eq(requests.usageFinal, true),
+        ),
+      )
+      .orderBy(desc(requests.receivedAt), desc(requests.id))
+      .limit(100);
   }
 
   async forwarding(id: string, attemptId: string, route: ExecutionRoute) {

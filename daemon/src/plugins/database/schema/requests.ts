@@ -102,6 +102,8 @@ export const requests = pgTable(
     // 全站统计按时间窗口扫描，不带用户或账号条件。
     index('requests_time_idx').on(table.receivedAt),
     index('requests_recovery_idx').on(table.status, table.heartbeatAt),
+    // 预占在用户历史不足时读取同一模型和端点的近期用量。
+    index('requests_model_history_idx').on(table.modelId, table.endpoint, table.receivedAt),
     check(
       'requests_amounts_nonnegative',
       sql`${table.reservedMicros} >= 0 and (${table.chargedMicros} is null or ${table.chargedMicros} >= 0)`,

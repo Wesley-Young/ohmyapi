@@ -1,0 +1,1 @@
+CREATE INDEX "requests_model_history_idx" ON "requests" USING btree ("model_id","endpoint","received_at");

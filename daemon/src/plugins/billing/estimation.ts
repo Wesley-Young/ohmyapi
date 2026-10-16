@@ -37,27 +37,46 @@ export class OutputTokenEstimate {
     this.tail = '';
   }
 }
+/** 已结算请求的最终用量，用于估算输出长度和缓存命中比例。 */
+export type UsageSample = {
+  outputTokens: bigint;
+  cacheReadTokens: bigint;
+  cacheWriteTokens: bigint;
+  contextTokens: bigint;
+};
+
+/**
+ * 预占按本次请求的预期用量估算，不加余量；实际费用可以超过预占。
+ * 输入（contextTokens）按请求内容计数，并按历史缓存比例拆分为未缓存输入、缓存读取和缓存写入。
+ */
 export type ReservationEstimate = {
+  contextTokens: number;
   inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   inputContentTokens: number;
   inputImageCount: number;
-  inputImageTokens: number;
   settlementImageTokens: number;
-  outputHistorySamples: number;
-  outputBaselineTokens: string;
-  outputSource: 'recent_usage' | 'fallback';
+  /** 采用的历史范围：同一用户、同一模型的所有用户，或没有足够的历史。 */
+  historySource: 'user' | 'model' | 'none';
+  historySamples: number;
 };
-const margin = (tokens: bigint) => (tokens * 5n + 3n) / 4n + 256n;
-const capped = (tokens: bigint, limit: number) => Number(tokens > BigInt(limit) ? BigInt(limit) : tokens);
-// 统一用于预占的项目估算值；最终图像用量采用上游输入 Token 总量。
-const imageReservationTokens = 4096;
+
+/** 历史样本少于此数时不采用。 */
+export const minimumHistorySamples = 5;
+/** 没有历史时的输出估算。 */
+const fallbackOutputTokens = 1024n;
+
+const median = (values: bigint[]) => values.toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0))[values.length >> 1];
+const ratio = (part: bigint, total: bigint) => (total > 0n ? Number(part) / Number(total) : 0);
 
 export function estimateReservation(
   body: Record<string, unknown>,
   endpoint: Endpoint,
   outputLimit: number,
-  recentOutputTokens: bigint[],
+  /** 依次为同一用户和同一模型所有用户的近期用量，采用第一个样本足够的范围。 */
+  history: { user: UsageSample[]; model: UsageSample[] },
   /** 请求路径中的模型名，请求体没有 model 字段时用于估算图像 Token。 */
   model: string,
 ): ReservationEstimate {
@@ -84,26 +103,42 @@ export function estimateReservation(
   const text = JSON.stringify(body, (_key, value: unknown) =>
     value && typeof value === 'object' && images.has(value) ? { type: imageType } : value,
   );
-  const inputImageTokens = inputImageCount * imageReservationTokens;
   let inputContentTokens = 0;
   // Bound each BPE operation even for long strings without whitespace.
   for (let offset = 0; offset < text.length; offset += 4096)
     inputContentTokens += tokenizer.encode(text.slice(offset, offset + 4096), [], []).length;
-  const samples = recentOutputTokens.toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  const useHistory = samples.length >= 5;
-  const baseline = useHistory ? samples[Math.ceil(samples.length * 0.95) - 1] : 4096n;
-  const paddedOutput = useHistory ? margin(baseline) : baseline;
-  const outputTokens = paddedOutput < 512n ? 512n : paddedOutput;
+  const contextTokens = inputContentTokens + settlementImageTokens;
+
+  const [historySource, samples] =
+    history.user.length >= minimumHistorySamples
+      ? (['user', history.user] as const)
+      : history.model.length >= minimumHistorySamples
+        ? (['model', history.model] as const)
+        : (['none', []] as const);
+  // 输出取近期中位数，偏长的输出由结算补足。
+  const output = samples.length ? median(samples.map((s) => s.outputTokens)) : fallbackOutputTokens;
+  // 近期缓存读写占上下文的比例；没有历史时按未命中缓存估算。
+  const totalContext = samples.reduce((sum, s) => sum + s.contextTokens, 0n);
+  const readRatio = ratio(
+    samples.reduce((sum, s) => sum + s.cacheReadTokens, 0n),
+    totalContext,
+  );
+  const writeRatio = ratio(
+    samples.reduce((sum, s) => sum + s.cacheWriteTokens, 0n),
+    totalContext,
+  );
+  const cacheReadTokens = Math.min(contextTokens, Math.round(contextTokens * readRatio));
+  const cacheWriteTokens = Math.min(contextTokens - cacheReadTokens, Math.round(contextTokens * writeRatio));
   return {
-    // 模型上下文容量独立于计费预估，预占覆盖完整输入和估算余量。
-    inputTokens: Number(margin(BigInt(inputContentTokens) + BigInt(inputImageTokens))),
-    outputTokens: capped(outputTokens, outputLimit),
+    contextTokens,
+    inputTokens: contextTokens - cacheReadTokens - cacheWriteTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    outputTokens: Number(output > BigInt(outputLimit) ? BigInt(outputLimit) : output),
     inputContentTokens,
     inputImageCount,
-    inputImageTokens,
     settlementImageTokens,
-    outputHistorySamples: samples.length,
-    outputBaselineTokens: baseline.toString(),
-    outputSource: useHistory ? 'recent_usage' : 'fallback',
+    historySource,
+    historySamples: samples.length,
   };
 }

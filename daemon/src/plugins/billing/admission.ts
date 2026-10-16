@@ -1,7 +1,7 @@
 import { GatewayError } from '../../core/errors.ts';
 import { type ApiProtocol, protocolFor, valueAt } from '../../protocols/index.ts';
 import type { Endpoint } from '../database/schema/index.ts';
-import { ruleTimeMatcher } from '../pricing/rules.ts';
+import { matchRule } from '../pricing/rules.ts';
 import type { LockedPrice } from '../pricing/service.ts';
 import { requestContentBlocks } from './content.ts';
 import { type SearchRequest, searchRequest } from './search.ts';
@@ -12,30 +12,33 @@ function isBillableTool(value: unknown, protocol: ApiProtocol): boolean {
   return protocol.request.toolKind(value as Record<string, unknown>) !== undefined;
 }
 
-/** Reserve against estimated usage and the most expensive reachable rule at receipt. */
-export function reservationAmount(
-  price: LockedPrice,
-  inputTokens: number,
-  outputTokens: number,
-  search: SearchRequest,
-) {
-  let numerator = 0n;
-  const matchesTime = ruleTimeMatcher(price.receivedAt);
-  for (const r of price.rules.filter(matchesTime)) {
-    if (r.contextMin !== null && r.contextMin > BigInt(inputTokens)) continue;
-    let inputPrice = 0n;
-    for (const p of [r.inputPriceMicros, r.cacheReadPriceMicros, r.cacheWritePriceMicros])
-      if (p !== null && p > inputPrice) inputPrice = p;
-    const searchPrice = search.kind === 'webSearchPreview' ? r.webSearchPreviewPriceMicros : r.webSearchPriceMicros;
-    if (search.kind && searchPrice === null)
-      throw new GatewayError(503, 'search_price_missing', 'Configure the web search price before using search');
-    const candidate =
-      (BigInt(inputTokens) * inputPrice +
-        BigInt(outputTokens) * r.outputPriceMicros +
-        BigInt(search.estimatedCalls) * (searchPrice ?? 0n) * 1000n) *
-      price.multiplierMicros;
-    if (candidate > numerator) numerator = candidate;
-  }
+/** 预占采用的预期用量，见 ReservationEstimate。 */
+export type ReservationUsage = {
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+};
+
+/**
+ * 按预期用量和结算时会命中的规则计算预占。不加余量，实际费用可以超过预占。
+ * 未配置的缓存单价按输入单价估算；使用搜索时按一次调用估算。
+ */
+export function reservationAmount(price: LockedPrice, usage: ReservationUsage, search: SearchRequest) {
+  const context = usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+  const r = matchRule(price.rules, price.receivedAt, BigInt(context));
+  if (!r) throw new GatewayError(503, 'price_missing', 'No price rule matches this request');
+  const searchPrice = search.kind === 'webSearchPreview' ? r.webSearchPreviewPriceMicros : r.webSearchPriceMicros;
+  if (search.kind && searchPrice === null)
+    throw new GatewayError(503, 'search_price_missing', 'Configure the web search price before using search');
+  const searchCalls = search.kind ? BigInt(Math.min(search.estimatedCalls, 1)) : 0n;
+  const numerator =
+    (BigInt(usage.inputTokens) * r.inputPriceMicros +
+      BigInt(usage.cacheReadTokens) * (r.cacheReadPriceMicros ?? r.inputPriceMicros) +
+      BigInt(usage.cacheWriteTokens) * (r.cacheWritePriceMicros ?? r.inputPriceMicros) +
+      BigInt(usage.outputTokens) * r.outputPriceMicros +
+      searchCalls * (searchPrice ?? 0n) * 1000n) *
+    price.multiplierMicros;
   const amount = (numerator + 999_999_999_999n) / 1_000_000_000_000n;
   if (amount > 9_223_372_036_854_775_807n)
     throw new GatewayError(400, 'reservation_overflow', 'The configured reservation exceeds the supported amount');
