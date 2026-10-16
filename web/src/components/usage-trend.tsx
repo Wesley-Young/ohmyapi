@@ -91,11 +91,6 @@ export default function UsageTrend({ days, currency }: { days: RouterOutputs['wa
             </Grid>
           </Box>
         </Box>
-        {metric === 'chargedAmount' && currency && (
-          <Text fontSize="xs" color="gray.500">
-            消费单位：{currency}，仅计已结算请求
-          </Text>
-        )}
       </Stack>
     </Panel>
   );
