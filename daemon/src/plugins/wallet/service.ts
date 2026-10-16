@@ -45,6 +45,18 @@ const statsDto = (stats: { requestCount: string; tokens: string; chargedMicros: 
   chargedAmount: formatMoney(BigInt(stats.chargedMicros)),
 });
 
+const descending = (a: string, b: string) => {
+  const difference = BigInt(b) - BigInt(a);
+  return difference > 0n ? 1 : difference < 0n ? -1 : 0;
+};
+
+type UsageRow = { requestCount: string; tokens: string; chargedMicros: string };
+
+const sumStats = (rows: UsageRow[]) => {
+  const sum = (key: keyof UsageRow) => rows.reduce((total, row) => total + BigInt(row[key]), 0n).toString();
+  return statsDto({ requestCount: sum('requestCount'), tokens: sum('tokens'), chargedMicros: sum('chargedMicros') });
+};
+
 export class WalletService {
   static readonly token = serviceToken<WalletService>('ohmyapi/wallet');
   private readonly db: Database;
@@ -105,10 +117,6 @@ export class WalletService {
       .leftJoin(models, eq(models.id, requests.modelId))
       .where(and(userId ? eq(requests.userId, userId) : undefined, within(range)))
       .groupBy(requests.modelId, models.name);
-    const descending = (a: string, b: string) => {
-      const difference = BigInt(b) - BigInt(a);
-      return difference > 0n ? 1 : difference < 0n ? -1 : 0;
-    };
     const sorted = rows.sort((a, b) =>
       userId
         ? descending(a.chargedMicros, b.chargedMicros) || descending(a.requestCount, b.requestCount)
@@ -126,18 +134,33 @@ export class WalletService {
     const unknown = sorted.filter((row) => !row.modelId);
     if (!unknown.length && known.length <= 11) return known;
     const extra = sorted.filter((row) => row.modelId).slice(10);
-    const rest = [...extra, ...unknown];
-    const sum = (key: 'requestCount' | 'tokens' | 'chargedMicros') =>
-      rest.reduce((total, row) => total + BigInt(row[key]), 0n).toString();
     return [
       ...known.slice(0, 10),
-      {
-        modelId: null,
-        name: null,
-        others: extra.length,
-        ...statsDto({ requestCount: sum('requestCount'), tokens: sum('tokens'), chargedMicros: sum('chargedMicros') }),
-      },
+      { modelId: null, name: null, others: extra.length, ...sumStats([...extra, ...unknown]) },
     ];
+  }
+
+  /** 全站用户按消费降序排行，前 10 名之后合并为“其他”一行，合计仍与卡片一致。`others` 只在合并行上有值。 */
+  async userRanking(range: StatsRange) {
+    const rows = await this.db
+      .select({ userId: requests.userId, username: users.username, ...usageStats() })
+      .from(requests)
+      .innerJoin(users, eq(users.id, requests.userId))
+      .leftJoin(requestUsage, eq(requestUsage.requestId, requests.id))
+      .where(within(range))
+      .groupBy(requests.userId, users.username);
+    const sorted = rows.sort(
+      (a, b) => descending(a.chargedMicros, b.chargedMicros) || descending(a.requestCount, b.requestCount),
+    );
+    const items = sorted.map(({ userId, username, ...stats }) => ({
+      userId: userId as string | null,
+      username: username as string | null,
+      others: null as number | null,
+      ...statsDto(stats),
+    }));
+    if (sorted.length <= 11) return items;
+    const rest = sorted.slice(10);
+    return [...items.slice(0, 10), { userId: null, username: null, others: rest.length, ...sumStats(rest) }];
   }
 
   private async aggregateStats(userId?: string, range: StatsRange = '24h') {

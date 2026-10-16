@@ -24,6 +24,7 @@ export function walletRoutes(wallet: WalletService) {
       trend: adminProcedure.query(() => wallet.trend()),
       reviewCount: adminProcedure.query(() => wallet.reviewCount()),
       models: adminProcedure.input(statsRangeInput).query(({ input }) => wallet.models(undefined, input.range)),
+      userRanking: adminProcedure.input(statsRangeInput).query(({ input }) => wallet.userRanking(input.range)),
     },
     /** 管理员查看和调整任意用户的钱包。 */
     admin: {

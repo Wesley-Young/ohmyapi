@@ -5,6 +5,7 @@ import { useState } from 'react';
 import ModelUsage from '../components/model-usage';
 import { ErrorText, FormDialog, Loading, PageControls, Panel, Title } from '../components/ui';
 import UsageTrend from '../components/usage-trend';
+import UserUsage from '../components/user-usage';
 import { Ledger } from '../components/wallet';
 import { useAuth } from '../lib/auth';
 import { displayMoney, formatCount, formError } from '../lib/format';
@@ -120,6 +121,7 @@ export default function Overview() {
                         queryClient.invalidateQueries(trpc.admin.stats.queryFilter()),
                         queryClient.invalidateQueries(trpc.admin.trend.queryFilter()),
                         queryClient.invalidateQueries(trpc.admin.models.pathFilter()),
+                        queryClient.invalidateQueries(trpc.admin.userRanking.pathFilter()),
                       ]
                     : []),
                 ])
@@ -169,6 +171,7 @@ export default function Overview() {
             platformTrend.data && <UsageTrend days={platformTrend.data} currency={platform.data?.currency} />
           )}
           <ModelUsage scope="platform" currency={platform.data?.currency} />
+          <UserUsage currency={platform.data?.currency} />
         </Stack>
       )}
       {admin && (
