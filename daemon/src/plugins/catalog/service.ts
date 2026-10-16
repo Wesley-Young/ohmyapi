@@ -24,16 +24,11 @@ import type { OutboundHttp } from '../outbound/index.ts';
 import { providerSupports } from '../subscription/providers.ts';
 import type { SubscriptionService } from '../subscription/service.ts';
 import { auditCatalog } from './audit.ts';
+import { compareChannels } from './order.ts';
 import type { ChannelInput, FetchChannelModelsInput } from './schemas.ts';
 import { fetchUpstreamModels, type UpstreamModelsTrace } from './upstream-models.ts';
 
 type Channel = typeof channels.$inferSelect;
-
-const channelTypeOrder = {
-  aggregate: 0,
-  api: 1,
-  subscription: 2,
-} satisfies Record<Channel['type'], number>;
 
 export class CatalogService {
   static readonly token = serviceToken<CatalogService>('ohmyapi/catalog');
@@ -93,15 +88,7 @@ export class CatalogService {
       this.db.select({ modelId: priceRules.modelId }).from(priceRules).where(eq(priceRules.kind, 'default')),
       this.db.select().from(aggregateChannelMembers),
     ]);
-    // 需要重新授权的渠道在前，其次启用优先、按类型分组，名称按自然顺序排列。
-    channelRows.sort(
-      (a, b) =>
-        Number(!a.subscription?.errorCode) - Number(!b.subscription?.errorCode) ||
-        Number(b.enabled) - Number(a.enabled) ||
-        channelTypeOrder[a.type] - channelTypeOrder[b.type] ||
-        a.name.localeCompare(b.name, 'zh-CN', { numeric: true }) ||
-        a.id.localeCompare(b.id),
-    );
+    channelRows.sort(compareChannels);
     return {
       channels: channelRows.map(({ multiplierMicros, proxyUrlEncrypted, ...c }) => ({
         ...c,

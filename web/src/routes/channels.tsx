@@ -12,17 +12,11 @@ import { PlanBadge } from '../components/plan-badge';
 import { SubscriptionQuota } from '../components/subscription-quota';
 import { ConfirmAction, ErrorText, Loading, NameAction, PrimaryButton, pinnedColumn, Title } from '../components/ui';
 import { refreshCatalog } from '../lib/cache';
+import { channelTypeLabels } from '../lib/channels';
 import { formError, localDateTime } from '../lib/format';
 import { subscriptionProviderLabels } from '../lib/subscription';
 import { brandColor } from '../lib/theme';
 import { trpc, trpcClient } from '../lib/trpc';
-
-type CatalogData = RouterOutputs['admin']['catalog']['list'];
-const channelTypeLabels = {
-  api: 'API 渠道',
-  subscription: '订阅渠道',
-  aggregate: '聚合渠道',
-} satisfies Record<CatalogData['channels'][number]['type'], string>;
 
 export default function Channels() {
   const data = useQuery(trpc.admin.catalog.list.queryOptions());

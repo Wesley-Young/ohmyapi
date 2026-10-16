@@ -1,11 +1,11 @@
 import { Button, Checkbox, Field, HStack, NativeSelect, Stack, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { dateTimeInput, formError } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
-import { SelectField } from './fields';
+import { type ChannelOption, ChannelSelect } from './channel-select';
 import { ErrorText, FormDialog, FormInput, PrimaryButton } from './ui';
 
 type ApiKey = RouterOutputs['keys']['list']['items'][number];
@@ -37,14 +37,12 @@ export function KeyForm({
     }),
   );
   const saveTask = editing ? update : task;
-  const channelOptions = [...(channels.data ?? [])];
-  if (editing?.channelId && !channelOptions.some((channel) => channel.id === editing.channelId))
-    channelOptions.push({
-      id: editing.channelId,
-      name: `${editing.channelName ?? '原渠道'}（不可用）`,
-      endpoints: [],
-      models: [],
-    });
+  const channelOptions = useMemo(() => {
+    const options: ChannelOption[] = [...(channels.data ?? [])];
+    if (editing?.channelId && !options.some((channel) => channel.id === editing.channelId))
+      options.push({ id: editing.channelId, name: editing.channelName ?? '原渠道', unavailable: true });
+    return options;
+  }, [channels.data, editing?.channelId, editing?.channelName]);
   const models = [...(channels.data?.find((channel) => channel.id === channelId)?.models ?? [])];
   if (editing && channelId === editing.channelId)
     for (const [index, id] of editing.modelIds.entries())
@@ -98,7 +96,7 @@ export function KeyForm({
         <Stack gap="5">
           <FormInput label="名称" value={name} required maxLength={64} onChange={(e) => setName(e.target.value)} />
           <Stack gap="2">
-            <SelectField
+            <ChannelSelect
               label="绑定渠道"
               value={channelId}
               onChange={(id) => {

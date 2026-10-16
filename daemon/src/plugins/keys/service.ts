@@ -7,6 +7,7 @@ import { toPage } from '../../core/pagination.ts';
 import { protocolFor } from '../../protocols/index.ts';
 import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
+import { compareChannels } from '../catalog/order.ts';
 import type { Database, Transaction } from '../database/client.ts';
 import { activeApiKey, activeChannel, activeModel, availableSubscription, paginate } from '../database/query.ts';
 import {
@@ -82,6 +83,8 @@ export class KeyService {
       .selectDistinct({
         channelId: channels.id,
         channelName: channels.name,
+        channelType: channels.type,
+        channelMultiplierMicros: channels.multiplierMicros,
         multiplierMicros: channelModelPrices.multiplierMicros,
         pricingMode: channels.pricingMode,
         endpoint: effectiveChannelEndpoints.endpoint,
@@ -120,15 +123,21 @@ export class KeyService {
 
   async availableChannels(principal: Principal) {
     const rows = await this.offerings(principal.user);
-    return [...new Set(rows.map((r) => r.channelId))].map((id) => {
-      const filteredRows = rows.filter((r) => r.channelId === id);
-      return {
-        id,
-        name: filteredRows[0].channelName,
-        endpoints: [...new Set(filteredRows.map((r) => r.endpoint))],
-        models: [...new Map(filteredRows.map((r) => [r.modelId, { id: r.modelId, name: r.modelName }])).values()],
-      };
-    });
+    return [...new Set(rows.map((r) => r.channelId))]
+      .map((id) => {
+        const filteredRows = rows.filter((r) => r.channelId === id);
+        const [first] = filteredRows;
+        return {
+          id,
+          name: first.channelName,
+          type: first.channelType,
+          pricingMode: first.pricingMode,
+          multiplier: formatMoney(first.channelMultiplierMicros),
+          endpoints: [...new Set(filteredRows.map((r) => r.endpoint))],
+          models: [...new Map(filteredRows.map((r) => [r.modelId, { id: r.modelId, name: r.modelName }])).values()],
+        };
+      })
+      .sort((a, b) => compareChannels({ ...a, enabled: true }, { ...b, enabled: true }));
   }
 
   async playgroundOptions(principal: Principal) {
