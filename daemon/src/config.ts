@@ -1,4 +1,9 @@
+import { z } from 'zod';
+
 import { parseMoney } from './core/money.ts';
+
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 type Environment = Record<string, string | undefined>;
 
@@ -95,6 +100,63 @@ function readGatewayConfig(env: Environment) {
 
 export type GatewayConfig = ReturnType<typeof readGatewayConfig>;
 
+/** 仓库根目录下的接入点配置；`src/` 与 `dist/` 深度相同，开发和生产指向同一个文件。 */
+const accessEndpointsFile = new URL('../../endpoints.json', import.meta.url);
+
+function isBaseUrl(raw: string) {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  return (
+    ['http:', 'https:'].includes(url.protocol) &&
+    !url.username &&
+    !url.password &&
+    !raw.endsWith('/') &&
+    (url.href === raw || url.href === `${raw}/`)
+  );
+}
+
+const accessEndpointsSchema = z
+  .array(
+    z.strictObject({
+      id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/, 'id must be 1-32 lowercase letters, digits or hyphens'),
+      label: z.string().trim().min(1).max(32),
+      baseUrl: z
+        .string()
+        .refine(isBaseUrl, 'baseUrl must be a normalized HTTP(S) URL without a trailing slash, query or hash'),
+      description: z.string().trim().min(1).max(500).optional(),
+    }),
+  )
+  .min(1)
+  .max(20)
+  .refine((items) => new Set(items.map((item) => item.id)).size === items.length, 'id must be unique');
+
+export type AccessEndpoint = z.infer<typeof accessEndpointsSchema>[number];
+
+/** 读取接入点配置；文件不存在时返回空列表，存在但无效时抛出错误。 */
+export function readAccessEndpoints(file: URL = accessEndpointsFile): AccessEndpoint[] {
+  const path = fileURLToPath(file);
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw new Error(`Failed to read ${path}`);
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new Error(`${path} must contain valid JSON`);
+  }
+  const result = accessEndpointsSchema.safeParse(json);
+  if (!result.success) throw new Error(`${path} is invalid:\n${z.prettifyError(result.error)}`);
+  return result.data;
+}
+
 /** 服务运行所需的全部配置，启动时一次性读取并校验。 */
 export function loadConfig(env: Environment = process.env) {
   return {
@@ -105,6 +167,7 @@ export function loadConfig(env: Environment = process.env) {
     session: readSessionConfig(env),
     encryptionKey: readEncryptionKey(env),
     gateway: readGatewayConfig(env),
+    accessEndpoints: readAccessEndpoints(),
     serveWeb: env.NODE_ENV === 'production',
   };
 }

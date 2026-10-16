@@ -1,0 +1,13 @@
+[
+  {
+    "id": "main",
+    "label": "主站",
+    "baseUrl": "https://ohmyapi.example.com"
+  },
+  {
+    "id": "cn",
+    "label": "国内加速",
+    "baseUrl": "https://cn.ohmyapi.example.com",
+    "description": "适合中国大陆网络"
+  }
+]

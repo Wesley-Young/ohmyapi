@@ -21,18 +21,19 @@ export type CCSwitchModels = Partial<Record<'model' | 'haikuModel' | 'sonnetMode
 export function buildCCSwitchUrl(input: {
   app: CCSwitchApp;
   name: string;
-  origin: string;
+  /** 接入点的根地址，不带末尾斜杠。 */
+  baseUrl: string;
+  homepage: string;
   apiKey: string;
   models: CCSwitchModels;
 }) {
-  const origin = new URL(input.origin).origin;
   const params = new URLSearchParams({
     resource: 'provider',
     app: input.app,
     name: input.name.trim(),
-    endpoint: input.app === 'codex' ? `${origin}/v1` : origin,
+    endpoint: input.app === 'codex' ? `${input.baseUrl}/v1` : input.baseUrl,
     apiKey: input.apiKey,
-    homepage: origin,
+    homepage: input.homepage,
     enabled: 'true',
   });
   for (const field of ccSwitchModelFields(input.app)) {

@@ -1,6 +1,7 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { and, desc, eq, gt, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
+import type { AccessEndpoint } from '../../config.ts';
 import { AppError } from '../../core/errors.ts';
 import { formatMoney } from '../../core/money.ts';
 import { toPage } from '../../core/pagination.ts';
@@ -31,9 +32,29 @@ export class KeyService {
   static readonly token = serviceToken<KeyService>('ohmyapi/keys');
   private readonly db: Database;
   private readonly auth: AuthService;
-  constructor({ db, auth }: { db: Database; auth: AuthService }) {
+  private readonly endpoints: readonly AccessEndpoint[];
+  constructor({
+    db,
+    auth,
+    accessEndpoints,
+  }: {
+    db: Database;
+    auth: AuthService;
+    accessEndpoints: readonly AccessEndpoint[];
+  }) {
     this.db = db;
     this.auth = auth;
+    this.endpoints = accessEndpoints;
+  }
+
+  /** 部署者配置的客户端接入点，按配置顺序排列；未配置时为空。 */
+  accessEndpoints() {
+    return this.endpoints.map(({ id, label, baseUrl, description }) => ({
+      id,
+      label,
+      baseUrl,
+      description: description ?? null,
+    }));
   }
 
   /** 按令牌查找有效的 API Key。 */

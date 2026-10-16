@@ -3,24 +3,41 @@ import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import {
+  type AccessEndpoint,
+  accessEndpointOptions,
+  pickAccessEndpoint,
+  storedAccessEndpointId,
+} from '../lib/access-endpoints';
 import { buildCCSwitchUrl, type CCSwitchModels, ccSwitchApps, ccSwitchModelFields } from '../lib/cc-switch';
 import { formError } from '../lib/format';
 import { trpc } from '../lib/trpc';
+import { AccessEndpointField } from './access-endpoint-field';
 import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
 
 type ExportKey = RouterOutputs['keys']['playgroundOptions'][number];
 
 export function CCSwitchDialog({ keyId, onClose }: { keyId: string; onClose: () => void }) {
   const options = useQuery(trpc.keys.playgroundOptions.queryOptions(undefined, { staleTime: 0, gcTime: 0 }));
+  const accessEndpoints = useQuery(trpc.keys.accessEndpoints.queryOptions());
   const selectedKey = options.data?.find((key) => key.id === keyId);
+  const error = options.error ?? accessEndpoints.error;
   return (
     <FormDialog open title="导出到 CC Switch" onClose={onClose}>
-      {options.isPending || !options.isFetchedAfterMount ? (
+      {options.isPending || !options.isFetchedAfterMount || accessEndpoints.isPending ? (
         <Loading />
-      ) : options.error ? (
+      ) : error ? (
         <Stack gap="4">
-          <ErrorText>{formError(options.error)?.message}</ErrorText>
-          <Button variant="outline" alignSelf="start" loading={options.isFetching} onClick={() => options.refetch()}>
+          <ErrorText>{formError(error)?.message}</ErrorText>
+          <Button
+            variant="outline"
+            alignSelf="start"
+            loading={options.isFetching || accessEndpoints.isFetching}
+            onClick={() => {
+              if (options.error) options.refetch();
+              if (accessEndpoints.error) accessEndpoints.refetch();
+            }}
+          >
             重试
           </Button>
         </Stack>
@@ -29,13 +46,31 @@ export function CCSwitchDialog({ keyId, onClose }: { keyId: string; onClose: () 
       ) : !ccSwitchApps.some((app) => selectedKey.endpoints.includes(app.endpoint)) ? (
         <ErrorText>此 Key 的渠道未提供 CC Switch 配置所需的 Messages 或 Responses 端点。</ErrorText>
       ) : (
-        <ExportForm key={selectedKey.id} apiKey={selectedKey} refreshing={options.isFetching} onClose={onClose} />
+        <ExportForm
+          key={selectedKey.id}
+          apiKey={selectedKey}
+          accessEndpoints={accessEndpointOptions(accessEndpoints.data)}
+          refreshing={options.isFetching}
+          onClose={onClose}
+        />
       )}
     </FormDialog>
   );
 }
 
-function ExportForm({ apiKey, refreshing, onClose }: { apiKey: ExportKey; refreshing: boolean; onClose: () => void }) {
+function ExportForm({
+  apiKey,
+  accessEndpoints,
+  refreshing,
+  onClose,
+}: {
+  apiKey: ExportKey;
+  accessEndpoints: AccessEndpoint[];
+  refreshing: boolean;
+  onClose: () => void;
+}) {
+  const [accessEndpointId, setAccessEndpointId] = useState(storedAccessEndpointId);
+  const accessEndpoint = pickAccessEndpoint(accessEndpoints, accessEndpointId);
   const applications = ccSwitchApps.filter((app) => apiKey.endpoints.includes(app.endpoint));
   const [appId, setAppId] = useState(applications[0].id);
   const app = applications.find((item) => item.id === appId) ?? applications[0];
@@ -64,7 +99,14 @@ function ExportForm({ apiKey, refreshing, onClose }: { apiKey: ExportKey; refres
         }
         try {
           window.location.assign(
-            buildCCSwitchUrl({ app: app.id, name, origin: window.location.origin, apiKey: apiKey.token, models }),
+            buildCCSwitchUrl({
+              app: app.id,
+              name,
+              baseUrl: accessEndpoint.baseUrl,
+              homepage: window.location.origin,
+              apiKey: apiKey.token,
+              models,
+            }),
           );
         } catch {
           setLaunchError('无法打开 CC Switch，请确认已安装并允许浏览器打开');
@@ -95,6 +137,7 @@ function ExportForm({ apiKey, refreshing, onClose }: { apiKey: ExportKey; refres
             <NativeSelect.Indicator />
           </NativeSelect.Root>
         </Field.Root>
+        <AccessEndpointField options={accessEndpoints} value={accessEndpoint} onChange={setAccessEndpointId} />
         <FormInput
           label="配置名称"
           value={name}
