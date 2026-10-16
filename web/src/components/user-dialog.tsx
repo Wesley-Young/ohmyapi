@@ -84,7 +84,9 @@ function Account({ user, onDeleted }: { user: AccountUser; onDeleted: () => void
         {user.role === 'user' && (
           <SettingRow
             title="状态"
-            hint={active ? '目前启用，禁用后会话失效，API Key 暂停访问' : '目前禁用，启用后可重新登录并使用未撤销的 API Key'}
+            hint={
+              active ? '目前启用，禁用后会话失效，API Key 暂停访问' : '目前禁用，启用后可重新登录并使用未撤销的 API Key'
+            }
             action={
               <ConfirmAction
                 label={active ? '禁用用户' : '启用用户'}

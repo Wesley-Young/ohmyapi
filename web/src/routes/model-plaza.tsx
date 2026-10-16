@@ -1,4 +1,4 @@
-import { Badge, Box, Heading, HStack, Stack, Switch, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Flex, Heading, HStack, Stack, Switch, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
 import { Eye } from 'lucide-react';
@@ -6,9 +6,11 @@ import { useMemo, useState } from 'react';
 
 import { ModelIcon } from '../components/brand-icon';
 import { IconButton } from '../components/icon-button';
+import { emptyModelFilter, ModelFilter } from '../components/model-filter';
 import { ErrorText, FormDialog, Loading, NameAction, pinnedColumn, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { displayMoney, displayRange, formatCount, formError } from '../lib/format';
+import { filterModels, sortModelsByBrand } from '../lib/model-brands';
 import { minuteText } from '../lib/pricing';
 import { trpc } from '../lib/trpc';
 
@@ -81,8 +83,9 @@ export default function ModelPlaza() {
   const query = useQuery(trpc.modelPlaza.queryOptions());
   const [selectedId, setSelectedId] = useState<string>();
   const [publicOnly, setPublicOnly] = useState(false);
-  const models = useMemo(() => {
-    const all = query.data?.models ?? [];
+  const [filter, setFilter] = useState(emptyModelFilter);
+  const all = useMemo(() => sortModelsByBrand(query.data?.models ?? []), [query.data]);
+  const available = useMemo(() => {
     if (!admin || !publicOnly) return all;
     return all.flatMap((model) => {
       // 渠道已按倍率升序排列，首个公开渠道即公开售价的最低配置
@@ -98,8 +101,9 @@ export default function ModelPlaza() {
         },
       ];
     });
-  }, [query.data, admin, publicOnly]);
-  const selected = models.find((model) => model.id === selectedId);
+  }, [all, admin, publicOnly]);
+  const models = filterModels(available, filter);
+  const selected = available.find((model) => model.id === selectedId);
   const symbol = currencySymbol(query.data?.currency ?? 'CNY');
   return (
     <Stack gap="7" minW="0">
@@ -107,18 +111,25 @@ export default function ModelPlaza() {
       <Text fontSize="sm" color="gray.500">
         已包含渠道倍率，展示默认规则下的最低配置价格；透传倍率按实际路由成员计费，动态定价以实际命中的规则为准。
       </Text>
-      {admin && (
-        <Switch.Root
-          size="sm"
-          colorPalette="purple"
-          checked={publicOnly}
-          onCheckedChange={(e) => setPublicOnly(e.checked)}
-          alignSelf="flex-start"
-        >
-          <Switch.HiddenInput />
-          <Switch.Control />
-          <Switch.Label>只展示公开渠道</Switch.Label>
-        </Switch.Root>
+      {(admin || all.length > 0) && (
+        <Flex gap="4" direction={{ base: 'column', md: 'row' }}>
+          {all.length > 0 && <ModelFilter models={all} value={filter} onChange={setFilter} flex="1" maxW="lg" />}
+          {admin && (
+            <Switch.Root
+              size="sm"
+              colorPalette="purple"
+              checked={publicOnly}
+              onCheckedChange={(e) => setPublicOnly(e.checked)}
+              alignSelf={{ base: 'flex-start', md: 'center' }}
+              flexShrink="0"
+              ms={{ md: 'auto' }}
+            >
+              <Switch.HiddenInput />
+              <Switch.Control />
+              <Switch.Label>只展示公开渠道</Switch.Label>
+            </Switch.Root>
+          )}
+        </Flex>
       )}
       <ErrorText>{formError(query.error)?.message}</ErrorText>
       {query.isPending ? (
@@ -206,7 +217,11 @@ export default function ModelPlaza() {
           </Box>
         ) : (
           <Text py="8" color="gray.500" fontSize="sm">
-            {admin && publicOnly ? '公开渠道暂无已定价的可用模型。' : '暂无已定价的可用模型。'}
+            {available.length
+              ? '没有匹配的模型。'
+              : admin && publicOnly
+                ? '公开渠道暂无已定价的可用模型。'
+                : '暂无已定价的可用模型。'}
           </Text>
         ))
       )}

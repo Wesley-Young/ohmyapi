@@ -1,15 +1,17 @@
 import { Badge, Box, Button, Grid, Heading, HStack, Link, Stack, Text } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router';
 
 import { ModelLabel } from '../components/brand-icon';
+import { emptyModelFilter, ModelFilter } from '../components/model-filter';
 import { ModelForm } from '../components/model-form';
 import { ModelImport } from '../components/model-import';
 import { ModelPricing } from '../components/model-pricing';
 import { ConfirmAction, ErrorText, Loading, PrimaryButton, Title } from '../components/ui';
 import { refreshCatalog } from '../lib/cache';
 import { formatCount, formError } from '../lib/format';
+import { filterModels, sortModelsByBrand } from '../lib/model-brands';
 import { brandColor } from '../lib/theme';
 import { trpc, trpcClient } from '../lib/trpc';
 
@@ -20,8 +22,10 @@ export default function Models() {
   const [edit, setEdit] = useState<{ id?: string }>();
   const [importing, setImporting] = useState(false);
   const [importNotice, setImportNotice] = useState<string>();
-  const models = catalog.data?.models ?? [];
-  const selected = modelId ? models.find((model) => model.id === modelId) : models[0];
+  const [filter, setFilter] = useState(emptyModelFilter);
+  const models = useMemo(() => sortModelsByBrand(catalog.data?.models ?? []), [catalog.data]);
+  const visible = filterModels(models, filter);
+  const selected = modelId ? models.find((model) => model.id === modelId) : (visible[0] ?? models[0]);
 
   return (
     <Stack gap="7">
@@ -55,96 +59,107 @@ export default function Models() {
       {catalog.isPending ? (
         <Loading />
       ) : catalog.data ? (
-        <Grid
-          templateColumns={{ base: 'minmax(0, 1fr)', lg: '240px minmax(0, 1fr)' }}
-          gap={{ base: '5', md: '7' }}
-          alignItems="start"
-        >
-          <Box as="nav" aria-label="选择模型" borderWidth="1px" borderColor="gray.200" borderRadius="xl" p="2" minW="0">
-            <Stack gap="1" maxH={{ base: '280px', lg: 'calc(100dvh - 240px)' }} overflowY="auto">
-              {models.map((model) => {
-                const active = model.id === selected?.id;
-                return (
-                  <Link
-                    key={model.id}
-                    asChild
-                    display="block"
-                    p="3"
-                    borderRadius="lg"
-                    color="gray.900"
-                    bg={active ? 'gray.100' : 'transparent'}
-                    _hover={{ bg: 'gray.50', textDecoration: 'none' }}
-                    _focusVisible={{ outline: `2px solid ${brandColor}`, outlineOffset: '-2px' }}
-                  >
-                    <RouterLink to={`/console/models/${model.id}/pricing`} aria-current={active ? 'page' : undefined}>
-                      <Stack gap="2">
-                        <Text fontSize="sm" fontWeight={active ? '600' : '500'} overflowWrap="anywhere">
-                          <ModelLabel model={model.name} />
-                        </Text>
-                        <HStack gap="2" flexWrap="wrap">
-                          <Badge colorPalette={model.enabled ? 'green' : 'gray'}>
-                            {model.enabled ? '启用' : '禁用'}
-                          </Badge>
-                          <Badge colorPalette={model.priced ? 'gray' : 'yellow'}>
-                            {model.priced ? '已定价' : '未定价'}
-                          </Badge>
-                        </HStack>
-                      </Stack>
-                    </RouterLink>
-                  </Link>
-                );
-              })}
-              {!models.length && (
-                <Text p="3" fontSize="sm" color="gray.500">
-                  暂无模型
+        <Stack gap="5">
+          {models.length > 0 && <ModelFilter models={models} value={filter} onChange={setFilter} maxW="lg" />}
+          <Grid
+            templateColumns={{ base: 'minmax(0, 1fr)', lg: '240px minmax(0, 1fr)' }}
+            gap={{ base: '5', md: '7' }}
+            alignItems="start"
+          >
+            <Box
+              as="nav"
+              aria-label="选择模型"
+              borderWidth="1px"
+              borderColor="gray.200"
+              borderRadius="xl"
+              p="2"
+              minW="0"
+            >
+              <Stack gap="1" maxH={{ base: '280px', lg: 'calc(100dvh - 300px)' }} overflowY="auto">
+                {visible.map((model) => {
+                  const active = model.id === selected?.id;
+                  return (
+                    <Link
+                      key={model.id}
+                      asChild
+                      display="block"
+                      p="3"
+                      borderRadius="lg"
+                      color="gray.900"
+                      bg={active ? 'gray.100' : 'transparent'}
+                      _hover={{ bg: 'gray.50', textDecoration: 'none' }}
+                      _focusVisible={{ outline: `2px solid ${brandColor}`, outlineOffset: '-2px' }}
+                    >
+                      <RouterLink to={`/console/models/${model.id}/pricing`} aria-current={active ? 'page' : undefined}>
+                        <Stack gap="2">
+                          <Text fontSize="sm" fontWeight={active ? '600' : '500'} overflowWrap="anywhere">
+                            <ModelLabel model={model.name} />
+                          </Text>
+                          <HStack gap="2" flexWrap="wrap">
+                            <Badge colorPalette={model.enabled ? 'green' : 'gray'}>
+                              {model.enabled ? '启用' : '禁用'}
+                            </Badge>
+                            <Badge colorPalette={model.priced ? 'gray' : 'yellow'}>
+                              {model.priced ? '已定价' : '未定价'}
+                            </Badge>
+                          </HStack>
+                        </Stack>
+                      </RouterLink>
+                    </Link>
+                  );
+                })}
+                {!visible.length && (
+                  <Text p="3" fontSize="sm" color="gray.500">
+                    {models.length ? '没有匹配的模型' : '暂无模型'}
+                  </Text>
+                )}
+              </Stack>
+            </Box>
+            <Box minW="0" borderWidth="1px" borderColor="gray.200" borderRadius="xl" p={{ base: '5', md: '6' }}>
+              {selected ? (
+                <Stack gap="6">
+                  <HStack justify="space-between" align="start" flexWrap="wrap" gap="4">
+                    <Stack gap="3" minW="0">
+                      <Heading as="h2" fontSize="xl" overflowWrap="anywhere">
+                        <ModelLabel model={selected.name} size={20} />
+                      </Heading>
+                      <HStack gap="2" flexWrap="wrap">
+                        <Badge colorPalette="gray">输入容量 {formatCount(selected.inputTokenLimit)} Token</Badge>
+                        <Badge colorPalette="gray">输出上限 {formatCount(selected.outputTokenLimit)} Token</Badge>
+                      </HStack>
+                    </Stack>
+                    <HStack gap="2" flexWrap="wrap">
+                      <Button variant="outline" size="sm" onClick={() => setEdit({ id: selected.id })}>
+                        编辑模型元数据
+                      </Button>
+                      <ConfirmAction
+                        key={selected.id}
+                        label="删除模型"
+                        danger
+                        description={`删除模型「${selected.name}」后，各渠道将无法再调用它。历史请求与账单仍然保留。`}
+                        action={() => trpcClient.admin.catalog.deleteModel.mutate({ modelId: selected.id })}
+                        onSuccess={async () => {
+                          await refreshCatalog();
+                          navigate('/console/models', { replace: true });
+                        }}
+                      />
+                    </HStack>
+                  </HStack>
+                  <ModelPricing
+                    key={selected.id}
+                    modelId={selected.id}
+                    copyLunaPrice={selected.name === 'codex-auto-review'}
+                    lunaModelId={models.find((model) => model.name === 'gpt-5.6-luna' && model.priced)?.id}
+                  />
+                </Stack>
+              ) : (
+                <Text py="8" textAlign="center" color="gray.500" fontSize="sm">
+                  {!models.length ? '添加模型后配置定价规则' : '模型不存在，请在左侧选择模型'}
                 </Text>
               )}
-            </Stack>
-          </Box>
-          <Box minW="0" borderWidth="1px" borderColor="gray.200" borderRadius="xl" p={{ base: '5', md: '6' }}>
-            {selected ? (
-              <Stack gap="6">
-                <HStack justify="space-between" align="start" flexWrap="wrap" gap="4">
-                  <Stack gap="3" minW="0">
-                    <Heading as="h2" fontSize="xl" overflowWrap="anywhere">
-                      <ModelLabel model={selected.name} size={20} />
-                    </Heading>
-                    <HStack gap="2" flexWrap="wrap">
-                      <Badge colorPalette="gray">输入容量 {formatCount(selected.inputTokenLimit)} Token</Badge>
-                      <Badge colorPalette="gray">输出上限 {formatCount(selected.outputTokenLimit)} Token</Badge>
-                    </HStack>
-                  </Stack>
-                  <HStack gap="2" flexWrap="wrap">
-                    <Button variant="outline" size="sm" onClick={() => setEdit({ id: selected.id })}>
-                      编辑模型元数据
-                    </Button>
-                    <ConfirmAction
-                      key={selected.id}
-                      label="删除模型"
-                      danger
-                      description={`删除模型「${selected.name}」后，各渠道将无法再调用它。历史请求与账单仍然保留。`}
-                      action={() => trpcClient.admin.catalog.deleteModel.mutate({ modelId: selected.id })}
-                      onSuccess={async () => {
-                        await refreshCatalog();
-                        navigate('/console/models', { replace: true });
-                      }}
-                    />
-                  </HStack>
-                </HStack>
-                <ModelPricing
-                  key={selected.id}
-                  modelId={selected.id}
-                  copyLunaPrice={selected.name === 'codex-auto-review'}
-                  lunaModelId={models.find((model) => model.name === 'gpt-5.6-luna' && model.priced)?.id}
-                />
-              </Stack>
-            ) : (
-              <Text py="8" textAlign="center" color="gray.500" fontSize="sm">
-                {!models.length ? '添加模型后配置定价规则' : '模型不存在，请在左侧选择模型'}
-              </Text>
-            )}
-          </Box>
-        </Grid>
+            </Box>
+          </Grid>
+        </Stack>
       ) : null}
       {edit && (
         <ModelForm

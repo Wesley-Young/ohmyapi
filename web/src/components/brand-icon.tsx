@@ -28,38 +28,38 @@ import XiaomiMiMo from '@lobehub/icons/es/XiaomiMiMo/components/Mono.js';
 import Yi from '@lobehub/icons/es/Yi/components/Color.js';
 import Zhipu from '@lobehub/icons/es/Zhipu/components/Color.js';
 
+import { type ModelBrand, modelBrand } from '../lib/model-brands';
 import type { SubscriptionProvider } from '../lib/subscription';
 
 type Icon = typeof OpenAI;
 
-/** 按模型名匹配厂商，先匹配的优先（如 `deepseek-r1-distill-qwen` 归 DeepSeek）。 */
-const modelBrands: [RegExp, Icon][] = [
-  [/deepseek/, DeepSeek],
-  [/gpt|(^|\/)o[134](-|$)|dall-?e|sora|codex|whisper|(^|\/)tts-|text-embedding|openai/, OpenAI],
-  [/claude/, Claude],
-  [/gemma/, Gemma],
-  [/gemini|nano-?banana/, Gemini],
-  [/qwen|qwq|qvq|tongyi|wanx/, Qwen],
-  [/kimi|moonshot/, Kimi],
-  [/(^|[/-])glm|chatglm|codegeex/, Zhipu],
-  [/minimax|abab/, Minimax],
-  [/mistral|mixtral|codestral|ministral|magistral|devstral|pixtral|voxtral/, Mistral],
-  [/llama|(^|\/)muse-/, Meta],
-  [/grok/, Grok],
-  [/doubao/, Doubao],
-  [/(^|\/)seed|bytedance/, ByteDance],
-  [/hunyuan/, Hunyuan],
-  [/ernie/, Wenxin],
-  [/cohere|(^|\/)command-|(^|\/)aya-/, Cohere],
-  [/sonar|pplx/, Perplexity],
-  [/(^|[/-])yi-/, Yi],
-  [/(^|\/)step-?\d/, Stepfun],
-  [/baichuan/, Baichuan],
-  [/(^|[/-])phi-|microsoft/, Microsoft],
-  [/nemotron|nvidia/, Nvidia],
-  [/mimo/, XiaomiMiMo],
-  [/longcat/, LongCat],
-];
+const modelIcons = {
+  deepseek: DeepSeek,
+  openai: OpenAI,
+  claude: Claude,
+  gemma: Gemma,
+  gemini: Gemini,
+  qwen: Qwen,
+  kimi: Kimi,
+  zhipu: Zhipu,
+  minimax: Minimax,
+  mistral: Mistral,
+  meta: Meta,
+  grok: Grok,
+  doubao: Doubao,
+  bytedance: ByteDance,
+  hunyuan: Hunyuan,
+  wenxin: Wenxin,
+  cohere: Cohere,
+  perplexity: Perplexity,
+  yi: Yi,
+  stepfun: Stepfun,
+  baichuan: Baichuan,
+  microsoft: Microsoft,
+  nvidia: Nvidia,
+  mimo: XiaomiMiMo,
+  longcat: LongCat,
+} satisfies Record<ModelBrand, Icon>;
 
 const providerIcons = {
   openai: OpenAI,
@@ -67,14 +67,10 @@ const providerIcons = {
   antigravity: Antigravity,
 } satisfies Record<SubscriptionProvider, Icon>;
 
-const matchModel = (model: string) => {
-  const name = model.toLowerCase();
-  return modelBrands.find(([pattern]) => pattern.test(name))?.[1];
-};
-
 /** 模型厂商图标；无法识别时不渲染。图标是装饰，名称由相邻文本提供。 */
 export function ModelIcon({ model, size = 16 }: { model: string; size?: number }) {
-  const Icon = matchModel(model);
+  const brand = modelBrand(model);
+  const Icon = brand && modelIcons[brand];
   return Icon ? <Icon size={size} aria-hidden focusable="false" style={{ flexShrink: 0 }} /> : null;
 }
 
