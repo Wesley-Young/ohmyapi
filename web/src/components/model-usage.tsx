@@ -5,6 +5,7 @@ import { useId, useState } from 'react';
 
 import { displayMoney, formatCount, formError } from '../lib/format';
 import { trpc } from '../lib/trpc';
+import { ModelLabel } from './brand-icon';
 import { ErrorText, Loading, Panel } from './ui';
 
 const ranges = [
@@ -101,8 +102,15 @@ export default function ModelUsage({ currency, scope = 'self' }: { currency?: st
                   {usage.data.map((row) => (
                     <Table.Row key={row.modelId ?? (row.others === null ? 'unknown' : 'others')}>
                       <Table.Cell color={row.name ? undefined : 'gray.500'}>
-                        {row.name ??
-                          (row.others === null ? '未识别模型' : row.others ? `其他 ${row.others} 个模型` : '其他模型')}
+                        {row.name ? (
+                          <ModelLabel model={row.name} />
+                        ) : row.others === null ? (
+                          '未识别模型'
+                        ) : row.others ? (
+                          `其他 ${row.others} 个模型`
+                        ) : (
+                          '其他模型'
+                        )}
                       </Table.Cell>
                       {columns.map((column) => (
                         <Table.Cell key={column.key} textAlign="end" fontVariantNumeric="tabular-nums">

@@ -4,6 +4,7 @@ import { Download, Plus, X } from 'lucide-react';
 import { useId, useState } from 'react';
 
 import { brandColor } from '../lib/theme';
+import { ModelLabel } from './brand-icon';
 import { IconButton } from './icon-button';
 import { ErrorText } from './ui';
 
@@ -29,7 +30,7 @@ function MultiplierField({
       alignItems="center"
     >
       <Field.Label htmlFor={id} fontSize="sm" minW="0" overflowWrap="anywhere">
-        {model.name}
+        <ModelLabel model={model.name} />
       </Field.Label>
       <Input
         id={id}
@@ -154,7 +155,7 @@ export function ChannelModels({
                   <HStack key={model.name} justify="space-between" gap="3" px="2" py="1" minW="0">
                     <HStack gap="2" flexWrap="wrap" minW="0">
                       <Text fontSize="sm" overflowWrap="anywhere">
-                        {model.name}
+                        <ModelLabel model={model.name} />
                       </Text>
                       {!existing ? (
                         <Badge colorPalette="gray">待创建</Badge>

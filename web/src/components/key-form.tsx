@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 
 import { dateTimeInput, formError } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
+import { ModelLabel } from './brand-icon';
 import { type ChannelOption, ChannelSelect } from './channel-select';
 import { ErrorText, FormDialog, FormInput, PrimaryButton } from './ui';
 
@@ -154,7 +155,9 @@ export function KeyForm({
                 >
                   <Checkbox.HiddenInput />
                   <Checkbox.Control />
-                  <Checkbox.Label>{m.name}</Checkbox.Label>
+                  <Checkbox.Label>
+                    <ModelLabel model={m.name} />
+                  </Checkbox.Label>
                 </Checkbox.Root>
               ))}
               {!models.length && (

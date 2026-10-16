@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router';
 
+import { ModelLabel } from '../components/brand-icon';
 import { ModelForm } from '../components/model-form';
 import { ModelImport } from '../components/model-import';
 import { ModelPricing } from '../components/model-pricing';
@@ -78,7 +79,7 @@ export default function Models() {
                     <RouterLink to={`/console/models/${model.id}/pricing`} aria-current={active ? 'page' : undefined}>
                       <Stack gap="2">
                         <Text fontSize="sm" fontWeight={active ? '600' : '500'} overflowWrap="anywhere">
-                          {model.name}
+                          <ModelLabel model={model.name} />
                         </Text>
                         <HStack gap="2" flexWrap="wrap">
                           <Badge colorPalette={model.enabled ? 'green' : 'gray'}>
@@ -106,7 +107,7 @@ export default function Models() {
                 <HStack justify="space-between" align="start" flexWrap="wrap" gap="4">
                   <Stack gap="3" minW="0">
                     <Heading as="h2" fontSize="xl" overflowWrap="anywhere">
-                      {selected.name}
+                      <ModelLabel model={selected.name} size={20} />
                     </Heading>
                     <HStack gap="2" flexWrap="wrap">
                       <Badge colorPalette="gray">输入容量 {formatCount(selected.inputTokenLimit)} Token</Badge>

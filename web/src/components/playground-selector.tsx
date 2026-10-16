@@ -3,6 +3,7 @@ import { Check, ChevronDown, RefreshCw, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import type { PlaygroundKey, PlaygroundModel } from '../lib/playground';
+import { ModelIcon, ModelLabel } from './brand-icon';
 import { IconButton } from './icon-button';
 
 export function PlaygroundSelector({
@@ -56,6 +57,7 @@ export function PlaygroundSelector({
           aria-label={selectedModel ? `选择 API Key 和模型，当前模型 ${selectedModel.name}` : '选择 API Key 和模型'}
           title={selectedModel?.name ?? '选择 API Key 和模型'}
         >
+          {selectedModel && <ModelIcon model={selectedModel.name} />}
           <Text truncate>{selectedModel?.name ?? '选择模型'}</Text>
           <ChevronDown size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
         </Button>
@@ -188,7 +190,7 @@ export function PlaygroundSelector({
                       }}
                     >
                       <Text fontSize="sm" fontWeight="500" whiteSpace="normal" overflowWrap="anywhere" textAlign="left">
-                        {model.name}
+                        <ModelLabel model={model.name} />
                       </Text>
                       {selectedKey?.id === draftKey?.id && selectedModel?.id === model.id && (
                         <Check size={14} aria-hidden="true" style={{ flexShrink: 0 }} />

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { BillingAction, BulkZeroBilling } from '../components/billing-review';
+import { ModelLabel } from '../components/brand-icon';
 import { IconButton } from '../components/icon-button';
 import { RequestDetail } from '../components/request-detail';
 import { useReviewCount } from '../components/review-badge';
@@ -281,7 +282,7 @@ export default function Requests() {
                       <Table.Cell>{r.apiKeyName === null ? <Text color="gray.500">—</Text> : r.apiKeyName}</Table.Cell>
                       <Table.Cell>
                         <Stack gap="2" align="start">
-                          <Text>{r.model}</Text>
+                          <ModelLabel model={r.model} />
                           {r.reasoningEffort && <UsageBadge kind="effort" value={r.reasoningEffort} />}
                         </Stack>
                       </Table.Cell>

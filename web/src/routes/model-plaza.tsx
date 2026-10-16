@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Eye } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
+import { ModelIcon } from '../components/brand-icon';
 import { IconButton } from '../components/icon-button';
 import { ErrorText, FormDialog, Loading, NameAction, pinnedColumn, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
@@ -146,6 +147,7 @@ export default function ModelPlaza() {
                     <Table.Row key={model.id}>
                       <Table.Cell minW="220px">
                         <NameAction aria-haspopup="dialog" onClick={() => setSelectedId(model.id)}>
+                          <ModelIcon model={model.name} />
                           {model.name}
                         </NameAction>
                       </Table.Cell>

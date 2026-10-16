@@ -17,6 +17,7 @@
     "@ai-sdk/react": "^4.0.134",
     "@chakra-ui/react": "^3.37.0",
     "@emotion/react": "^11.14.0",
+    "@lobehub/icons": "^5.23.1",
     "@ohmyapi/daemon": "workspace:*",
     "@tanstack/react-query": "^5.104.1",
     "@trpc/client": "^11.19.0",

@@ -16,6 +16,7 @@ import {
 } from '../lib/models-dev';
 import { minuteText } from '../lib/pricing';
 import { trpc } from '../lib/trpc';
+import { ModelLabel } from './brand-icon';
 import { SelectField } from './fields';
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton } from './ui';
 
@@ -254,7 +255,7 @@ export function ModelImport({
                               <Table.Cell>
                                 <Stack gap="1">
                                   <Text fontSize="sm" fontWeight="500">
-                                    {model.name}
+                                    <ModelLabel model={model.name} />
                                   </Text>
                                   {model.displayName !== model.name && (
                                     <Text fontSize="xs" color="gray.500">
@@ -336,7 +337,7 @@ export function ModelImport({
                     <Stack gap="4">
                       <Stack gap="2">
                         <Heading as="h3" fontSize="md" overflowWrap="anywhere">
-                          {selection.source.name}
+                          <ModelLabel model={selection.source.name} />
                         </Heading>
                         <HStack gap="2" flexWrap="wrap">
                           <Badge colorPalette="gray">{selection.source.providerName}</Badge>

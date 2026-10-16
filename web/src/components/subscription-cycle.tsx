@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 import { dateTimeInput, formatCount, formatUsd, formError, localDate } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
+import { ModelLabel } from './brand-icon';
 import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
 
 export function subscriptionCycleQuery(channelId: string, enabled: boolean) {
@@ -153,7 +154,9 @@ export function SubscriptionCycleDialog({ channelId, onClose }: { channelId: str
                 <Table.Body>
                   {data.models.map((row) => (
                     <Table.Row key={row.modelId ?? 'unknown'}>
-                      <Table.Cell color={row.name ? undefined : 'gray.500'}>{row.name ?? '未识别模型'}</Table.Cell>
+                      <Table.Cell color={row.name ? undefined : 'gray.500'}>
+                        {row.name ? <ModelLabel model={row.name} /> : '未识别模型'}
+                      </Table.Cell>
                       {[
                         ['requests', formatCount(row.requests)],
                         ...tokenColumns.map(([key]) => [key, formatCount(row[key])]),

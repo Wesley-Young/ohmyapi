@@ -5,6 +5,7 @@ import { RefreshCw } from 'lucide-react';
 import { formError, localDateTime } from '../lib/format';
 import { type SubscriptionProvider, subscriptionAccessHints, subscriptionProviderLabels } from '../lib/subscription';
 import { brandColor } from '../lib/theme';
+import { ProviderIcon } from './brand-icon';
 import { OpenAIResetCredits } from './openai-reset-credits';
 import { ErrorText, FormInput } from './ui';
 
@@ -128,6 +129,7 @@ export function SubscriptionAccess({
       ) : (
         <Stack gap="3">
           <Button type="button" variant="outline" onClick={onStartOAuth} loading={oauthPending} disabled={busy}>
+            <ProviderIcon provider={provider} />
             生成授权链接
           </Button>
           {oauthUrl && (

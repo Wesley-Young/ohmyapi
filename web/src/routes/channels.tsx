@@ -5,6 +5,7 @@ import { Pencil, Trash2, UserRoundKey } from 'lucide-react';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
+import { ModelIcon, ProviderIcon } from '../components/brand-icon';
 import { ChannelForm } from '../components/channel-form';
 import { ChannelUsersDialog } from '../components/channel-grants';
 import { IconButton } from '../components/icon-button';
@@ -59,7 +60,10 @@ export default function Channels() {
             {saved.unpricedModels.slice(0, 10).map((model) => (
               <Link key={model.id} asChild>
                 <RouterLink to={`/console/models/${model.id}/pricing`}>
-                  <Badge colorPalette="gray">{model.name}</Badge>
+                  <Badge colorPalette="gray">
+                    <ModelIcon model={model.name} size={12} />
+                    {model.name}
+                  </Badge>
                 </RouterLink>
               </Link>
             ))}
@@ -103,10 +107,13 @@ export default function Channels() {
                       </Table.Cell>
                       <Table.Cell>
                         <HStack gap="2">
-                          <Text>
-                            {channelTypeLabels[c.type]}{' '}
-                            {c.subscription && `(${subscriptionProviderLabels[c.subscription.provider]})`}
-                          </Text>
+                          {!(c.type === 'subscription') && <Text>{channelTypeLabels[c.type]}</Text>}
+                          {c.subscription && (
+                            <HStack gap="1.5">
+                              <ProviderIcon provider={c.subscription.provider} />
+                              <Text>{subscriptionProviderLabels[c.subscription.provider]}</Text>
+                            </HStack>
+                          )}
                           {c.type === 'subscription' && c.subscription && (
                             <PlanBadge
                               provider={c.subscription.provider}

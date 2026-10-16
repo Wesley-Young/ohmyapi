@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { displayMoney, formError, localDate } from '../lib/format';
 import { trpc } from '../lib/trpc';
+import { ModelLabel } from './brand-icon';
 import { ErrorText, FormDialog, Loading } from './ui';
 
 const requestStatuses = {
@@ -42,7 +43,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
           r && (
             <>
               <HStack gap="2" flexWrap="wrap">
-                <Text overflowWrap="anywhere">{r.model}</Text>
+                <ModelLabel model={r.model} overflowWrap="anywhere" />
                 <Badge colorPalette="gray">{requestStatuses[r.status]}</Badge>
                 {r.usageEstimate && <Badge colorPalette="orange">估算</Badge>}
               </HStack>
