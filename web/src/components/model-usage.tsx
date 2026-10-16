@@ -99,9 +99,10 @@ export default function ModelUsage({ currency, scope = 'self' }: { currency?: st
                 </Table.Header>
                 <Table.Body>
                   {usage.data.map((row) => (
-                    <Table.Row key={row.modelId ?? (row.others ? 'others' : 'unknown')}>
+                    <Table.Row key={row.modelId ?? (row.others === null ? 'unknown' : 'others')}>
                       <Table.Cell color={row.name ? undefined : 'gray.500'}>
-                        {row.name ?? (row.others ? `其他 ${row.others} 个模型` : '未识别模型')}
+                        {row.name ??
+                          (row.others === null ? '未识别模型' : row.others ? `其他 ${row.others} 个模型` : '其他模型')}
                       </Table.Cell>
                       {columns.map((column) => (
                         <Table.Cell key={column.key} textAlign="end" fontVariantNumeric="tabular-nums">

@@ -93,7 +93,10 @@ export class WalletService {
     };
   }
 
-  /** 个人按消费排序；全站按请求数排行，前 10 名之后合并为一行，合计仍与卡片一致。 */
+  /**
+   * 个人按消费排序；全站按请求数排行，前 10 名之后与未识别模型的请求合并为“其他”一行，合计仍与卡片一致。
+   * `others` 只在合并行上有值，表示其中已识别的模型数。
+   */
   async models(userId: string | undefined, range: StatsRange) {
     const rows = await this.db
       .select({ modelId: requests.modelId, name: models.name, ...usageStats() })
@@ -115,19 +118,23 @@ export class WalletService {
     const items = sorted.map(({ modelId, name, ...stats }) => ({
       modelId,
       name: modelId ? name : null,
-      others: 0,
+      others: null as number | null,
       ...statsDto(stats),
     }));
-    if (userId || sorted.length <= 11) return items;
-    const rest = sorted.slice(10);
+    if (userId) return items;
+    const known = items.filter((row) => row.modelId);
+    const unknown = sorted.filter((row) => !row.modelId);
+    if (!unknown.length && known.length <= 11) return known;
+    const extra = sorted.filter((row) => row.modelId).slice(10);
+    const rest = [...extra, ...unknown];
     const sum = (key: 'requestCount' | 'tokens' | 'chargedMicros') =>
       rest.reduce((total, row) => total + BigInt(row[key]), 0n).toString();
     return [
-      ...items.slice(0, 10),
+      ...known.slice(0, 10),
       {
         modelId: null,
         name: null,
-        others: rest.length,
+        others: extra.length,
         ...statsDto({ requestCount: sum('requestCount'), tokens: sum('tokens'), chargedMicros: sum('chargedMicros') }),
       },
     ];
