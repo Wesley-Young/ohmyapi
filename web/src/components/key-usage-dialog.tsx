@@ -14,6 +14,7 @@ export function KeyUsageDialog({ onClose }: { onClose: () => void }) {
           {[
             { label: 'OpenAI Responses 兼容客户端', url: `${origin}/v1` },
             { label: 'Anthropic Messages 兼容客户端（Claude Code 除外）', url: origin },
+            { label: 'Google Generative AI 兼容客户端', url: `${origin}/v1beta` },
           ].map(({ label, url }) => (
             <Stack key={label} gap="1" minW="0">
               <Text color="gray.600">{label}</Text>
