@@ -7,14 +7,14 @@ import { brandColor } from '../lib/theme';
 import { Panel } from './ui';
 
 const metrics = [
-  { key: 'requestCount', label: '请求数' },
-  { key: 'tokens', label: 'Token 量' },
   { key: 'chargedAmount', label: '消费' },
+  { key: 'tokens', label: 'Token 量' },
+  { key: 'requestCount', label: '请求数' },
 ] as const;
 type Metric = (typeof metrics)[number]['key'];
 
 export default function UsageTrend({ days, currency }: { days: RouterOutputs['wallet']['trend']; currency?: string }) {
-  const [metric, setMetric] = useState<Metric>('requestCount');
+  const [metric, setMetric] = useState<Metric>('chargedAmount');
   const titleId = useId();
   const label = metrics.find((item) => item.key === metric)?.label;
   const values = days.map((day) => BigInt(day[metric].replace('.', '')));
