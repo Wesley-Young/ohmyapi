@@ -2,6 +2,7 @@ import {
   Box,
   Button,
   type ButtonProps,
+  DataList,
   Dialog,
   Field,
   Flex,
@@ -141,6 +142,46 @@ export function Section({
       </HStack>
       {children}
     </Stack>
+  );
+}
+/** 弹窗顶部的只读概要：标签在上、值在下，各项横向排列并可换行；值区域等高，徽标与文字垂直居中。 */
+export function Facts({ items }: { items: { label: string; value: ReactNode }[] }) {
+  return (
+    <DataList.Root orientation="vertical" flexDirection="row" flexWrap="wrap" columnGap="10" rowGap="4">
+      {items.map(({ label, value }) => (
+        <DataList.Item key={label} gap="1.5">
+          <DataList.ItemLabel fontSize="sm" color="gray.500">
+            {label}
+          </DataList.ItemLabel>
+          <DataList.ItemValue minH="6" alignItems="center" fontSize="sm" fontWeight="500" color="#171717">
+            {value}
+          </DataList.ItemValue>
+        </DataList.Item>
+      ))}
+    </DataList.Root>
+  );
+}
+/** 设置行：左侧为名称和说明，右侧为操作，两者垂直居中；窄屏时操作换到下方。 */
+export function SettingRow({ title, hint, action }: { title: string; hint?: string; action: ReactNode }) {
+  return (
+    <Flex
+      direction={{ base: 'column', sm: 'row' }}
+      align={{ base: 'start', sm: 'center' }}
+      justify="space-between"
+      gap="3"
+    >
+      <Stack gap="0.5" minW="0">
+        <Text fontSize="sm" fontWeight="500">
+          {title}
+        </Text>
+        {hint && (
+          <Text fontSize="sm" color="gray.500">
+            {hint}
+          </Text>
+        )}
+      </Stack>
+      <Box flexShrink="0">{action}</Box>
+    </Flex>
   );
 }
 export function Title({ children, action }: { children: ReactNode; action?: ReactNode }) {

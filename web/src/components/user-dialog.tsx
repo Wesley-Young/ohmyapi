@@ -1,13 +1,24 @@
-import { Badge, HStack, Stack, Text } from '@chakra-ui/react';
+import { Badge, Separator, Stack, Text } from '@chakra-ui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { refreshUser } from '../lib/cache';
-import { formError } from '../lib/format';
+import { formError, localDate } from '../lib/format';
 import { trpc, trpcClient } from '../lib/trpc';
 import { ChannelBlocks, ChannelGrants } from './channel-grants';
 import { UserGroups } from './group-members';
-import { ConfirmAction, ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton, Section } from './ui';
+import {
+  ConfirmAction,
+  ErrorText,
+  Facts,
+  FormDialog,
+  FormInput,
+  Loading,
+  PageControls,
+  PrimaryButton,
+  Section,
+  SettingRow,
+} from './ui';
 import { UserRoleAction } from './user-role-action';
 import { Ledger, WalletSummary } from './wallet';
 import { WalletReconciliation } from './wallet-reconciliation';
@@ -62,7 +73,77 @@ function ResetPassword({ userId }: { userId: string }) {
   );
 }
 
-/** 管理单个用户：账号状态、钱包、密码、用户组、渠道授权与屏蔽、资金流水。 */
+type AccountUser = { id: string; username: string; role: 'admin' | 'user'; status: 'active' | 'disabled' };
+
+function Account({ user, onDeleted }: { user: AccountUser; onDeleted: () => void }) {
+  const userId = user.id;
+  const active = user.status === 'active';
+  return (
+    <Section title="账号操作">
+      <Stack gap="4" separator={<Separator borderColor="gray.100" />}>
+        {user.role === 'user' && (
+          <SettingRow
+            title="状态"
+            hint={active ? '目前启用，禁用后会话失效，API Key 暂停访问' : '目前禁用，启用后可重新登录并使用未撤销的 API Key'}
+            action={
+              <ConfirmAction
+                label={active ? '禁用用户' : '启用用户'}
+                description={
+                  active ? '该用户的会话将失效，API Key 将暂停访问。' : '重新允许该用户登录及使用尚未撤销的 API Key。'
+                }
+                action={async () => {
+                  await trpcClient.admin.users.setStatus.mutate({ userId, status: active ? 'disabled' : 'active' });
+                  await refreshUser(userId);
+                }}
+              />
+            }
+          />
+        )}
+        {user.role === 'user' && (
+          <SettingRow
+            title="登录会话"
+            hint="强制重新登录，API Key 不受影响"
+            action={
+              <ConfirmAction
+                label="退出所有会话"
+                description="该用户需要重新登录，API Key 不受影响。"
+                action={async () => {
+                  await trpcClient.admin.users.revokeSessions.mutate({ userId });
+                  await refreshUser(userId);
+                }}
+              />
+            }
+          />
+        )}
+        <SettingRow
+          title="角色"
+          hint={user.role === 'admin' ? '降级后失去管理员权限' : '提升后可管理用户、渠道、定价和余额'}
+          action={<UserRoleAction user={user} />}
+        />
+        {user.role === 'user' && (
+          <SettingRow
+            title="删除用户"
+            hint="会话和 API Key 失效，余额、请求与流水保留"
+            action={
+              <ConfirmAction
+                label="删除用户"
+                danger
+                description={`删除用户「${user.username}」后，其会话和所有 API Key 将失效。余额、历史请求与流水保留。`}
+                action={() => trpcClient.admin.users.delete.mutate({ userId })}
+                onSuccess={async () => {
+                  await refreshUser(userId);
+                  onDeleted();
+                }}
+              />
+            }
+          />
+        )}
+      </Stack>
+    </Section>
+  );
+}
+
+/** 管理单个用户：账号状态与角色、钱包、密码、用户组、渠道授权与屏蔽、资金流水。 */
 export function UserDialog({ userId, onClose }: { userId: string; onClose: () => void }) {
   const [page, setPage] = useState(0);
   const user = useQuery(trpc.admin.users.get.queryOptions({ userId }));
@@ -80,55 +161,22 @@ export function UserDialog({ userId, onClose }: { userId: string; onClose: () =>
           wallet.data &&
           ledger.data && (
             <>
-              <HStack justify="space-between" align="start" gap="3" flexWrap="wrap">
-                <HStack gap="2" flexWrap="wrap">
-                  <Badge>{user.data.role === 'admin' ? '管理员' : '普通用户'}</Badge>
-                  <Badge colorPalette={user.data.deleted || user.data.status === 'disabled' ? 'gray' : 'green'}>
-                    {user.data.deleted ? '已删除' : user.data.status === 'active' ? '启用' : '已禁用'}
-                  </Badge>
-                </HStack>
-                <HStack gap="3" flexWrap="wrap">
-                  {!user.data.deleted && <UserRoleAction user={user.data} />}
-                  {managed && (
-                    <>
-                      <ConfirmAction
-                        label="退出所有会话"
-                        description="该用户需要重新登录，API Key 不受影响。"
-                        action={async () => {
-                          await trpcClient.admin.users.revokeSessions.mutate({ userId });
-                          await refreshUser(userId);
-                        }}
-                      />
-                      <ConfirmAction
-                        label={user.data.status === 'active' ? '禁用' : '启用'}
-                        description={
-                          user.data.status === 'active'
-                            ? '该用户的会话将失效，API Key 将暂停访问。'
-                            : '重新允许该用户登录及使用尚未撤销的 API Key。'
-                        }
-                        action={async () => {
-                          await trpcClient.admin.users.setStatus.mutate({
-                            userId,
-                            status: user.data?.status === 'active' ? 'disabled' : 'active',
-                          });
-                          await refreshUser(userId);
-                        }}
-                      />
-                      <ConfirmAction
-                        label="删除用户"
-                        danger
-                        description={`删除用户「${user.data.username}」后，其会话和所有 API Key 将失效。余额、历史请求与流水保留。`}
-                        action={() => trpcClient.admin.users.delete.mutate({ userId })}
-                        onSuccess={async () => {
-                          await refreshUser(userId);
-                          onClose();
-                        }}
-                      />
-                    </>
-                  )}
-                </HStack>
-              </HStack>
+              <Facts
+                items={[
+                  { label: '角色', value: <Badge>{user.data.role === 'admin' ? '管理员' : '普通用户'}</Badge> },
+                  {
+                    label: '状态',
+                    value: (
+                      <Badge colorPalette={user.data.deleted || user.data.status === 'disabled' ? 'gray' : 'green'}>
+                        {user.data.deleted ? '已删除' : user.data.status === 'active' ? '启用' : '已禁用'}
+                      </Badge>
+                    ),
+                  },
+                  { label: '创建时间', value: localDate(user.data.createdAt) },
+                ]}
+              />
               <WalletSummary wallet={wallet.data} />
+              {!user.data.deleted && <Account user={user.data} onDeleted={onClose} />}
               {managed && (
                 <>
                   <ResetPassword userId={userId} />

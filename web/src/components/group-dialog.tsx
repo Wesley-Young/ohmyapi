@@ -2,13 +2,11 @@ import { Badge, Box, Button, HStack, Stack, Table, Text } from '@chakra-ui/react
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { refreshGrants } from '../lib/cache';
-import { formError } from '../lib/format';
-import { trpc, trpcClient } from '../lib/trpc';
+import { formError, localDate } from '../lib/format';
+import { trpc } from '../lib/trpc';
 import { GroupAccessActions } from './group-access';
-import { GroupForm } from './group-form';
 import { GroupMembersDialog } from './group-members';
-import { ConfirmAction, ErrorText, FormDialog, Loading, PageControls, pinnedColumn, Section } from './ui';
+import { ErrorText, Facts, FormDialog, Loading, PageControls, pinnedColumn, Section } from './ui';
 import { UserDialog } from './user-dialog';
 
 function Members({ groupId, groupName }: { groupId: string; groupName: string }) {
@@ -159,10 +157,9 @@ function Channels({
   );
 }
 
-/** 管理单个用户组：成员、非公开渠道授权和公开渠道屏蔽。 */
+/** 管理单个用户组：成员、非公开渠道授权和公开渠道屏蔽。重命名和删除在用户组列表中操作。 */
 export function GroupDialog({ groupId, onClose }: { groupId: string; onClose: () => void }) {
   const group = useQuery(trpc.admin.groups.get.queryOptions({ groupId }));
-  const [renaming, setRenaming] = useState(false);
   return (
     <FormDialog open size="xl" title={group.data?.name ?? '用户组'} onClose={onClose}>
       <Stack gap="6">
@@ -172,25 +169,12 @@ export function GroupDialog({ groupId, onClose }: { groupId: string; onClose: ()
         ) : (
           group.data && (
             <>
-              <HStack justify="space-between" align="start" gap="3" flexWrap="wrap">
-                <Badge>{group.data.memberCount} 人</Badge>
-                <HStack gap="3" flexWrap="wrap">
-                  <Button size="sm" variant="outline" onClick={() => setRenaming(true)}>
-                    重命名
-                  </Button>
-                  <ConfirmAction
-                    label="删除用户组"
-                    danger
-                    description={`删除用户组「${group.data.name}」后，成员已有的渠道授权和屏蔽保持不变。`}
-                    action={() => trpcClient.admin.groups.delete.mutate({ groupId })}
-                    onSuccess={async () => {
-                      onClose();
-                      await refreshGrants();
-                    }}
-                  />
-                </HStack>
-              </HStack>
-              {renaming && <GroupForm group={group.data} onClose={() => setRenaming(false)} />}
+              <Facts
+                items={[
+                  { label: '成员数', value: group.data.memberCount },
+                  { label: '创建时间', value: localDate(group.data.createdAt) },
+                ]}
+              />
               <Members groupId={groupId} groupName={group.data.name} />
               <GrantedChannels groupId={groupId} groupName={group.data.name} />
               <BlockedChannels groupId={groupId} groupName={group.data.name} />
