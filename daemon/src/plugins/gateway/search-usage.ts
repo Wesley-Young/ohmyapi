@@ -1,7 +1,9 @@
-import type { ApiProtocol, SearchKind } from '../../protocols/index.ts';
+import type { ApiProtocol, SearchActivity, SearchKind } from '../../protocols/index.ts';
 import type { SearchRequest } from '../billing/search.ts';
 import type { UsageEstimate } from '../database/schema/index.ts';
 import { maxSearchCalls } from '../pricing/rules.ts';
+
+import { createHash } from 'node:crypto';
 
 type Data = Record<string, unknown>;
 const object = (value: unknown): Data | undefined =>
@@ -13,13 +15,22 @@ export class SearchUsageCollector {
   webSearchPreviewCalls = 0n;
   invalid = false;
   unknownCosts = false;
-  incomplete = false;
   private request: SearchRequest = { implicit: false, estimatedCalls: 0 };
   private reported = false;
   private serverSearch = false;
   private serverSearchReported = false;
   private readonly seen = new Set<string>();
   private readonly searchResults = new Set<string>();
+  private serverToolsIncomplete = false;
+  /** 响应报告的搜索查询摘要，用于在流式事件之间去重。 */
+  private readonly queries = new Set<string>();
+  /** 响应内容中的服务端搜索调用数。 */
+  private queryCalls = 0;
+
+  /** 上游执行了搜索，但没有报告足以计价的调用或查询。 */
+  get incomplete() {
+    return this.serverToolsIncomplete || this.queries.size < this.queryCalls;
+  }
 
   /** 响应中出现过搜索调用或结果。 */
   get observed() {
@@ -28,7 +39,9 @@ export class SearchUsageCollector {
       this.webSearchPreviewCalls > 0n ||
       this.serverSearch ||
       this.seen.size > 0 ||
-      this.searchResults.size > 0
+      this.searchResults.size > 0 ||
+      this.queries.size > 0 ||
+      this.queryCalls > 0
     );
   }
 
@@ -89,6 +102,37 @@ export class SearchUsageCollector {
     this.setCount(kind, Number(previous) + 1);
   }
 
+  /** 按不同的非空查询计数；请求未声明搜索工具时无法计价。 */
+  private observeActivity({ queries, calls, unknownCosts }: SearchActivity) {
+    if (unknownCosts) this.unknownCosts = true;
+    if (this.invalid || (!queries.length && !calls)) return;
+    const kind = this.request.kind;
+    if (!kind) {
+      this.unknownCosts = true;
+      return;
+    }
+    if (this.queryCalls + calls > maxSearchCalls) {
+      this.invalid = true;
+      return;
+    }
+    this.queryCalls += calls;
+    for (const query of queries) {
+      if (typeof query !== 'string') {
+        this.invalid = true;
+        return;
+      }
+      if (!query.trim()) continue;
+      const digest = createHash('sha256').update(query).digest('base64');
+      if (this.queries.has(digest)) continue;
+      if (this.queries.size >= maxSearchCalls) {
+        this.invalid = true;
+        return;
+      }
+      this.queries.add(digest);
+    }
+    this.setCount(kind, this.queries.size);
+  }
+
   observe(
     features: ApiProtocol['responseFeatures'],
     data: Data,
@@ -104,6 +148,8 @@ export class SearchUsageCollector {
           this.observeItem(item, index);
         });
     }
+    const activity = features.searchActivity?.(envelope);
+    if (activity) this.observeActivity(activity);
     const blocks = !features.serverTools
       ? []
       : Array.isArray(envelope.content)
@@ -147,7 +193,8 @@ export class SearchUsageCollector {
     } else if (usage && this.request.implicit && !this.reported) {
       this.setCount(this.request.kind as SearchKind, 1);
     }
-    if (features.serverTools && terminal && this.serverSearch && !this.serverSearchReported) this.incomplete = true;
+    if (features.serverTools && terminal && this.serverSearch && !this.serverSearchReported)
+      this.serverToolsIncomplete = true;
   }
 
   estimate(features: ApiProtocol['responseFeatures']): UsageEstimate['searchSource'] {
@@ -157,6 +204,8 @@ export class SearchUsageCollector {
       return 'request';
     }
     if (features.serverTools) this.setCount('webSearch', this.searchResults.size);
+    // 缺少查询报告的搜索调用至少按一次查询估算。
+    if (this.request.kind && this.queryCalls > this.queries.size) this.setCount(this.request.kind, this.queryCalls);
     return this.request.kind || this.serverSearch || this.searchResults.size ? 'observed' : 'none';
   }
 }

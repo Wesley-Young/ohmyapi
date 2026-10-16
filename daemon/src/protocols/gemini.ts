@@ -1,5 +1,5 @@
 import { GatewayError } from '../core/errors.ts';
-import type { ApiProtocol, Data, ModelInfo, NormalizedUsage, UsageReader } from './types.ts';
+import type { ApiProtocol, Data, ModelInfo, NormalizedUsage, SearchActivity, UsageReader } from './types.ts';
 import { count, object } from './util.ts';
 
 import { createHash } from 'node:crypto';
@@ -20,6 +20,8 @@ const part: Spec = {
   functionResponse: fields,
   executableCode: fields,
   codeExecutionResult: fields,
+  toolCall: fields,
+  toolResponse: fields,
   videoMetadata: fields,
   mediaResolution: fields,
 };
@@ -30,7 +32,7 @@ const generateRequest: Spec = {
   tools: [
     {
       functionDeclarations: [fields],
-      googleSearch: fields,
+      googleSearch: { searchTypes: fields, timeRangeFilter: fields },
       googleSearchRetrieval: fields,
       codeExecution: fields,
       urlContext: fields,
@@ -233,6 +235,57 @@ function modelEntry(model: ModelInfo) {
   };
 }
 
+/**
+ * 支持函数声明和 Google 网页搜索，每个工具对象只声明一种工具。
+ * 图片搜索、代码执行、URL 上下文等内置工具按其他方式计费。
+ */
+function geminiToolKind(tool: Data) {
+  const entries = Object.entries(tool);
+  if (entries.length !== 1) return undefined;
+  const [[key, value]] = entries;
+  if (key === 'functionDeclarations' && Array.isArray(value)) return 'client';
+  const search = object(value);
+  if (key !== 'googleSearch' || !search) return undefined;
+  // searchTypes 缺省时只启用网页搜索。
+  const types = search.searchTypes;
+  if (types !== undefined && !Object.keys(object(types) ?? { invalid: true }).every((type) => type === 'webSearch'))
+    return undefined;
+  return 'webSearch';
+}
+
+/**
+ * Google 按模型执行的搜索查询计费，查询列在候选的 groundingMetadata 中。
+ * 开启 includeServerSideToolInvocations 时，响应内容还包含服务端的 toolCall，用来发现缺少查询报告的搜索。
+ */
+function searchActivity(data: Data): SearchActivity | undefined {
+  const activity: SearchActivity = { queries: [], calls: 0, unknownCosts: false };
+  let found = false;
+  for (const value of candidatesOf(data)) {
+    const candidate = object(value);
+    if (!candidate) continue;
+    if (candidate.groundingMetadata !== undefined) {
+      found = true;
+      const grounding = object(candidate.groundingMetadata);
+      const queries = grounding?.webSearchQueries;
+      // 格式错误时加入非字符串的值，由调用方判定为无效。
+      if (Array.isArray(queries)) activity.queries.push(...queries);
+      else if (!grounding || queries !== undefined) activity.queries.push(null);
+      const images = grounding?.imageSearchQueries;
+      if (images !== undefined && (!Array.isArray(images) || images.length > 0)) activity.unknownCosts = true;
+    }
+    const parts = object(candidate.content)?.parts;
+    for (const item of Array.isArray(parts) ? parts : []) {
+      const part = object(item);
+      const invocation = object(part?.toolCall) ?? object(part?.toolResponse);
+      if (!invocation) continue;
+      found = true;
+      if (invocation.toolType !== 'GOOGLE_SEARCH_WEB') activity.unknownCosts = true;
+      else if (part?.toolCall) activity.calls += 1;
+    }
+  }
+  return found ? activity : undefined;
+}
+
 /** inlineData 和 fileData 没有 type 字段，按 MIME 类型归类。 */
 function partType(part: Data): unknown {
   const media = object(part.inlineData) ?? object(part.fileData);
@@ -301,12 +354,7 @@ export const geminiProtocol: ApiProtocol = {
         ? modalities.map((value) => (typeof value === 'string' ? value.toLowerCase() : value))
         : modalities;
     },
-    // 只支持函数声明；Google 搜索、代码执行等内置工具按其他方式计费。
-    toolKind: (tool) =>
-      Object.keys(tool).length > 0 &&
-      Object.entries(tool).every(([key, value]) => key === 'functionDeclarations' && Array.isArray(value))
-        ? 'client'
-        : undefined,
+    toolKind: geminiToolKind,
     search: {},
   },
   upstream: {
@@ -321,7 +369,11 @@ export const geminiProtocol: ApiProtocol = {
       return repaired ? Buffer.from(JSON.stringify(repaired)) : bytes;
     },
   },
-  responseFeatures: { searchOutputItems: false, serverTools: false },
+  responseFeatures: {
+    searchOutputItems: false,
+    serverTools: false,
+    searchActivity,
+  },
   observeOutput(data, sink) {
     for (const value of candidatesOf(data)) {
       const candidate = object(value);
@@ -338,6 +390,9 @@ export const geminiProtocol: ApiProtocol = {
           sink.append(call.name);
           if (call.args !== undefined) sink.append(JSON.stringify(call.args));
         }
+        // 服务端工具调用的参数由模型生成，计入输出。
+        const toolCall = object(part.toolCall);
+        if (toolCall?.args !== undefined) sink.append(JSON.stringify(toolCall.args));
       }
     }
   },

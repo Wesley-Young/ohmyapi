@@ -9,6 +9,12 @@ export type SearchKind = 'webSearch' | 'webSearchPreview';
 /** 客户端执行的工具，或按调用次数计费的搜索工具。 */
 export type ToolKind = 'client' | SearchKind;
 
+/**
+ * 一个响应事件中的搜索活动。queries 是上游报告的查询，同一响应内按不同查询计数，非字符串的值表示格式错误；
+ * calls 是响应内容中的搜索调用数，用于发现上游执行了搜索却未报告查询；unknownCosts 表示出现了无法计价的服务端工具。
+ */
+export type SearchActivity = { queries: unknown[]; calls: number; unknownCosts: boolean };
+
 /** 一次请求调用的模型和响应方式。 */
 export type RequestTarget = {
   model: string;
@@ -173,6 +179,8 @@ export interface ApiProtocol {
     readonly searchOutputItems: boolean;
     /** 内容块中的服务端工具调用和搜索结果。 */
     readonly serverTools: boolean;
+    /** 事件中按查询计费的服务端搜索，例如 Gemini 的 groundingMetadata；事件不涉及搜索时返回 undefined。 */
+    searchActivity?(data: Data): SearchActivity | undefined;
   };
   observeOutput(data: Data, sink: OutputSink): void;
   createUsageReader(): UsageReader;
