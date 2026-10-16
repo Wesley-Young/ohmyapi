@@ -6,6 +6,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
 import { IconButton } from '../components/icon-button';
+import { Markdown } from '../components/markdown';
 import { PlaygroundProtocol } from '../components/playground-protocol';
 import { PlaygroundSelector } from '../components/playground-selector';
 import { ErrorText, Loading } from '../components/ui';
@@ -143,7 +144,7 @@ export default function Playground() {
               </Flex>
             ) : (
               <Stack gap="8" w="full" maxW="800px" mx="auto" px={{ base: 1, md: 4 }} pt="4">
-                {messages.map((message) => (
+                {messages.map((message, index) => (
                   <Stack key={message.id} gap="2" align={message.role === 'user' ? 'end' : 'start'} minW="0">
                     {message.role !== 'user' && (
                       <Text fontSize="xs" color="gray.500" fontWeight="500" overflowWrap="anywhere">
@@ -157,9 +158,17 @@ export default function Playground() {
                       borderRadius="2xl"
                       maxW={message.role === 'user' ? '85%' : 'full'}
                     >
-                      <Text whiteSpace="pre-wrap" overflowWrap="anywhere" fontSize="sm" lineHeight="1.9">
-                        {messageText(message) || (busy ? '等待回复…' : '未返回文字内容')}
-                      </Text>
+                      {message.role === 'user' ? (
+                        <Text whiteSpace="pre-wrap" overflowWrap="anywhere" fontSize="sm" lineHeight="1.9">
+                          {messageText(message)}
+                        </Text>
+                      ) : messageText(message) ? (
+                        <Markdown content={messageText(message)} streaming={busy && index === messages.length - 1} />
+                      ) : (
+                        <Text color="gray.500" fontSize="sm" lineHeight="1.9">
+                          {busy ? '等待回复…' : '未返回文字内容'}
+                        </Text>
+                      )}
                     </Box>
                   </Stack>
                 ))}

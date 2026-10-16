@@ -22,10 +22,16 @@
     "@trpc/client": "^11.19.0",
     "@trpc/tanstack-react-query": "^11.19.0",
     "ai": "^7.0.131",
+    "katex": "^0.16.47",
     "lucide-react": "^1.52.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "react-router": "^8.4.0"
+    "react-markdown": "^10.1.0",
+    "react-router": "^8.4.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remend": "^1.4.0"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
