@@ -183,9 +183,7 @@ export default function Keys() {
                                 <Text as="dt" color="gray.500">
                                   {label}
                                 </Text>
-                                <Text as="dd" textAlign="end">
-                                  {displayMoney(value)}
-                                </Text>
+                                <Text as="dd">{displayMoney(value)}</Text>
                               </Fragment>
                             ))}
                           </Grid>
