@@ -85,6 +85,7 @@ function readGatewayConfig(env: Environment) {
     bodyTimeoutMs: integerSetting(env, 'GATEWAY_BODY_TIMEOUT_MS', 120_000, 600_000),
     bodyIdleTimeoutMs: integerSetting(env, 'GATEWAY_BODY_IDLE_TIMEOUT_MS', 20_000, 600_000),
     streamIdleTimeoutMs: integerSetting(env, 'GATEWAY_STREAM_IDLE_TIMEOUT_MS', 300_000, 3_600_000),
+    disconnectDrainTimeoutMs: integerSetting(env, 'GATEWAY_DISCONNECT_DRAIN_TIMEOUT_MS', 600_000, 3_600_000),
     maxUsageEventBytes: integerSetting(env, 'GATEWAY_MAX_USAGE_EVENT_BYTES', 128 * 1024 * 1024, 256 * 1024 * 1024),
     maxUsageBodyBytes: integerSetting(env, 'GATEWAY_MAX_USAGE_BODY_BYTES', 128 * 1024 * 1024, 256 * 1024 * 1024),
     maxConcurrent: integerSetting(env, 'GATEWAY_USER_CONCURRENCY', 4, 100),

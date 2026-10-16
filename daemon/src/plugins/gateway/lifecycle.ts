@@ -48,7 +48,15 @@ export class RequestLifecycle {
     }
     // 独立于空闲计时器，持续输出也不能无限延长断连后的收尾。
     this.drainTimer = setTimeout(() => this.abort.abort('client_disconnected'), this.drainTimeoutMs);
+    // 后台读取只占用上游资源，客户端重试时不再计入用户并发。
+    this.releaseUserCapacity();
     this.onDisconnect?.();
+  }
+
+  private releaseUserCapacity() {
+    const release = this.releaseCapacity;
+    this.releaseCapacity = undefined;
+    release?.();
   }
 
   watchClientDisconnect(handler: () => void) {
@@ -95,7 +103,7 @@ export class RequestLifecycle {
       try {
         await settle();
       } finally {
-        this.releaseCapacity?.();
+        this.releaseUserCapacity();
         this.releaseUpstream?.();
         this.onComplete();
         this.completeRequest();

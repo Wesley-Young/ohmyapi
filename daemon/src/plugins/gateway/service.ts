@@ -358,7 +358,10 @@ export class GatewayService implements Disposable {
       lifecycle.syncClientAbort();
       if (abort.signal.aborted)
         throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
-      if (executionChannel.type === 'subscription') lifecycle.retainUpstreamOnDisconnect(60_000);
+      // 客户端断开后继续读取上游以取得最终用量。
+      lifecycle.retainUpstreamOnDisconnect(
+        executionChannel.type === 'subscription' ? 60_000 : this.config.disconnectDrainTimeoutMs,
+      );
       session.dispatched = true;
       const upstream = await request(url, {
         method: 'POST',
