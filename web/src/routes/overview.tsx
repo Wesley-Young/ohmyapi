@@ -91,6 +91,9 @@ export default function Overview() {
     // 全站统计需要扫描时间窗口内的所有请求，刷新频率低于个人统计。
     trpc.admin.stats.queryOptions(undefined, { enabled: admin, refetchOnMount: 'always', refetchInterval: 60_000 }),
   );
+  const platformTrend = useQuery(
+    trpc.admin.trend.queryOptions(undefined, { enabled: admin, refetchOnMount: 'always', refetchInterval: 60_000 }),
+  );
   return (
     <Stack gap="7">
       <Title
@@ -103,13 +106,19 @@ export default function Overview() {
               variant="outline"
               size="sm"
               borderRadius="full"
-              loading={wallet.isFetching || stats.isFetching || trend.isFetching || (admin && platform.isFetching)}
+              loading={
+                wallet.isFetching ||
+                stats.isFetching ||
+                trend.isFetching ||
+                (admin && (platform.isFetching || platformTrend.isFetching))
+              }
               onClick={() =>
                 void Promise.all([
                   queryClient.invalidateQueries(trpc.wallet.pathFilter()),
                   ...(admin
                     ? [
                         queryClient.invalidateQueries(trpc.admin.stats.queryFilter()),
+                        queryClient.invalidateQueries(trpc.admin.trend.queryFilter()),
                         queryClient.invalidateQueries(trpc.admin.models.pathFilter()),
                       ]
                     : []),
@@ -152,6 +161,12 @@ export default function Overview() {
                 )}
               </Grid>
             )
+          )}
+          <ErrorText>{formError(platformTrend.error)?.message}</ErrorText>
+          {platformTrend.isPending ? (
+            <Loading />
+          ) : (
+            platformTrend.data && <UsageTrend days={platformTrend.data} currency={platform.data?.currency} />
           )}
           <ModelUsage scope="platform" currency={platform.data?.currency} />
         </Stack>

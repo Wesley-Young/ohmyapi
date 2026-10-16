@@ -149,7 +149,8 @@ export class WalletService {
     return statsDto(stats);
   }
 
-  async trend(userId: string) {
+  /** 不传 `userId` 时统计全站。 */
+  async trend(userId?: string) {
     const now = new Date();
     // Seven calendar days in Asia/Shanghai, including the current partial day.
     const dayMs = 86_400_000;
@@ -161,7 +162,13 @@ export class WalletService {
       .select({ date, ...usageStats() })
       .from(requests)
       .leftJoin(requestUsage, eq(requestUsage.requestId, requests.id))
-      .where(and(eq(requests.userId, userId), gte(requests.receivedAt, new Date(start)), lte(requests.receivedAt, now)))
+      .where(
+        and(
+          userId ? eq(requests.userId, userId) : undefined,
+          gte(requests.receivedAt, new Date(start)),
+          lte(requests.receivedAt, now),
+        ),
+      )
       .groupBy(date);
     const byDate = new Map(rows.map((row) => [row.date, statsDto(row)]));
     return Array.from({ length: 7 }, (_, index) => {

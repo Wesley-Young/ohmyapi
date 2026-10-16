@@ -21,6 +21,7 @@ export function walletRoutes(wallet: WalletService) {
     /** 全站统计。 */
     platform: {
       stats: adminProcedure.query(() => wallet.platformStats()),
+      trend: adminProcedure.query(() => wallet.trend()),
       reviewCount: adminProcedure.query(() => wallet.reviewCount()),
       models: adminProcedure.input(statsRangeInput).query(({ input }) => wallet.models(undefined, input.range)),
     },
