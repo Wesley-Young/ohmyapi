@@ -74,7 +74,7 @@ export async function forwardResponse(options: ForwardResponseOptions): Promise<
       // 分块传输只有收到结束标记才会正常结束，流在此之后不会再有用量。
       if (ended && isSse && upstream.ok) collector.streamEnded();
       if (options.estimateOnDisconnect !== false && isSse && upstream.ok && errorCode === 'client_disconnected')
-        collector.estimateDisconnected();
+        await collector.estimateDisconnected();
       if (!isSse && !collector.observationIncomplete) {
         try {
           collector.observe(JSON.parse(Buffer.concat(jsonChunks).toString('utf8')));

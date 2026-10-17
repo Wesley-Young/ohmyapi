@@ -77,7 +77,7 @@ export class UsageCollector {
     return this.search.observed;
   }
 
-  estimateDisconnected() {
+  async estimateDisconnected() {
     if (
       this.usageEstimate ||
       (this.finalUsage && !this.searchIncomplete) ||
@@ -96,7 +96,12 @@ export class UsageCollector {
     const reportedInput = count(raw[inputKey]);
     // 缓存命中无法从请求内容估算，缺少上游输入及缓存报告时交给人工核对。
     if (reportedInput === undefined || reportedCacheReadTokens(this.endpoint, raw) === null) return;
-    const tail = this.estimate.output.count();
+    let tail: bigint;
+    try {
+      tail = await this.estimate.output.count();
+    } catch (error) {
+      return this.markInvalid(error);
+    }
     const output = (this.reportedOutput ?? 0n) + tail;
     if (output > BigInt(Number.MAX_SAFE_INTEGER)) return;
     const searchSource = this.search.estimate(this.protocol.responseFeatures);
