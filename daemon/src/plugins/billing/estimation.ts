@@ -1,5 +1,4 @@
-import { Tiktoken } from 'js-tiktoken/lite';
-import o200kBase from 'js-tiktoken/ranks/o200k_base';
+import { countTokens, setMergeCacheSize } from 'gpt-tokenizer/encoding/o200k_base';
 
 import { protocolFor } from '../../protocols/index.ts';
 import type { Endpoint } from '../database/schema/index.ts';
@@ -7,7 +6,11 @@ import { requestContentBlocks } from './content.ts';
 import { estimateImageTokens } from './image-estimation.ts';
 
 // A local approximation for arbitrary upstream models, not a billing tokenizer.
-const tokenizer = new Tiktoken(o200kBase);
+// 合并缓存按片段原文保存结果，单个长片段约占 100KB；限制条数以约束不重复长文本占用的内存。
+setMergeCacheSize(1024);
+// 不识别特殊 Token，按普通文本计数。
+const literal = { disallowedSpecial: new Set<string>() };
+const count = (text: string) => countTokens(text, literal);
 
 /** 按固定字符块计数，避免 SSE 分片边界影响估算；内存中只保留最后一个块。 */
 export class OutputTokenEstimate {
@@ -22,14 +25,14 @@ export class OutputTokenEstimate {
       const end = offset + 4096;
       // 保留 UTF-16 代理对，避免把同一个字符拆成两次计数。
       const size = /[\uD800-\uDBFF]/.test(this.tail[end - 1]) ? 4095 : 4096;
-      this.tokens += BigInt(tokenizer.encode(this.tail.slice(offset, offset + size), [], []).length);
+      this.tokens += BigInt(count(this.tail.slice(offset, offset + size)));
       offset += size;
     }
     this.tail = this.tail.slice(offset);
   }
 
   count() {
-    return this.tokens + BigInt(tokenizer.encode(this.tail, [], []).length);
+    return this.tokens + BigInt(count(this.tail));
   }
 
   reset() {
@@ -105,8 +108,9 @@ export function estimateReservation(
   );
   let inputContentTokens = 0;
   // Bound each BPE operation even for long strings without whitespace.
+  // 分块同时避免超长片段超出 gpt-tokenizer 的调用栈限制。
   for (let offset = 0; offset < text.length; offset += 4096)
-    inputContentTokens += tokenizer.encode(text.slice(offset, offset + 4096), [], []).length;
+    inputContentTokens += count(text.slice(offset, offset + 4096));
   const contextTokens = inputContentTokens + settlementImageTokens;
 
   const [historySource, samples] =
