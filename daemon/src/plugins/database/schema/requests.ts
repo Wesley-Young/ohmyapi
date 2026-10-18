@@ -25,13 +25,15 @@ export type UsageEstimate = {
   /** 已有记录可能是此前的 o200k_base_v1。 */
   method: 'o200k_base_v1' | 'char_class_v1';
   reason: 'client_disconnected';
+  /** 输入始终取上游报告；request_estimate 只见于已有记录。 */
   inputSource: 'upstream' | 'request_estimate';
   outputSource: 'upstream' | 'observed_estimate' | 'upstream_with_observed_tail';
   reportedOutputTokens: string | null;
   observedTailTokens: string;
-  inputImageCount: number;
-  inputImageTokens: number;
-  imageMethod: 'model_default_1024_v1';
+  /** 以下三项只见于已有记录：当时按模型默认尺寸估算图像输入。 */
+  inputImageCount?: number;
+  inputImageTokens?: number;
+  imageMethod?: 'model_default_1024_v1';
   searchSource: 'upstream' | 'observed' | 'request' | 'none';
 };
 

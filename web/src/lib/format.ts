@@ -34,6 +34,9 @@ export function formatUsd(amount: string) {
 
 export const displayMoney = (value: string) => value.replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
 
+/** 金额字符串是否为零，如 "0.000000"。 */
+export const isZeroMoney = (value: string) => /^-?0(\.0*)?$/.test(value);
+
 export function displayRange(minimum: string, maximum: string) {
   const low = displayMoney(minimum);
   const high = displayMoney(maximum);

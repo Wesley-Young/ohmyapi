@@ -88,14 +88,13 @@ export class UsageCollector {
       this.observationIncomplete ||
       this.failed ||
       this.reader.blocksDisconnectEstimate?.() ||
-      !this.estimate.started ||
-      !this.estimate.input
+      !this.estimate.started
     )
       return;
     const raw = this.reportedUsage;
     const { inputKey, outputKey } = this.reader;
     const reportedInput = count(raw[inputKey]);
-    // 缓存命中无法从请求内容估算，缺少上游输入及缓存报告时交给人工核对。
+    // 输入和缓存命中以上游报告为准，缺少报告时交给人工核对。
     if (reportedInput === undefined || reportedCacheReadTokens(this.endpoint, raw) === null) return;
     const tail = this.estimate.output.count();
     const output = (this.reportedOutput ?? 0n) + tail;
@@ -103,10 +102,7 @@ export class UsageCollector {
     const searchSource = this.search.estimate(this.protocol.responseFeatures);
     this.normalize({
       ...raw,
-      [inputKey]:
-        reportedInput === undefined
-          ? this.estimate.input.inputContentTokens + this.estimate.input.settlementImageTokens
-          : Number(reportedInput),
+      [inputKey]: Number(reportedInput),
       [outputKey]: Number(output),
     });
     if (!this.usage || this.invalid || this.unknownCosts) return;
@@ -116,7 +112,7 @@ export class UsageCollector {
     this.usageEstimate = {
       method: tokenEstimateMethod,
       reason: 'client_disconnected',
-      inputSource: reportedInput === undefined ? 'request_estimate' : 'upstream',
+      inputSource: 'upstream',
       outputSource:
         this.reportedOutput === undefined
           ? 'observed_estimate'
@@ -125,9 +121,6 @@ export class UsageCollector {
             : 'upstream',
       reportedOutputTokens: this.reportedOutput?.toString() ?? null,
       observedTailTokens: tail.toString(),
-      inputImageCount: this.estimate.input.inputImageCount,
-      inputImageTokens: reportedInput === undefined ? this.estimate.input.settlementImageTokens : 0,
-      imageMethod: 'model_default_1024_v1',
       searchSource,
     };
   }

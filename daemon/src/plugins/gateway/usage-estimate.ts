@@ -1,11 +1,10 @@
 import type { ApiProtocol, OutputSink } from '../../protocols/index.ts';
-import { OutputTokenEstimate, type ReservationEstimate } from '../billing/estimation.ts';
+import { OutputTokenEstimate } from '../billing/estimation.ts';
 
 /** 只在内存中观察已生成内容，持久化时保留计数和来源。 */
 export class StreamUsageEstimate implements OutputSink {
   started = false;
   readonly output = new OutputTokenEstimate();
-  input?: Pick<ReservationEstimate, 'inputContentTokens' | 'inputImageCount' | 'settlementImageTokens'>;
   /** Epoch milliseconds of the first non-empty generated content, including reasoning and tool calls. */
   firstOutputAt?: number;
   /** Full reasoning text was streamed; summaries do not count because they omit most reasoning tokens. */

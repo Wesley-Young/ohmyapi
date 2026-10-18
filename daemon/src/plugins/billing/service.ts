@@ -1,16 +1,14 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import { GatewayError, requestErrorMessage } from '../../core/errors.ts';
 import { type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '../../core/logging.ts';
 import { formatMoney } from '../../core/money.ts';
 import type { Database, Transaction } from '../database/client.ts';
-import { requestAttempts, requests, requestUsage, type Usage } from '../database/schema/index.ts';
+import { requestAttempts, requests, requestUsage, type Usage, wallets } from '../database/schema/index.ts';
 import type { PricingService } from '../pricing/service.ts';
-import { lockWallet, postLedgerEntry } from '../wallet/ledger.ts';
-import { reservationAmount } from './admission.ts';
+import { assertSearchPriced } from './admission.ts';
 import { reportedCacheReadTokens } from './cache-usage.ts';
-import { estimateReservation, minimumHistorySamples, type UsageSample } from './estimation.ts';
 import {
   type BillingOutcome,
   type BillingSummary,
@@ -47,7 +45,7 @@ const orphaned = () =>
   );
 
 /**
- * 请求计费的运行时流程：预占 → 转发 → 检查点 → 收尾结算。
+ * 请求计费的运行时流程：准入 → 转发 → 检查点 → 收尾结算。
  * 收尾失败的请求留在内存中定期重试，多次失败后转入人工核对；已确认用量的请求重试更久。
  * 每个实例以 ownerId 标记自己处理的请求并定期刷新心跳；启动和定时任务恢复心跳超时的请求，多个实例可以共用同一数据库。
  */
@@ -108,117 +106,63 @@ export class BillingService implements Disposable {
     await this.tickTask;
   }
 
+  /**
+   * 计费准入：确认搜索调用可以计价且可用余额为正，记录价格快照。不预占金额，费用在结算时按实际用量一次扣除，
+   * 可以使余额变为负数；并发请求共用同一份可用余额。
+   */
   async reserve(input: ReservationInput) {
-    const user = await this.usageHistory(input, true);
-    const estimate = estimateReservation(
-      input.body,
-      input.endpoint,
-      input.outputLimit,
-      { user, model: user.length >= minimumHistorySamples ? [] : await this.usageHistory(input, false) },
-      input.requestedModel,
-    );
     const search = searchRequest(input.body, input.endpoint);
-    const amount = reservationAmount(input.price, estimate, search);
-    const snapshot = {
-      multiplier: formatMoney(input.price.multiplierMicros),
-      multiplierSource: input.price.multiplierSource,
-      pricingMode: input.price.pricingMode,
-      routing: input.price.routing,
-      receivedAt: input.price.receivedAt.toISOString(),
-      currency: this.pricing.currency,
-      billed: false,
-    };
+    assertSearchPriced(input.price, search);
+    // 历史请求可能仍持有预占，可用余额扣除这部分。
+    const [wallet] = await this.db
+      .select({ balanceMicros: wallets.balanceMicros, reservedMicros: wallets.reservedMicros })
+      .from(wallets)
+      .where(eq(wallets.userId, input.userId));
+    if (!wallet) throw new Error('Wallet missing');
+    if (wallet.balanceMicros - wallet.reservedMicros <= 0n)
+      throw new GatewayError(402, 'insufficient_balance', 'Available balance is insufficient for this request');
     this.active.add(input.requestId);
     try {
-      // 行锁顺序与收尾一致：先请求后钱包。余额不足时整个事务回滚，请求保持 received。
-      await this.db.transaction(async (tx) => {
-        const [r] = await tx
-          .update(requests)
-          .set({
-            billingEnabled: true,
-            status: 'reserved',
-            ownerId: this.ownerId,
-            heartbeatAt: new Date(),
-            modelId: input.modelId,
-            channelId: input.channelId,
-            subscriptionAccountId: input.subscriptionAccountId,
-            reasoningEffort: input.reasoningEffort,
-            reservedMicros: amount,
-            heldMicros: amount,
-            pricingSnapshot: snapshot,
-            reservationSnapshot: {
-              pricing: this.pricing.snapshot(input.price),
-              inputTokenLimit: input.inputLimit,
-              outputTokenLimit: input.outputLimit,
-              estimate,
-              search,
-              amount: formatMoney(amount),
-              strategy: 'expected_usage_v2',
-            },
-          })
-          .where(
-            and(eq(requests.id, input.requestId), eq(requests.userId, input.userId), eq(requests.status, 'received')),
-          )
-          .returning({ id: requests.id });
-        if (!r) throw new Error('Request admission state changed');
-        const wallet = await lockWallet(tx, input.userId);
-        if (!wallet) throw new Error('Wallet missing');
-        if (wallet.balanceMicros < 0n || wallet.balanceMicros - wallet.reservedMicros < amount)
-          throw new GatewayError(
-            402,
-            'insufficient_balance',
-            'Available balance is insufficient for this request reservation',
-          );
-        if (amount > 0n)
-          await postLedgerEntry(tx, wallet, {
-            requestId: r.id,
-            kind: 'reserve',
-            idempotencyKey: `reserve:${r.id}`,
-            balanceDeltaMicros: 0n,
-            reservedDeltaMicros: amount,
-            reason: '预占',
-            metadata: {
-              pricing: snapshot,
-              estimate,
-              inputTokenLimit: input.inputLimit,
-              outputTokenLimit: input.outputLimit,
-            },
-          });
-      });
+      const [r] = await this.db
+        .update(requests)
+        .set({
+          billingEnabled: true,
+          status: 'reserved',
+          ownerId: this.ownerId,
+          heartbeatAt: new Date(),
+          modelId: input.modelId,
+          channelId: input.channelId,
+          subscriptionAccountId: input.subscriptionAccountId,
+          reasoningEffort: input.reasoningEffort,
+          pricingSnapshot: {
+            multiplier: formatMoney(input.price.multiplierMicros),
+            multiplierSource: input.price.multiplierSource,
+            pricingMode: input.price.pricingMode,
+            routing: input.price.routing,
+            receivedAt: input.price.receivedAt.toISOString(),
+            currency: this.pricing.currency,
+            billed: false,
+          },
+          reservationSnapshot: {
+            pricing: this.pricing.snapshot(input.price),
+            outputTokenLimit: input.outputLimit,
+            search,
+            strategy: 'no_hold_v1',
+          },
+        })
+        .where(
+          and(eq(requests.id, input.requestId), eq(requests.userId, input.userId), eq(requests.status, 'received')),
+        )
+        .returning({ id: requests.id });
+      if (!r) throw new Error('Request admission state changed');
     } catch (error) {
       this.active.delete(input.requestId);
       throw error;
     }
-    return { amount, estimate };
-  }
-
-  /** 近期已按最终用量结算的请求；按用户时限定用户和入口渠道，否则包含该模型和端点的所有请求。 */
-  private usageHistory(input: ReservationInput, byUser: boolean): Promise<UsageSample[]> {
-    return this.db
-      .select({
-        outputTokens: requestUsage.outputTokens,
-        cacheReadTokens: requestUsage.cacheReadTokens,
-        cacheWriteTokens: requestUsage.cacheWriteTokens,
-        contextTokens: requestUsage.contextTokens,
-      })
-      .from(requests)
-      .innerJoin(requestUsage, eq(requestUsage.requestId, requests.id))
-      .where(
-        and(
-          byUser ? eq(requests.userId, input.userId) : undefined,
-          byUser ? eq(requests.channelId, input.channelId) : undefined,
-          eq(requests.modelId, input.modelId),
-          eq(requests.endpoint, input.endpoint),
-          eq(requests.status, 'settled'),
-          eq(requests.usageFinal, true),
-        ),
-      )
-      .orderBy(desc(requests.receivedAt), desc(requests.id))
-      .limit(100);
   }
 
   /**
-   * 发往上游前标记转发。准入已在路由和预占时确认，这里不再加锁复查；
+   * 发往上游前标记转发。准入已在路由和计费准入时确认，这里不再加锁复查；
    * 两条更新各自是原子的，尝试记录只用于展示，请求状态以 requests 为准。
    */
   async forwarding(id: string, attemptId: string) {

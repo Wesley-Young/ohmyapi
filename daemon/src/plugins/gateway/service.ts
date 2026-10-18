@@ -331,7 +331,7 @@ export class GatewayService implements Disposable {
       );
       // 适配器可能改写推理强度（如强制工具调用时移除），记录实际发往上游的值。
       const effectiveEffort = prepared.billingBody ? reasoningEffort(endpoint, prepared.billingBody) : requestedEffort;
-      const reservation = await this.billing.reserve({
+      await this.billing.reserve({
         requestId: id,
         userId: identity.user.id,
         modelId: model.id,
@@ -339,13 +339,10 @@ export class GatewayService implements Disposable {
         subscriptionAccountId: executionChannel.subscriptionAccountId,
         reasoningEffort: effectiveEffort,
         price: lockedPrice,
-        inputLimit: model.inputTokenLimit,
         outputLimit,
         body: prepared.billingBody ?? parsed,
-        requestedModel: target.model,
         endpoint,
       });
-      session.collector.estimate.input = reservation.estimate;
       lifecycle.syncClientAbort();
       if (abort.signal.aborted)
         throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');

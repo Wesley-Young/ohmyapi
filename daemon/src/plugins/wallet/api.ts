@@ -16,8 +16,8 @@ const walletSchema = z
   .object({
     currency: z.string().meta({ description: '显示用的货币单位', example: 'USD' }),
     balance: moneySchema.meta({ description: '余额' }),
-    reserved: moneySchema.meta({ description: '进行中的请求预占的金额' }),
-    available: moneySchema.meta({ description: '可用余额，即余额减去预占' }),
+    reserved: moneySchema.meta({ description: '早期请求冻结的金额；请求在结算时按实际用量扣费' }),
+    available: moneySchema.meta({ description: '余额减去冻结金额；为正时可以发起计费请求' }),
   })
   .meta({ id: 'Wallet' });
 

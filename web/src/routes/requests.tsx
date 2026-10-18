@@ -244,7 +244,7 @@ export default function Requests() {
                       '模型',
                       'Token 用量',
                       '耗时',
-                      `扣费/冻结（${data.data.currency}）`,
+                      `扣费（${data.data.currency}）`,
                     ].map((h) => (
                       <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                     ))}
@@ -323,7 +323,7 @@ export default function Requests() {
                       <Table.Cell>
                         <RequestDuration request={r} />
                       </Table.Cell>
-                      <Table.Cell>{r.chargedAmount || r.heldAmount}</Table.Cell>
+                      <Table.Cell>{r.chargedAmount ?? '—'}</Table.Cell>
                       <Table.Cell {...pinnedColumn}>
                         <HStack gap="1">
                           <IconButton aria-label="查看详情" size="sm" variant="ghost" onClick={() => setDetailId(r.id)}>

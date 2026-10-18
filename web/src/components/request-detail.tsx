@@ -2,14 +2,14 @@ import { Badge, Box, Grid, Heading, HStack, Stack, Table, Text } from '@chakra-u
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
 
-import { displayMoney, formError, localDate } from '../lib/format';
+import { displayMoney, formError, isZeroMoney, localDate } from '../lib/format';
 import { trpc } from '../lib/trpc';
 import { ModelLabel } from './brand-icon';
 import { ErrorText, FormDialog, Loading } from './ui';
 
 const requestStatuses = {
   received: '处理中',
-  reserved: '已预占',
+  reserved: '已受理',
   forwarding: '转发中',
   settling: '结算中',
   settled: '已结算',
@@ -33,6 +33,8 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
     ),
   );
   const r = data.data;
+  // 只有早期请求的流水会改变冻结金额。
+  const ledgerHolds = r?.ledger.some((e) => !isZeroMoney(e.reservedAmount)) ?? false;
   return (
     <FormDialog open title={`请求账单${r?.id ? ` (${r.id})` : ''}`} onClose={close}>
       <Stack gap="5">
@@ -65,7 +67,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                           ? '上游报告与后续输出估算'
                           : '已收到内容估算'}
                     </Badge>
-                    {r.usageEstimate.inputImageTokens > 0 && (
+                    {(r.usageEstimate.inputImageTokens ?? 0) > 0 && (
                       <Badge colorPalette="gray">图像估算：{r.usageEstimate.inputImageTokens} Token</Badge>
                     )}
                     {r.usageEstimate.searchSource !== 'none' && (
@@ -119,8 +121,9 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
               )}
               <Grid templateColumns={{ base: '1fr', sm: 'repeat(3, 1fr)' }} gap="3">
                 {[
-                  ['原预占', r.reserved],
-                  ['冻结金额', r.held],
+                  // 预占只见于早期请求。
+                  ...(isZeroMoney(r.reserved) ? [] : [['原预占', r.reserved]]),
+                  ...(isZeroMoney(r.held) ? [] : [['冻结金额', r.held]]),
                   ['累计已扣', r.charged ?? '—'],
                 ].map(([label, value]) => (
                   <Box key={label} borderWidth="1px" borderColor="gray.200" borderRadius="lg" p="3">
@@ -224,7 +227,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                 <Table.Root size="sm" whiteSpace="nowrap">
                   <Table.Header>
                     <Table.Row>
-                      {['类型', '时间', '余额变化', '冻结变化'].map((h) => (
+                      {['类型', '时间', '余额变化', ...(ledgerHolds ? ['冻结变化'] : [])].map((h) => (
                         <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                       ))}
                     </Table.Row>
@@ -235,7 +238,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                         <Table.Cell>{ledgerKinds[e.kind]}</Table.Cell>
                         <Table.Cell>{localDate(e.createdAt)}</Table.Cell>
                         <Table.Cell>{displayMoney(e.amount)}</Table.Cell>
-                        <Table.Cell>{displayMoney(e.reservedAmount)}</Table.Cell>
+                        {ledgerHolds && <Table.Cell>{displayMoney(e.reservedAmount)}</Table.Cell>}
                       </Table.Row>
                     ))}
                   </Table.Body>

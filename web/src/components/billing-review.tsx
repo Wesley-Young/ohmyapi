@@ -6,7 +6,7 @@ import { useRef, useState } from 'react';
 
 import { useAuth } from '../lib/auth';
 import { refreshRequestBilling, refreshUser } from '../lib/cache';
-import { formError } from '../lib/format';
+import { formError, isZeroMoney } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './fields';
 import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
@@ -190,7 +190,8 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
       >
         <Stack gap="5">
           <Text fontSize="sm" color="gray.500">
-            冻结 {r.held} {r.currency}。请依据上游请求记录确认费用，未确认用量不能视为免费。
+            {isZeroMoney(r.held) ? '' : `冻结 ${r.held} ${r.currency}。`}
+            请依据上游请求记录确认费用，未确认用量不能视为免费。
           </Text>
           <SelectField
             label="核对方式"
@@ -201,7 +202,7 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
             options={[
               { id: 'settle_usage', name: '按确认后的用量结算' },
               { id: 'settle_amount', name: '按确认后的费用结算' },
-              { id: 'release', name: '确认未消费，释放冻结' },
+              { id: 'release', name: '确认未消费，不扣费' },
             ]}
           />
           {action === 'settle_usage' && (
