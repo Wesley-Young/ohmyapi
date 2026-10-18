@@ -145,8 +145,6 @@ export interface ApiProtocol {
     blockType?(block: Data): unknown;
     /** 图片的分辨率档位，缺省读取 image_url.detail 或 detail。 */
     imageDetail?(block: Data, body: Data): unknown;
-    /** 请求生成的候选数，缺省读取 n。 */
-    choiceCount?(body: Data): unknown;
     /** 请求的输出模态，缺省读取 modalities；文本模态为 'text'。 */
     outputModalities?(body: Data): unknown;
     toolKind(tool: Data): ToolKind | undefined;

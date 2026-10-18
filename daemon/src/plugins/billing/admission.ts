@@ -35,7 +35,7 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
   const defaultOutput = !required && supplied.length === 0;
   if (!defaultOutput && supplied.length !== 1)
     throw new GatewayError(400, 'output_limit_required', `Provide exactly one output limit: ${fields.join(' or ')}`);
-  // 缺省上限只用于预占估算，保留上游请求中的缺省值或 null。
+  // 缺省上限只记录在价格快照中，上游请求保留缺省值或 null。
   const output = defaultOutput ? outputLimit : valueAt(body, supplied[0]);
   const minimum = defaultOutput ? 1 : suppliedMinimum;
   if (typeof output !== 'number' || !Number.isSafeInteger(output) || output < minimum || output > outputLimit)
@@ -44,10 +44,8 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
       'invalid_output_limit',
       `Output limit must be an integer between ${minimum} and ${outputLimit}`,
     );
+  // 多个候选（n、candidateCount）和文件输入的用量都由上游计入报告，按报告结算。
   const { request } = protocol;
-  const choices = request.choiceCount ? request.choiceCount(body) : body.n;
-  if (choices !== undefined && choices !== 1)
-    throw new GatewayError(400, 'unsupported_billing_mode', 'Only one completion per request is supported');
   searchRequest(body, endpoint);
   for (const field of ['previous_response_id', 'conversation', 'prompt', 'audio', 'prediction'])
     if (body[field] !== undefined && body[field] !== null)
@@ -63,16 +61,8 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
       'unsupported_billing_mode',
       'Only client tools and web search tools are supported for billing',
     );
-  const forbidden = new Set([
-    'audio',
-    'input_audio',
-    'output_audio',
-    'file',
-    'input_file',
-    'document',
-    'video',
-    'computer_use',
-  ]);
+  // 音视频按其他单价计费，托管工具按次收费，价格规则无法表达。
+  const forbidden = new Set(['audio', 'input_audio', 'output_audio', 'video', 'computer_use']);
   if (request.messages(body).some((message) => message.audio != null))
     throw new GatewayError(400, 'unsupported_billing_mode', 'Audio messages are not supported for billing');
   // 按协议检查消息、内容块和工具结果，schema、examples 与业务数据保持原样。
@@ -88,7 +78,7 @@ export function validateBillableRequest(body: Record<string, unknown>, endpoint:
       throw new GatewayError(
         400,
         'unsupported_billing_mode',
-        'Audio, files, video and hosted tools are not supported for billing',
+        'Audio, video and hosted tools are not supported for billing',
       );
   }
   return output;
