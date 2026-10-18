@@ -1,24 +1,16 @@
 import { Button, Grid, HStack, Stack, Text } from '@chakra-ui/react';
 import type { RouterInputs, RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { TRPCClientError } from '@trpc/client';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 
-import { useAuth } from '../lib/auth';
 import { refreshRequestBilling, refreshUser } from '../lib/cache';
 import { formError, isZeroMoney } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './fields';
 import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
 
-/** 服务端已明确拒绝的错误；其余错误（如网络中断）下操作可能已生效。 */
-const definitive = (error: unknown) =>
-  error instanceof TRPCClientError &&
-  ['BAD_REQUEST', 'FORBIDDEN', 'UNAUTHORIZED', 'NOT_FOUND', 'CONFLICT'].includes(error.data?.code);
 type Detail = RouterOutputs['requestDetail'];
 type Resolution = RouterInputs['admin']['billing']['resolve'];
-type Correction = RouterInputs['admin']['billing']['correct'];
-type ZeroResolution = RouterInputs['admin']['billing']['resolveZero'];
 
 export function BulkZeroBilling({
   requestIds,
@@ -27,35 +19,14 @@ export function BulkZeroBilling({
   requestIds: string[];
   onSuccess: (count: number) => void;
 }) {
-  const { data: actor } = useAuth();
-  const storageKey = `ohmyapi:resolve-zero:${actor?.id}`;
-  const [saved] = useState<ZeroResolution | undefined>(() => {
-    try {
-      const value = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null');
-      return Array.isArray(value?.requestIds) && value.requestIds.length && typeof value.idempotencyKey === 'string'
-        ? value
-        : undefined;
-    } catch {
-      return undefined;
-    }
-  });
-  const operation = useRef<ZeroResolution | undefined>(saved);
-  const [open, setOpen] = useState(Boolean(saved));
-  const [ids, setIds] = useState<string[]>(saved?.requestIds ?? []);
-  const [reason, setReason] = useState(saved?.reason ?? '管理员批量确认按 0 计费');
+  const [open, setOpen] = useState(false);
+  const [ids, setIds] = useState<string[]>([]);
+  const [reason, setReason] = useState('管理员批量确认按 0 计费');
   const task = useMutation(
     trpc.admin.billing.resolveZero.mutationOptions({
-      onMutate: (input) => sessionStorage.setItem(storageKey, JSON.stringify(input)),
-      onError: (error) => {
-        if (definitive(error)) {
-          operation.current = undefined;
-          sessionStorage.removeItem(storageKey);
-          void queryClient.invalidateQueries(trpc.admin.requests.pathFilter());
-        }
-      },
+      // 部分请求可能已被其他人处理，刷新列表后重新选择。
+      onError: () => void queryClient.invalidateQueries(trpc.admin.requests.pathFilter()),
       onSuccess: async (result) => {
-        operation.current = undefined;
-        sessionStorage.removeItem(storageKey);
         onSuccess(result.count);
         await Promise.all([
           ...result.userIds.map(refreshUser),
@@ -70,19 +41,18 @@ export function BulkZeroBilling({
       },
     }),
   );
-  const locked = task.isPending || Boolean(operation.current);
   return (
     <>
       <PrimaryButton
         size="sm"
-        disabled={!requestIds.length && !operation.current}
+        disabled={!requestIds.length}
         onClick={() => {
-          setIds(operation.current?.requestIds ?? [...requestIds]);
+          setIds([...requestIds]);
           task.reset();
           setOpen(true);
         }}
       >
-        {operation.current ? '重试按 0 计费' : '全部按 0 计费'}
+        全部按 0 计费
       </PrimaryButton>
       {open && (
         <FormDialog open title="批量按 0 计费" busy={task.isPending} onClose={() => setOpen(false)}>
@@ -90,8 +60,7 @@ export function BulkZeroBilling({
             onSubmit={(event) => {
               event.preventDefault();
               if (task.isPending) return;
-              operation.current ??= { requestIds: ids, reason, idempotencyKey: crypto.randomUUID() };
-              task.mutate(operation.current);
+              task.mutate({ requestIds: ids, reason });
             }}
           >
             <Stack gap="5">
@@ -100,18 +69,13 @@ export function BulkZeroBilling({
                 value={reason}
                 required
                 maxLength={500}
-                disabled={locked}
+                disabled={task.isPending}
                 onChange={(event) => setReason(event.target.value)}
               />
               <ErrorText>{formError(task.error)?.message}</ErrorText>
-              {operation.current && !task.isPending && (
-                <Text fontSize="sm" color="gray.500">
-                  上次结果尚未确认，请用相同内容重试。
-                </Text>
-              )}
               <HStack>
                 <PrimaryButton type="submit" loading={task.isPending} disabled={!ids.length}>
-                  {operation.current ? '重试按 0 计费' : '确认按 0 计费'} ({ids.length})
+                  确认按 0 计费 ({ids.length})
                 </PrimaryButton>
                 <Button variant="ghost" disabled={task.isPending} onClick={() => setOpen(false)}>
                   关闭
@@ -126,22 +90,9 @@ export function BulkZeroBilling({
 }
 
 function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
-  const { data: actor } = useAuth();
-  const storageKey = `ohmyapi:resolve:${actor?.id}:${r.id}`;
-  const [saved] = useState<Resolution | undefined>(() => {
-    try {
-      const v = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null');
-      return v?.requestId === r.id && typeof v.idempotencyKey === 'string' ? v : undefined;
-    } catch {
-      return undefined;
-    }
-  });
-  const operation = useRef<Resolution | undefined>(saved);
-  const [action, setAction] = useState<Resolution['action']>(
-    saved?.action ?? (r.preview ? 'settle_usage' : 'settle_amount'),
-  );
-  const [reason, setReason] = useState(saved?.reason ?? '');
-  const [amount, setAmount] = useState(saved?.amount ?? '');
+  const [action, setAction] = useState<Resolution['action']>(r.preview ? 'settle_usage' : 'settle_amount');
+  const [reason, setReason] = useState('');
+  const [amount, setAmount] = useState('');
   const [usage, setUsage] = useState({
     inputTokens: r.usage?.inputTokens ?? '0',
     outputTokens: r.usage?.outputTokens ?? '0',
@@ -149,43 +100,29 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
     cacheWriteTokens: r.usage?.cacheWriteTokens ?? '0',
     webSearchCalls: r.usage?.webSearchCalls ?? '0',
     webSearchPreviewCalls: r.usage?.webSearchPreviewCalls ?? '0',
-    ...saved?.usage,
   });
   const task = useMutation(
     trpc.admin.billing.resolve.mutationOptions({
-      onMutate: (input) => {
-        sessionStorage.setItem(storageKey, JSON.stringify(input));
-      },
-      onError: (e) => {
-        if (definitive(e)) {
-          operation.current = undefined;
-          sessionStorage.removeItem(storageKey);
-        }
-      },
       onSuccess: async (result) => {
-        operation.current = undefined;
-        sessionStorage.removeItem(storageKey);
         await refreshRequestBilling(result.userId, r.id);
         close();
       },
     }),
   );
-  const locked = task.isPending || Boolean(operation.current);
+  const locked = task.isPending;
   return (
     <FormDialog open title="核对请求费用" busy={task.isPending} onClose={close}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           if (task.isPending) return;
-          operation.current ??= {
+          task.mutate({
             requestId: r.id,
             action,
             reason,
             amount: action === 'settle_amount' ? amount : undefined,
             usage: action === 'settle_usage' ? usage : undefined,
-            idempotencyKey: crypto.randomUUID(),
-          };
-          task.mutate(operation.current);
+          });
         }}
       >
         <Stack gap="5">
@@ -249,14 +186,9 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
             onChange={(e) => setReason(e.target.value)}
           />
           <ErrorText>{formError(task.error)?.message}</ErrorText>
-          {operation.current && !task.isPending && (
-            <Text fontSize="sm" color="gray.500">
-              上次结果尚未确认，请用相同内容重试。
-            </Text>
-          )}
           <HStack>
             <PrimaryButton type="submit" loading={task.isPending}>
-              {operation.current ? '重试核对' : '确认核对'}
+              确认核对
             </PrimaryButton>
             <Button variant="ghost" disabled={task.isPending} onClick={close}>
               关闭
@@ -268,47 +200,24 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
   );
 }
 function CorrectionForm({ r, close }: { r: Detail; close: () => void }) {
-  const { data: actor } = useAuth();
-  const storageKey = `ohmyapi:correct:${actor?.id}:${r.id}`;
-  const [saved] = useState<Correction | undefined>(() => {
-    try {
-      const v = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null');
-      return v?.requestId === r.id && typeof v.idempotencyKey === 'string' ? v : undefined;
-    } catch {
-      return undefined;
-    }
-  });
-  const operation = useRef<Correction | undefined>(saved);
-  const [amount, setAmount] = useState(saved?.amount ?? r.charged ?? '0');
-  const [reason, setReason] = useState(saved?.reason ?? '');
+  const [amount, setAmount] = useState(r.charged ?? '0');
+  const [reason, setReason] = useState('');
   const task = useMutation(
     trpc.admin.billing.correct.mutationOptions({
-      onMutate: (input) => {
-        sessionStorage.setItem(storageKey, JSON.stringify(input));
-      },
-      onError: (e) => {
-        if (definitive(e)) {
-          operation.current = undefined;
-          sessionStorage.removeItem(storageKey);
-        }
-      },
       onSuccess: async (result) => {
-        operation.current = undefined;
-        sessionStorage.removeItem(storageKey);
         await refreshRequestBilling(result.userId, r.id);
         close();
       },
     }),
   );
-  const locked = task.isPending || Boolean(operation.current);
+  const locked = task.isPending;
   return (
     <FormDialog open title="追加费用修正" busy={task.isPending} onClose={close}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           if (task.isPending) return;
-          operation.current ??= { requestId: r.id, amount, reason, idempotencyKey: crypto.randomUUID() };
-          task.mutate(operation.current);
+          task.mutate({ requestId: r.id, amount, reason });
         }}
       >
         <Stack gap="5">
@@ -332,14 +241,9 @@ function CorrectionForm({ r, close }: { r: Detail; close: () => void }) {
             onChange={(e) => setReason(e.target.value)}
           />
           <ErrorText>{formError(task.error)?.message}</ErrorText>
-          {operation.current && !task.isPending && (
-            <Text fontSize="sm" color="gray.500">
-              上次结果尚未确认，请用相同内容重试。
-            </Text>
-          )}
           <HStack>
             <PrimaryButton type="submit" loading={task.isPending}>
-              {operation.current ? '重试修正' : '确认修正'}
+              确认修正
             </PrimaryButton>
             <Button variant="ghost" disabled={task.isPending} onClick={close}>
               关闭

@@ -6,29 +6,19 @@ import { formatMoney, parseMoney } from '../../core/money.ts';
 import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
 import type { Transaction } from '../database/client.ts';
-import { requests, requestUsage, type Usage, walletLedger, wallets } from '../database/schema/index.ts';
+import { requests, requestUsage, type Usage, wallets } from '../database/schema/index.ts';
 import type { PricingService } from '../pricing/service.ts';
 import { lockWallet, postLedgerEntry } from '../wallet/ledger.ts';
 import { lockRequest, usageDto, writeUsage } from './requests.ts';
 import type { CorrectBillInput, ResolveBillInput, ResolveZeroBillsInput } from './schemas.ts';
 import { priceRequestUsage, releaseRequest, settleRequest } from './settlement.ts';
 
-/** 稳定序列化，用于比较幂等提交的内容是否一致。 */
-function canonical(value: unknown): string {
-  const normalize = (v: unknown): unknown =>
-    Array.isArray(v)
-      ? v.map(normalize)
-      : v && typeof v === 'object'
-        ? Object.fromEntries(
-            Object.entries(v)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([k, item]) => [k, normalize(item)]),
-          )
-        : v;
-  return JSON.stringify(normalize(value));
-}
+import { randomUUID } from 'node:crypto';
 
-/** 管理员核对：处理待核对请求，并对已结算的费用追加修正。所有操作幂等并留有审计记录。 */
+/**
+ * 管理员核对：处理待核对请求，并对已结算的费用追加修正。所有操作留有审计记录。
+ * 重复提交是安全的：核对只接受仍待核对的请求，修正按目标金额计算差额，费用不变时拒绝。
+ */
 export class BillingReview {
   static readonly token = serviceToken<BillingReview>('ohmyapi/billing-review');
   private readonly auth: AuthService;
@@ -64,7 +54,6 @@ export class BillingReview {
             action: 'settle_amount',
             amount: '0',
             reason: input.reason,
-            idempotencyKey: input.idempotencyKey,
           },
           ids,
         );
@@ -78,7 +67,6 @@ export class BillingReview {
     input: ResolveBillInput,
     batchRequestIds?: string[],
   ) {
-    const key = `resolve:${input.requestId}:${input.idempotencyKey}`;
     const payload = {
       actorId,
       action: input.action,
@@ -89,11 +77,6 @@ export class BillingReview {
     };
     const r = await lockRequest(tx, input.requestId);
     if (!r) throw new AppError('not_found', '请求不存在');
-    if (r.resolutionKey === key) {
-      if (canonical(r.resolutionPayload) !== canonical(payload))
-        throw new AppError('conflict', '核对标识已用于不同内容');
-      return { success: true, userId: r.userId };
-    }
     if (!r.billingEnabled || r.status !== 'needs_review')
       throw new AppError('conflict', `请求 ${r.id} 已发生状态变化，请刷新后重新选择待核对请求`);
     const [originalUsage] = await tx.select().from(requestUsage).where(eq(requestUsage.requestId, r.id));
@@ -138,7 +121,6 @@ export class BillingReview {
       }
       await settleRequest(tx, r, amount, snapshot, actorId, input.reason);
     }
-    await tx.update(requests).set({ resolutionKey: key, resolutionPayload: payload }).where(eq(requests.id, r.id));
     await recordAudit(tx, {
       actorId,
       action: 'billing.resolve',
@@ -146,7 +128,6 @@ export class BillingReview {
       targetId: r.id,
       metadata: {
         ...payload,
-        idempotencyKey: input.idempotencyKey,
         observedUsage: originalUsage ? usageDto(originalUsage) : null,
         heldBefore: formatMoney(r.heldMicros),
       },
@@ -156,20 +137,9 @@ export class BillingReview {
 
   async correct(principal: Principal, input: CorrectBillInput) {
     const target = parseMoney(input.amount);
-    const key = `correct:${input.requestId}:${input.idempotencyKey}`;
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const r = await lockRequest(tx, input.requestId);
       if (!r) throw new AppError('not_found', '请求不存在');
-      const [existing] = await tx.select().from(walletLedger).where(eq(walletLedger.idempotencyKey, key));
-      if (existing) {
-        if (
-          existing.actorId !== actor.id ||
-          existing.reason !== input.reason ||
-          existing.metadata.targetCharged !== formatMoney(target)
-        )
-          throw new AppError('conflict', '修正标识已用于不同内容');
-        return { success: true, userId: r.userId };
-      }
       if (!r.billingEnabled || r.status !== 'settled' || r.chargedMicros === null)
         throw new AppError('conflict', '仅对已结算计费请求追加修正');
       const delta = r.chargedMicros - target;
@@ -179,7 +149,7 @@ export class BillingReview {
       const entry = await postLedgerEntry(tx, wallet, {
         requestId: r.id,
         kind: 'correction',
-        idempotencyKey: key,
+        idempotencyKey: `correct:${r.id}:${randomUUID()}`,
         balanceDeltaMicros: delta,
         reservedDeltaMicros: 0n,
         actorId: actor.id,
@@ -197,7 +167,6 @@ export class BillingReview {
           previousCharged: formatMoney(r.chargedMicros),
           targetCharged: formatMoney(target),
           reason: input.reason,
-          idempotencyKey: input.idempotencyKey,
         },
       });
       return { success: true, userId: r.userId };

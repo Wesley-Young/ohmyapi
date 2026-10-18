@@ -75,8 +75,6 @@ export const requests = pgTable(
     usageFinal: boolean('usage_final').default(false).notNull(),
     usageEstimate: jsonb('usage_estimate').$type<UsageEstimate>(),
     reservationSnapshot: jsonb('reservation_snapshot').$type<Record<string, unknown>>(),
-    resolutionKey: text('resolution_key').unique(),
-    resolutionPayload: jsonb('resolution_payload').$type<Record<string, unknown>>(),
     // Filled during settlement; no prompts, completions, or credentials.
     pricingSnapshot: jsonb('pricing_snapshot').$type<Record<string, unknown>>(),
     upstreamRequestId: text('upstream_request_id'),

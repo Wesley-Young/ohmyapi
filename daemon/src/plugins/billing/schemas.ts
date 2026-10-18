@@ -7,7 +7,6 @@ export const resolveBillInput = z.object({
   requestId,
   action: z.enum(['release', 'settle_usage', 'settle_amount']),
   reason: z.string().trim().min(1, '请填写核对依据').max(500),
-  idempotencyKey: z.uuid(),
   amount: priceInput.optional(),
   usage: z
     .object({
@@ -24,9 +23,8 @@ export const correctBillInput = z.object({
   requestId,
   amount: priceInput,
   reason: z.string().trim().min(1, '请填写修正依据').max(500),
-  idempotencyKey: z.uuid(),
 });
-export const resolveZeroBillsInput = resolveBillInput.pick({ reason: true, idempotencyKey: true }).extend({
+export const resolveZeroBillsInput = resolveBillInput.pick({ reason: true }).extend({
   requestIds: z
     .array(requestId)
     .min(1, '请先选择待核对请求')
