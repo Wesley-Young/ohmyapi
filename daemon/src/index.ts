@@ -1,11 +1,7 @@
 import { createApp } from './app.ts';
 import { loadConfig } from './config.ts';
 import { errorDetails, formatEvent, globalLogger } from './core/logging.ts';
-import { BillingService } from './plugins/billing/service.ts';
 import { GatewayService } from './plugins/gateway/service.ts';
-
-/** 计费所有权丢失后等待平滑停止的时间，超时后强制断开连接。 */
-const leaseLostShutdownTimeoutMs = 30_000;
 
 let app: ReturnType<typeof createApp> | undefined;
 let stopping = false;
@@ -54,18 +50,10 @@ function onSignal(signal: NodeJS.Signals) {
   else void shutdown(signal);
 }
 
-/** 网关已停止转发；以失败状态退出进程，由守护进程重启并重新获取所有权。 */
-function onLeaseLost() {
-  process.exitCode = 1;
-  setTimeout(() => void forceShutdown('billing_lease_lost'), leaseLostShutdownTimeoutMs).unref();
-  void shutdown('billing_lease_lost');
-}
-
 try {
   app = createApp(loadConfig());
   await app.ctx.start();
   app.ctx.logger.info('服务启动完成');
-  app.ctx.resolve(BillingService).onLeaseLost(onLeaseLost);
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
 } catch (error) {

@@ -11,7 +11,6 @@ import type { PricingService } from '../pricing/service.ts';
 import { lockWallet, postLedgerEntry } from '../wallet/ledger.ts';
 import { lockRequest, usageDto, writeUsage } from './requests.ts';
 import type { CorrectBillInput, ResolveBillInput, ResolveZeroBillsInput } from './schemas.ts';
-import type { BillingService } from './service.ts';
 import { priceRequestUsage, releaseRequest, settleRequest } from './settlement.ts';
 
 /** 稳定序列化，用于比较幂等提交的内容是否一致。 */
@@ -34,15 +33,12 @@ export class BillingReview {
   static readonly token = serviceToken<BillingReview>('ohmyapi/billing-review');
   private readonly auth: AuthService;
   private readonly pricing: PricingService;
-  private readonly billing: BillingService;
-  constructor(deps: { auth: AuthService; pricing: PricingService; billing: BillingService }) {
+  constructor(deps: { auth: AuthService; pricing: PricingService }) {
     this.auth = deps.auth;
     this.pricing = deps.pricing;
-    this.billing = deps.billing;
   }
 
   async resolve(principal: Principal, input: ResolveBillInput) {
-    this.billing.assertReady();
     if (input.action === 'settle_usage' && !input.usage) throw new AppError('bad_request', '请填写确认后的用量');
     if (input.action === 'settle_amount' && input.amount === undefined)
       throw new AppError('bad_request', '请填写确认后的费用');
@@ -52,7 +48,6 @@ export class BillingReview {
   }
 
   async resolveZero(principal: Principal, input: ResolveZeroBillsInput) {
-    this.billing.assertReady();
     const ids = [...input.requestIds].sort();
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       // 按固定顺序锁定请求和钱包，整批结算在同一事务中完成。
@@ -161,7 +156,6 @@ export class BillingReview {
   }
 
   async correct(principal: Principal, input: CorrectBillInput) {
-    this.billing.assertReady();
     const target = parseMoney(input.amount);
     const key = `correct:${input.requestId}:${input.idempotencyKey}`;
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {

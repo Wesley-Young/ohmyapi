@@ -1,7 +1,6 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
-import type { DatabaseConfig } from '../../config.ts';
 import { GatewayError, requestErrorMessage } from '../../core/errors.ts';
 import { type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '../../core/logging.ts';
 import { formatMoney } from '../../core/money.ts';
@@ -12,7 +11,6 @@ import { lockWallet, postLedgerEntry } from '../wallet/ledger.ts';
 import { reservationAmount } from './admission.ts';
 import { reportedCacheReadTokens } from './cache-usage.ts';
 import { estimateReservation, minimumHistorySamples, type UsageSample } from './estimation.ts';
-import { BillingOwnership } from './ownership.ts';
 import {
   type BillingOutcome,
   type BillingSummary,
@@ -27,23 +25,39 @@ import { type ExecutionRoute, lockAdmission, lockExecutionRoute, type Reservatio
 import { searchRequest } from './search.ts';
 import { type PricedUsage, priceRequestUsage, releaseRequest, settleRequest } from './settlement.ts';
 
+import { randomUUID } from 'node:crypto';
+
 /** 收尾或恢复连续失败多少次后转入人工核对。 */
 const reviewAfterFailures = 3;
 /** 用量已经确认（最终或估算）的请求只是结算未完成，多半是数据库的暂时故障；按定时任务间隔约重试 5 分钟。 */
 const settlementRetryFailures = 20;
+/**
+ * 进行中的请求由所属实例每个定时周期刷新心跳；心跳超过此时长未更新，视为所属进程已退出，由任一实例接管恢复。
+ * 远大于定时任务间隔，数据库或事件循环的短暂延迟不会让仍在运行的请求被接管。
+ */
+const staleAfterSeconds = 120;
+
+/** 所属进程已退出、需要恢复的计费请求。 */
+const orphaned = () =>
+  and(
+    eq(requests.billingEnabled, true),
+    inArray(requests.status, inflightStatuses),
+    sql`(${requests.heartbeatAt} is null or ${requests.heartbeatAt} < now() - interval '${sql.raw(String(staleAfterSeconds))} seconds')`,
+  );
 
 /**
  * 请求计费的运行时流程：预占 → 转发 → 检查点 → 收尾结算。
  * 收尾失败的请求留在内存中定期重试，多次失败后转入人工核对；已确认用量的请求重试更久。
- * 启动和定时任务会恢复中断的请求。
+ * 每个实例以 ownerId 标记自己处理的请求并定期刷新心跳；启动和定时任务恢复心跳超时的请求，多个实例可以共用同一数据库。
  */
 export class BillingService implements Disposable {
   static readonly token = serviceToken<BillingService>('ohmyapi/billing');
+  readonly ownerId = randomUUID();
   private readonly db: Database;
   private readonly pricing: PricingService;
   private readonly logger: EventLogger;
-  private readonly ownership: BillingOwnership;
-  private ticking = false;
+  private tickTask?: Promise<void>;
+  private stopped = false;
   private readonly active = new Set<string>();
   private readonly pending = new Map<string, BillingSummary>();
   private readonly failures = new Map<string, number>();
@@ -51,10 +65,11 @@ export class BillingService implements Disposable {
     this.db = deps.db;
     this.pricing = deps.pricing;
     this.logger = deps.logger;
-    this.ownership = new BillingOwnership({
-      logger: deps.logger,
-      stats: () => ({ activeRequests: this.active.size, pendingRetries: this.pending.size }),
-    });
+  }
+
+  /** 由本实例处理中或等待重试的请求，恢复时跳过。 */
+  private isLocal(id: string) {
+    return this.active.has(id) || this.pending.has(id);
   }
 
   private logOutcome(outcome: BillingOutcome | undefined) {
@@ -80,36 +95,19 @@ export class BillingService implements Disposable {
     );
   }
 
-  assertReady() {
-    this.ownership.assertReady();
+  /** 恢复心跳已超时的遗留请求。 */
+  async start() {
+    this.logger.info(formatEvent('计费服务启动', { ownerId: this.ownerId }));
+    await this.recover(true);
   }
 
-  onLeaseLost(handler: () => void) {
-    this.ownership.onLost(handler);
-  }
-
-  /** 获取计费所有权并恢复上次运行遗留的请求；任一步失败都放弃所有权。 */
-  async start(config: DatabaseConfig) {
-    try {
-      await this.ownership.acquire(config);
-      await this.recover(true);
-    } catch (error) {
-      await this.ownership.abandon();
-      throw new Error(
-        error instanceof Error && error.message.startsWith('Another ohmyapi')
-          ? error.message
-          : 'Unable to initialize billing ownership and recovery',
-        { cause: error },
-      );
-    }
-  }
-
-  dispose() {
-    return this.ownership.dispose();
+  /** 停止定时任务并等待进行中的一轮完成。 */
+  async dispose() {
+    this.stopped = true;
+    await this.tickTask;
   }
 
   async reserve(input: ReservationInput) {
-    this.assertReady();
     const user = await this.usageHistory(input, true);
     const estimate = estimateReservation(
       input.body,
@@ -148,7 +146,7 @@ export class BillingService implements Disposable {
           .set({
             billingEnabled: true,
             status: 'reserved',
-            ownerId: this.ownership.ownerId,
+            ownerId: this.ownerId,
             heartbeatAt: new Date(),
             modelId: input.modelId,
             channelId: input.channelId,
@@ -215,13 +213,12 @@ export class BillingService implements Disposable {
   }
 
   async forwarding(id: string, attemptId: string, route: ExecutionRoute) {
-    this.assertReady();
     await this.db.transaction(async (tx) => {
       await lockExecutionRoute(tx, route);
       const [r] = await tx
         .update(requests)
         .set({ status: 'forwarding', heartbeatAt: new Date() })
-        .where(and(eq(requests.id, id), eq(requests.ownerId, this.ownership.ownerId), eq(requests.status, 'reserved')))
+        .where(and(eq(requests.id, id), eq(requests.ownerId, this.ownerId), eq(requests.status, 'reserved')))
         .returning({ id: requests.id });
       if (!r) throw new Error('Request reservation lost');
       const [attempt] = await tx
@@ -240,12 +237,11 @@ export class BillingService implements Disposable {
   }
 
   async checkpoint(id: string, summary: BillingSummary) {
-    this.assertReady();
     await this.db.transaction(async (tx) => {
       const r = await lockRequest(tx, id);
       if (
         !r ||
-        r.ownerId !== this.ownership.ownerId ||
+        r.ownerId !== this.ownerId ||
         r.status !== 'forwarding' ||
         (r.usageFinal && !summary.usageFinal && !summary.blockSettlement)
       )
@@ -267,12 +263,11 @@ export class BillingService implements Disposable {
   }
 
   async finish(id: string, summary: BillingSummary) {
-    this.assertReady();
     try {
       const outcome = await this.db.transaction<BillingOutcome | undefined>(async (tx) => {
         const r = await lockRequest(tx, id);
         if (!r || isClosed(r.status)) return;
-        if (r.billingEnabled && r.ownerId !== this.ownership.ownerId) return;
+        if (r.billingEnabled && r.ownerId !== this.ownerId) return;
         if (summary.usage && (summary.usageFinal || !r.usageFinal)) await writeUsage(tx, id, summary.usage);
         const final = !summary.blockSettlement && ((summary.usageFinal && Boolean(summary.usage)) || r.usageFinal);
         const usageEstimate =
@@ -388,7 +383,6 @@ export class BillingService implements Disposable {
   }
 
   private async settleStored(id: string) {
-    this.assertReady();
     const outcome = await this.db.transaction<BillingOutcome | undefined>(async (tx) => {
       const r = await lockRequest(tx, id);
       if (r?.status !== 'settling' || !r.billingEnabled || (!r.usageFinal && !r.usageEstimate)) return;
@@ -424,15 +418,23 @@ export class BillingService implements Disposable {
     return outcome;
   }
 
+  /**
+   * 恢复心跳超时的请求：转发前中断的释放预占，已有最终或估算用量的结算，其余转入人工核对。
+   * 每个请求在行锁内复查状态和心跳；本实例处理中或等待重试的请求不在此列。
+   */
   private async recover(startup = false) {
-    this.assertReady();
     const rows = await this.db
-      .select()
+      .select({
+        id: requests.id,
+        status: requests.status,
+        usageFinal: requests.usageFinal,
+        usageEstimate: requests.usageEstimate,
+      })
       .from(requests)
-      .where(and(eq(requests.billingEnabled, true), inArray(requests.status, inflightStatuses)));
+      .where(orphaned());
     const counts = { scanned: rows.length, processed: 0, settled: 0, released: 0, needsReview: 0, failed: 0 };
     for (const r of rows) {
-      if (this.active.has(r.id) || this.pending.has(r.id)) continue;
+      if (this.isLocal(r.id)) continue;
       counts.processed++;
       let outcome: BillingOutcome | undefined;
       try {
@@ -440,14 +442,12 @@ export class BillingService implements Disposable {
           outcome = await this.settleStored(r.id);
         } else {
           outcome = await this.db.transaction<BillingOutcome | undefined>(async (tx) => {
-            const current = await lockRequest(tx, r.id);
-            if (
-              !current ||
-              !['reserved', 'forwarding'].includes(current.status) ||
-              this.active.has(r.id) ||
-              this.pending.has(r.id)
-            )
-              return;
+            const [current] = await tx
+              .select()
+              .from(requests)
+              .where(and(eq(requests.id, r.id), orphaned()))
+              .for('update');
+            if (!current || !['reserved', 'forwarding'].includes(current.status) || this.isLocal(r.id)) return;
             if (current.status === 'reserved') {
               await releaseRequest(tx, current, undefined, '服务恢复：转发前中断，释放预占');
               return { request: current, status: 'released', chargedMicros: 0n };
@@ -492,7 +492,7 @@ export class BillingService implements Disposable {
     if (startup || counts.processed)
       this.logger[counts.failed ? 'warn' : 'info'](
         formatEvent('计费恢复完成', {
-          ownerId: this.ownership.ownerId,
+          ownerId: this.ownerId,
           startup,
           ...counts,
           pendingRetries: this.pending.size,
@@ -500,30 +500,38 @@ export class BillingService implements Disposable {
       );
   }
 
-  async tick() {
-    if (!this.ownership.isHealthy || this.ticking) return;
-    this.ticking = true;
+  /** 定时任务：刷新本实例请求的心跳，重试收尾失败的请求，恢复心跳超时的请求。 */
+  tick() {
+    if (this.stopped || this.tickTask) return this.tickTask;
+    this.tickTask = this.runTick().finally(() => {
+      this.tickTask = undefined;
+    });
+    return this.tickTask;
+  }
+
+  private async runTick() {
     try {
-      if (!(await this.ownership.check())) return;
-      if (this.active.size)
+      const live = [...this.active, ...this.pending.keys()];
+      if (live.length)
         await this.db
           .update(requests)
           .set({ heartbeatAt: new Date() })
           .where(
             and(
-              eq(requests.ownerId, this.ownership.ownerId),
-              inArray(requests.id, [...this.active]),
+              eq(requests.ownerId, this.ownerId),
+              inArray(requests.id, live),
               inArray(requests.status, inflightStatuses),
             ),
           );
       for (const [id, summary] of [...this.pending].slice(0, 50)) {
+        if (this.stopped) return;
         try {
           await this.finish(id, summary);
         } catch {
           // finish 已记录失败次数、队列长度及安全错误字段。
         }
       }
-      await this.recover();
+      if (!this.stopped) await this.recover();
     } catch (error) {
       this.logger.error(
         formatEvent('计费恢复任务失败', {
@@ -532,8 +540,6 @@ export class BillingService implements Disposable {
           ...errorDetails(error),
         }),
       );
-    } finally {
-      this.ticking = false;
     }
   }
 }

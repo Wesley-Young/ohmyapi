@@ -14,9 +14,9 @@ export const BillingPlugin = definePlugin({
     const db = ctx.database.db;
     const billing = new BillingService({ db, pricing: ctx.pricing, logger: ctx.logger });
     ctx.provide(BillingService, billing);
-    ctx.provide(BillingReview, new BillingReview({ auth: ctx.auth, pricing: ctx.pricing, billing }));
+    ctx.provide(BillingReview, new BillingReview({ auth: ctx.auth, pricing: ctx.pricing }));
     ctx.provide(BillingRecords, new BillingRecords({ db, pricing: ctx.pricing }));
-    await billing.start(ctx.config.database);
+    await billing.start();
     ctx.interval(15000, () => billing.tick());
   },
 });

@@ -232,7 +232,6 @@ export class GatewayService implements Disposable {
           'client_not_allowed',
           '此端点不支持 Claude Code 客户端，请在其他兼容 Anthropic Messages 的客户端中使用。',
         );
-      this.billing.assertReady();
       const identity = await identifyApiKey(this.db, req, {
         headers: protocol.apiKeyHeaders,
         query: protocol.apiKeyQuery,

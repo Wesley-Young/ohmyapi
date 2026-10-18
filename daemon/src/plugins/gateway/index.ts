@@ -32,8 +32,5 @@ export const GatewayPlugin = definePlugin({
     });
     ctx.provide(GatewayService, gateway);
     ctx.provide(RequestHistory, new RequestHistory({ db: ctx.database.db, pricing: ctx.pricing }));
-    ctx.billing.onLeaseLost(() => {
-      void gateway.dispose();
-    });
   },
 });

@@ -13,7 +13,6 @@ import { AuthService } from '../auth/service.ts';
 import { AdminTokens } from '../auth/tokens.ts';
 import { BillingRecords } from '../billing/records.ts';
 import { BillingReview } from '../billing/review.ts';
-import { BillingService } from '../billing/service.ts';
 import { ChannelDirectory } from '../catalog/directory.ts';
 import { ChannelGrants } from '../catalog/grants.ts';
 import { ModelCatalog } from '../catalog/models.ts';
@@ -43,7 +42,6 @@ export const HttpPlugin = definePlugin({
     gateway: GatewayService,
     requestHistory: RequestHistory,
     pricing: PricingService,
-    billing: BillingService,
     billingRecords: BillingRecords,
     billingReview: BillingReview,
     keys: KeyService,
@@ -109,11 +107,9 @@ export const HttpPlugin = definePlugin({
 
     app.get('/api/health', (c) => c.json({ name: 'ohmyapi', status: 'ok' }));
     app.get('/api/ready', async (c) => {
-      let dependency = 'database';
+      const dependency = 'database';
       try {
         await ctx.database.checkConnection();
-        dependency = 'billing';
-        ctx.billing.assertReady();
         if (readiness !== 'ready') {
           ctx.logger.info(formatEvent('服务就绪', { previousState: readiness ?? 'unknown' }));
           readiness = 'ready';
