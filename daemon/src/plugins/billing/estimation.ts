@@ -1,78 +1,49 @@
-import { countTokens, setMergeCacheSize } from 'gpt-tokenizer/encoding/o200k_base';
-
 import { protocolFor } from '../../protocols/index.ts';
 import type { Endpoint } from '../database/schema/index.ts';
 import { requestContentBlocks } from './content.ts';
 import { estimateImageTokens } from './image-estimation.ts';
 
-import { setImmediate as nextTurn } from 'node:timers/promises';
-
-// A local approximation for arbitrary upstream models, not a billing tokenizer.
-// 合并缓存按片段原文保存结果，单个长片段约占 100KB；限制条数以约束不重复长文本占用的内存。
-setMergeCacheSize(1024);
-// 不识别特殊 Token，按普通文本计数。
-const literal = { disallowedSpecial: new Set<string>() };
-const countText = (text: string) => countTokens(text, literal);
-/** 单次计数的字符数。块之间让出事件循环，长文本的估算不阻塞其他请求和定时任务。 */
-const blockSize = 4096;
-
 /**
- * 按固定字符块计数，避免 SSE 分片边界影响估算。
- * append 只切分文本，完整的块在后台逐块计数，流式转发路径上不执行分词。
+ * 按字符类别粗略估算 Token，以四分之一 Token 为单位：ASCII 记 1，CJK、假名、谚文和全角字符记 4，
+ * 其他字符记 2（代理对的两个码元合计 4）。不对应任何模型的分词器，只用于预占和断连估算。
  */
+function textUnits(text: string) {
+  let units = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    units +=
+      c < 0x80
+        ? 1
+        : (c >= 0x2e80 && c <= 0x9fff) ||
+            (c >= 0xac00 && c <= 0xd7af) ||
+            (c >= 0xf900 && c <= 0xfaff) ||
+            (c >= 0xff00 && c <= 0xffef)
+          ? 4
+          : 2;
+  }
+  return units;
+}
+
+const unitsToTokens = (units: number) => Math.ceil(units / 4);
+
+/** 估算方法的标识，随断连估算一起保存。 */
+export const tokenEstimateMethod = 'char_class_v1';
+
+/** 累计流式输出的字符单位；按字符计数与 SSE 分片边界无关。 */
 export class OutputTokenEstimate {
-  private tokens = 0n;
-  private tail = '';
-  private readonly blocks: string[] = [];
-  private draining?: Promise<void>;
-  private failure?: { error: unknown };
-  /** reset 后递增，使仍在进行的后台计数不再写入。 */
-  private generation = 0;
+  private units = 0;
 
   append(value: unknown) {
-    if (typeof value !== 'string' || !value) return;
-    this.tail += value;
-    let offset = 0;
-    while (this.tail.length - offset > blockSize) {
-      const end = offset + blockSize;
-      // 保留 UTF-16 代理对，避免把同一个字符拆成两次计数。
-      const size = /[\uD800-\uDBFF]/.test(this.tail[end - 1]) ? blockSize - 1 : blockSize;
-      this.blocks.push(this.tail.slice(offset, offset + size));
-      offset += size;
-    }
-    this.tail = this.tail.slice(offset);
-    if (this.blocks.length) this.draining ??= this.drain(this.generation);
+    if (typeof value === 'string' && value) this.units += textUnits(value);
   }
 
-  private async drain(generation: number) {
-    try {
-      while (this.blocks.length) {
-        await nextTurn();
-        if (generation !== this.generation) return;
-        const block = this.blocks.shift();
-        if (block !== undefined) this.tokens += BigInt(countText(block));
-      }
-    } catch (error) {
-      if (generation === this.generation) this.failure = { error };
-    } finally {
-      if (generation === this.generation) this.draining = undefined;
-    }
-  }
-
-  /** 等待后台计数完成，返回已观察内容的 Token 数。 */
-  async count() {
-    while (this.draining) await this.draining;
-    if (this.failure) throw this.failure.error;
-    return this.tokens + BigInt(countText(this.tail));
+  /** 已观察内容的估算 Token 数。 */
+  count() {
+    return BigInt(unitsToTokens(this.units));
   }
 
   reset() {
-    this.generation++;
-    this.tokens = 0n;
-    this.tail = '';
-    this.blocks.length = 0;
-    this.draining = undefined;
-    this.failure = undefined;
+    this.units = 0;
   }
 }
 /** 已结算请求的最终用量，用于估算输出长度和缓存命中比例。 */
@@ -109,7 +80,7 @@ const fallbackOutputTokens = 1024n;
 const median = (values: bigint[]) => values.toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0))[values.length >> 1];
 const ratio = (part: bigint, total: bigint) => (total > 0n ? Number(part) / Number(total) : 0);
 
-export async function estimateReservation(
+export function estimateReservation(
   body: Record<string, unknown>,
   endpoint: Endpoint,
   outputLimit: number,
@@ -117,8 +88,8 @@ export async function estimateReservation(
   history: { user: UsageSample[]; model: UsageSample[] },
   /** 请求路径中的模型名，请求体没有 model 字段时用于估算图像 Token。 */
   model: string,
-): Promise<ReservationEstimate> {
-  // Include message wrappers, tool schemas and instructions. Treat special-token-looking text literally.
+): ReservationEstimate {
+  // 计入消息结构、工具定义和指令。
   const images = new WeakSet<object>();
   let inputImageCount = 0;
   let settlementImageTokens = 0;
@@ -141,13 +112,7 @@ export async function estimateReservation(
   const text = JSON.stringify(body, (_key, value: unknown) =>
     value && typeof value === 'object' && images.has(value) ? { type: imageType } : value,
   );
-  let inputContentTokens = 0;
-  // Bound each BPE operation even for long strings without whitespace.
-  // 分块同时避免超长片段超出 gpt-tokenizer 的调用栈限制。
-  for (let offset = 0; offset < text.length; offset += blockSize) {
-    if (offset) await nextTurn();
-    inputContentTokens += countText(text.slice(offset, offset + blockSize));
-  }
+  const inputContentTokens = unitsToTokens(textUnits(text));
   const contextTokens = inputContentTokens + settlementImageTokens;
 
   const [historySource, samples] =

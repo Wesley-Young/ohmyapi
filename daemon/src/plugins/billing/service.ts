@@ -111,7 +111,7 @@ export class BillingService implements Disposable {
   async reserve(input: ReservationInput) {
     this.assertReady();
     const user = await this.usageHistory(input, true);
-    const estimate = await estimateReservation(
+    const estimate = estimateReservation(
       input.body,
       input.endpoint,
       input.outputLimit,

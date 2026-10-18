@@ -22,7 +22,8 @@ import { subscriptionAccounts } from './subscription.ts';
 
 /** 客户端断连时按本地估算结算所保存的依据。 */
 export type UsageEstimate = {
-  method: 'o200k_base_v1';
+  /** 已有记录可能是此前的 o200k_base_v1。 */
+  method: 'o200k_base_v1' | 'char_class_v1';
   reason: 'client_disconnected';
   inputSource: 'upstream' | 'request_estimate';
   outputSource: 'upstream' | 'observed_estimate' | 'upstream_with_observed_tail';
