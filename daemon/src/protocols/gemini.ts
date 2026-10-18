@@ -346,7 +346,6 @@ export const geminiProtocol: ApiProtocol = {
       ...(Array.isArray(body.contents) ? body.contents.map((content) => object(content)?.parts) : []),
     ],
     blockType: partType,
-    imageDetail: (block, body) => object(block.mediaResolution)?.level ?? generationConfig(body)?.mediaResolution,
     outputModalities(body) {
       const modalities = generationConfig(body)?.responseModalities;
       return Array.isArray(modalities)
