@@ -218,41 +218,48 @@ export class PricingService {
     });
   }
 
-  async lockRoute(modelId: string, at: Date, entryChannelId: string, executionChannelId: string) {
-    const [selected] = await this.db
-      .select({
-        price: {
-          pricingChannelId: channelModelPrices.pricingChannelId,
-          multiplierMicros: channelModelPrices.multiplierMicros,
-          multiplierSource: channelModelPrices.multiplierSource,
-        },
-        mode: channels.pricingMode,
-      })
-      .from(channelModelPrices)
-      .innerJoin(channels, eq(channels.id, channelModelPrices.channelId))
-      .where(
-        and(
-          eq(channelModelPrices.channelId, entryChannelId),
-          eq(channelModelPrices.modelId, modelId),
-          or(
-            and(eq(channels.pricingMode, 'unified'), eq(channelModelPrices.pricingChannelId, entryChannelId)),
-            and(eq(channels.pricingMode, 'passthrough'), eq(channelModelPrices.pricingChannelId, executionChannelId)),
+  /** 网关请求的价格：倍率和价格规则互不依赖，并行读取。 */
+  async lockRoute(
+    modelId: string,
+    at: Date,
+    entryChannelId: string,
+    executionChannelId: string,
+  ): Promise<LockedPrice | null> {
+    const [[selected], rules] = await Promise.all([
+      this.db
+        .select({
+          price: {
+            pricingChannelId: channelModelPrices.pricingChannelId,
+            multiplierMicros: channelModelPrices.multiplierMicros,
+            multiplierSource: channelModelPrices.multiplierSource,
+          },
+          mode: channels.pricingMode,
+        })
+        .from(channelModelPrices)
+        .innerJoin(channels, eq(channels.id, channelModelPrices.channelId))
+        .where(
+          and(
+            eq(channelModelPrices.channelId, entryChannelId),
+            eq(channelModelPrices.modelId, modelId),
+            or(
+              and(eq(channels.pricingMode, 'unified'), eq(channelModelPrices.pricingChannelId, entryChannelId)),
+              and(eq(channels.pricingMode, 'passthrough'), eq(channelModelPrices.pricingChannelId, executionChannelId)),
+            ),
           ),
         ),
-      );
+      this.rules(modelId),
+    ]);
     if (!selected) throw new GatewayError(503, 'channel_unavailable', 'The selected channel price is unavailable');
-    const locked = await this.lock(modelId, at, selected.price.multiplierMicros, selected.price.multiplierSource);
-    return (
-      locked && {
-        ...locked,
-        pricingMode: selected.mode,
-        routing: {
-          entryChannelId,
-          executionChannelId,
-          pricingChannelId: selected.price.pricingChannelId,
-        },
-      }
-    );
+    if (!rules.length) return null;
+    return {
+      modelId,
+      rules,
+      multiplierMicros: selected.price.multiplierMicros,
+      multiplierSource: selected.price.multiplierSource,
+      receivedAt: at,
+      pricingMode: selected.mode,
+      routing: { entryChannelId, executionChannelId, pricingChannelId: selected.price.pricingChannelId },
+    };
   }
 
   async lock(
@@ -261,16 +268,21 @@ export class PricingService {
     multiplierMicros: bigint,
     multiplierSource: 'model' | 'channel',
   ): Promise<LockedPrice | null> {
+    const rules = await this.rules(modelId);
+    if (!rules.length) return null;
+    return { modelId, rules, multiplierMicros, multiplierSource, receivedAt: at, pricingMode: 'unified' };
+  }
+
+  /** 模型当前的价格规则，已应用搜索默认价；锁定实际采用的默认值，后续改价和模型改名均沿用请求快照。 */
+  private async rules(modelId: string) {
     const rows = await this.db
       .select({ rule: priceRules, modelName: models.name })
       .from(priceRules)
       .innerJoin(models, eq(models.id, priceRules.modelId))
       .where(and(eq(priceRules.modelId, modelId), isNull(models.deletedAt)));
-    // 锁定实际采用的默认值，后续改价和模型改名均沿用请求快照。
     const rules = rows.map((row) => applySearchDefaults(row.rule, row.modelName));
-    if (!rules.length) return null;
-    validateRules(rules);
-    return { modelId, rules, multiplierMicros, multiplierSource, receivedAt: at, pricingMode: 'unified' };
+    if (rules.length) validateRules(rules);
+    return rules;
   }
 
   snapshot(locked: LockedPrice) {

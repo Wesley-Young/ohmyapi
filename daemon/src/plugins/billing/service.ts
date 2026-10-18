@@ -4,8 +4,8 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { GatewayError, requestErrorMessage } from '../../core/errors.ts';
 import { type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '../../core/logging.ts';
 import { formatMoney } from '../../core/money.ts';
-import type { Database } from '../database/client.ts';
-import { requestAttempts, requests, requestUsage } from '../database/schema/index.ts';
+import type { Database, Transaction } from '../database/client.ts';
+import { requestAttempts, requests, requestUsage, type Usage } from '../database/schema/index.ts';
 import type { PricingService } from '../pricing/service.ts';
 import { lockWallet, postLedgerEntry } from '../wallet/ledger.ts';
 import { reservationAmount } from './admission.ts';
@@ -18,10 +18,11 @@ import {
   isClosed,
   lockRequest,
   markNeedsReview,
+  type RequestRow,
   transition,
   writeUsage,
 } from './requests.ts';
-import { type ExecutionRoute, lockAdmission, lockExecutionRoute, type ReservationInput } from './reservation.ts';
+import type { ReservationInput } from './reservation.ts';
 import { searchRequest } from './search.ts';
 import { type PricedUsage, priceRequestUsage, releaseRequest, settleRequest } from './settlement.ts';
 
@@ -118,30 +119,20 @@ export class BillingService implements Disposable {
     );
     const search = searchRequest(input.body, input.endpoint);
     const amount = reservationAmount(input.price, estimate, search);
+    const snapshot = {
+      multiplier: formatMoney(input.price.multiplierMicros),
+      multiplierSource: input.price.multiplierSource,
+      pricingMode: input.price.pricingMode,
+      routing: input.price.routing,
+      receivedAt: input.price.receivedAt.toISOString(),
+      currency: this.pricing.currency,
+      billed: false,
+    };
     this.active.add(input.requestId);
     try {
+      // 行锁顺序与收尾一致：先请求后钱包。余额不足时整个事务回滚，请求保持 received。
       await this.db.transaction(async (tx) => {
-        const user = await lockAdmission(tx, input);
-        const r = await lockRequest(tx, input.requestId);
-        if (r?.status !== 'received' || r.userId !== user.id) throw new Error('Request admission state changed');
-        const wallet = await lockWallet(tx, user.id);
-        if (!wallet) throw new Error('Wallet missing');
-        if (wallet.balanceMicros < 0n || wallet.balanceMicros - wallet.reservedMicros < amount)
-          throw new GatewayError(
-            402,
-            'insufficient_balance',
-            'Available balance is insufficient for this request reservation',
-          );
-        const snapshot = {
-          multiplier: formatMoney(input.price.multiplierMicros),
-          multiplierSource: input.price.multiplierSource,
-          pricingMode: input.price.pricingMode,
-          routing: input.price.routing,
-          receivedAt: input.price.receivedAt.toISOString(),
-          currency: this.pricing.currency,
-          billed: false,
-        };
-        await tx
+        const [r] = await tx
           .update(requests)
           .set({
             billingEnabled: true,
@@ -150,6 +141,8 @@ export class BillingService implements Disposable {
             heartbeatAt: new Date(),
             modelId: input.modelId,
             channelId: input.channelId,
+            subscriptionAccountId: input.subscriptionAccountId,
+            reasoningEffort: input.reasoningEffort,
             reservedMicros: amount,
             heldMicros: amount,
             pricingSnapshot: snapshot,
@@ -163,7 +156,19 @@ export class BillingService implements Disposable {
               strategy: 'expected_usage_v2',
             },
           })
-          .where(eq(requests.id, r.id));
+          .where(
+            and(eq(requests.id, input.requestId), eq(requests.userId, input.userId), eq(requests.status, 'received')),
+          )
+          .returning({ id: requests.id });
+        if (!r) throw new Error('Request admission state changed');
+        const wallet = await lockWallet(tx, input.userId);
+        if (!wallet) throw new Error('Wallet missing');
+        if (wallet.balanceMicros < 0n || wallet.balanceMicros - wallet.reservedMicros < amount)
+          throw new GatewayError(
+            402,
+            'insufficient_balance',
+            'Available balance is insufficient for this request reservation',
+          );
         if (amount > 0n)
           await postLedgerEntry(tx, wallet, {
             requestId: r.id,
@@ -212,28 +217,27 @@ export class BillingService implements Disposable {
       .limit(100);
   }
 
-  async forwarding(id: string, attemptId: string, route: ExecutionRoute) {
-    await this.db.transaction(async (tx) => {
-      await lockExecutionRoute(tx, route);
-      const [r] = await tx
-        .update(requests)
-        .set({ status: 'forwarding', heartbeatAt: new Date() })
-        .where(and(eq(requests.id, id), eq(requests.ownerId, this.ownerId), eq(requests.status, 'reserved')))
-        .returning({ id: requests.id });
-      if (!r) throw new Error('Request reservation lost');
-      const [attempt] = await tx
-        .update(requestAttempts)
-        .set({ status: 'forwarding', dispatchedAt: new Date() })
-        .where(
-          and(
-            eq(requestAttempts.id, attemptId),
-            eq(requestAttempts.requestId, id),
-            eq(requestAttempts.status, 'prepared'),
-          ),
-        )
-        .returning({ id: requestAttempts.id });
-      if (!attempt) throw new Error('Request attempt state changed');
-    });
+  /**
+   * 发往上游前标记转发。准入已在路由和预占时确认，这里不再加锁复查；
+   * 两条更新各自是原子的，尝试记录只用于展示，请求状态以 requests 为准。
+   */
+  async forwarding(id: string, attemptId: string) {
+    const [r] = await this.db
+      .update(requests)
+      .set({ status: 'forwarding', heartbeatAt: new Date() })
+      .where(and(eq(requests.id, id), eq(requests.ownerId, this.ownerId), eq(requests.status, 'reserved')))
+      .returning({ id: requests.id });
+    if (!r) throw new Error('Request reservation lost');
+    await this.db
+      .update(requestAttempts)
+      .set({ status: 'forwarding', dispatchedAt: new Date() })
+      .where(
+        and(
+          eq(requestAttempts.id, attemptId),
+          eq(requestAttempts.requestId, id),
+          eq(requestAttempts.status, 'prepared'),
+        ),
+      );
   }
 
   async checkpoint(id: string, summary: BillingSummary) {
@@ -268,7 +272,8 @@ export class BillingService implements Disposable {
         const r = await lockRequest(tx, id);
         if (!r || isClosed(r.status)) return;
         if (r.billingEnabled && r.ownerId !== this.ownerId) return;
-        if (summary.usage && (summary.usageFinal || !r.usageFinal)) await writeUsage(tx, id, summary.usage);
+        const written = summary.usage && (summary.usageFinal || !r.usageFinal) ? summary.usage : undefined;
+        if (written) await writeUsage(tx, id, written);
         const final = !summary.blockSettlement && ((summary.usageFinal && Boolean(summary.usage)) || r.usageFinal);
         const usageEstimate =
           summary.blockSettlement || final ? null : (summary.usage && summary.usageEstimate) || r.usageEstimate;
@@ -286,7 +291,9 @@ export class BillingService implements Disposable {
         await tx.update(requests).set(metadata).where(eq(requests.id, id));
         if (!r.billingEnabled) return { ...(await transition(tx, r, 'rejected')), errorCode: summary.errorCode };
         if (final || usageEstimate) {
-          return transition(tx, r, 'settling');
+          // 收尾与结算在同一事务中完成；结算失败时整体回滚，由重试再次收尾。
+          const [stored] = written ? [] : await tx.select().from(requestUsage).where(eq(requestUsage.requestId, id));
+          return this.settleLocked(tx, { ...r, ...metadata }, written ?? stored);
         } else if (summary.noExecution) {
           await releaseRequest(tx, { ...r, ...metadata }, undefined, '上游未执行，释放预占');
           return { request: { ...r, ...metadata }, status: 'released', chargedMicros: 0n };
@@ -299,14 +306,13 @@ export class BillingService implements Disposable {
         }
       });
       this.logOutcome(outcome);
-      const settled = outcome?.status === 'settling' ? await this.settleStored(id) : undefined;
       const attempts = this.failures.get(id);
       if (attempts)
         this.logger.info(
           formatEvent('计费重试完成', {
             requestId: id,
             previousFailures: attempts,
-            status: settled?.status ?? outcome?.status ?? 'unchanged',
+            status: outcome?.status ?? 'unchanged',
             pendingRetries: Math.max(0, this.pending.size - 1),
           }),
         );
@@ -382,40 +388,40 @@ export class BillingService implements Disposable {
     return outcome;
   }
 
+  /** 结算已进入 settling 的请求，用于恢复中断的请求。 */
   private async settleStored(id: string) {
     const outcome = await this.db.transaction<BillingOutcome | undefined>(async (tx) => {
       const r = await lockRequest(tx, id);
       if (r?.status !== 'settling' || !r.billingEnabled || (!r.usageFinal && !r.usageEstimate)) return;
       const [usage] = await tx.select().from(requestUsage).where(eq(requestUsage.requestId, id));
-      if (!usage) {
-        return markNeedsReview(tx, r, 'usage_missing');
-      }
-      let priced: PricedUsage;
-      if (!r.usageFinal && (r.subscriptionAccountId || reportedCacheReadTokens(r.endpoint, usage.rawUsage) === null)) {
-        return markNeedsReview(tx, r, 'usage_not_final', {
-          errorMessage: '上游最终用量或缓存用量未确认，停止自动估算扣费，请依据上游账单核对',
-        });
-      }
-      try {
-        priced = await priceRequestUsage(this.pricing, r, usage);
-      } catch (error) {
-        return markNeedsReview(tx, r, 'price_unconfigured', { errorMessage: safeErrorMessage(error) });
-      }
-      const snapshot = r.usageEstimate
-        ? { ...priced, source: 'estimated_usage', usageEstimate: r.usageEstimate }
-        : priced;
-      await settleRequest(
-        tx,
-        r,
-        BigInt(priced.totalMicros),
-        snapshot,
-        undefined,
-        r.usageEstimate ? '断连估算结算' : '结算',
-      );
-      return { request: r, status: 'settled', chargedMicros: BigInt(priced.totalMicros) };
+      return this.settleLocked(tx, r, usage);
     });
     this.logOutcome(outcome);
     return outcome;
+  }
+
+  /**
+   * 在已锁定的请求上按保存的用量和价格快照结算。r 需反映本事务中已写入的用量状态；
+   * 用量缺失、缓存用量未确认或价格无法计算时转入人工核对。
+   */
+  private async settleLocked(tx: Transaction, r: RequestRow, usage: Usage | undefined): Promise<BillingOutcome> {
+    if (!usage) return markNeedsReview(tx, r, 'usage_missing');
+    if (!r.usageFinal && (r.subscriptionAccountId || reportedCacheReadTokens(r.endpoint, usage.rawUsage) === null))
+      return markNeedsReview(tx, r, 'usage_not_final', {
+        errorMessage: '上游最终用量或缓存用量未确认，停止自动估算扣费，请依据上游账单核对',
+      });
+    let priced: PricedUsage;
+    try {
+      priced = priceRequestUsage(this.pricing, r, usage);
+    } catch (error) {
+      return markNeedsReview(tx, r, 'price_unconfigured', { errorMessage: safeErrorMessage(error) });
+    }
+    const amount = BigInt(priced.totalMicros);
+    const snapshot = r.usageEstimate
+      ? { ...priced, source: 'estimated_usage', usageEstimate: r.usageEstimate }
+      : priced;
+    await settleRequest(tx, r, amount, snapshot, undefined, r.usageEstimate ? '断连估算结算' : '结算');
+    return { request: r, status: 'settled', chargedMicros: amount };
   }
 
   /**
