@@ -1,11 +1,10 @@
-import { readBillingCurrency, readDatabaseConfig } from '../config.ts';
+import { readDatabaseConfig } from '../config.ts';
 import { errorDetails, formatEvent, globalLogger } from '../core/logging.ts';
 import { createDatabase } from '../plugins/database/client.ts';
 import { initializeDatabase } from './bootstrap.ts';
 
 async function main() {
   const options = {
-    currency: readBillingCurrency(),
     username: process.env.BOOTSTRAP_ADMIN_USERNAME,
     password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
   };

@@ -8,15 +8,7 @@ import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
 import type { Database } from '../database/client.ts';
 import { paginate } from '../database/query.ts';
-import {
-  models,
-  requests,
-  requestUsage,
-  systemSettings,
-  users,
-  walletLedger,
-  wallets,
-} from '../database/schema/index.ts';
+import { models, requests, requestUsage, users, walletLedger, wallets } from '../database/schema/index.ts';
 import { type LedgerEntry, ledgerAmounts, lockWallet, postLedgerEntry } from './ledger.ts';
 import type { AdjustWalletInput, StatsRange } from './schemas.ts';
 
@@ -61,17 +53,18 @@ export class WalletService {
   static readonly token = serviceToken<WalletService>('ohmyapi/wallet');
   private readonly db: Database;
   private readonly auth: AuthService;
-  constructor({ db, auth }: { db: Database; auth: AuthService }) {
+  private readonly currency: string;
+  constructor({ db, auth, currency }: { db: Database; auth: AuthService; currency: string }) {
     this.db = db;
     this.auth = auth;
+    this.currency = currency;
   }
 
   async get(userId: string) {
     const [wallet] = await this.db.select().from(wallets).where(eq(wallets.userId, userId));
     if (!wallet) throw new AppError('not_found', '钱包不存在');
-    const [settings] = await this.db.select({ currency: systemSettings.currency }).from(systemSettings);
     return {
-      currency: settings.currency,
+      currency: this.currency,
       balance: formatMoney(wallet.balanceMicros),
       reserved: formatMoney(wallet.reservedMicros),
       available: formatMoney(wallet.balanceMicros - wallet.reservedMicros),
@@ -195,12 +188,11 @@ export class WalletService {
   }
 
   async platformStats() {
-    const [last24Hours, last30Days, [settings]] = await Promise.all([
+    const [last24Hours, last30Days] = await Promise.all([
       this.aggregateStats(undefined, '24h'),
       this.aggregateStats(undefined, '30d'),
-      this.db.select({ currency: systemSettings.currency }).from(systemSettings),
     ]);
-    return { last24Hours, last30Days, currency: settings.currency };
+    return { last24Hours, last30Days, currency: this.currency };
   }
 
   /** 与请求列表「待核对」筛选条件一致，供导航徽标轮询。 */

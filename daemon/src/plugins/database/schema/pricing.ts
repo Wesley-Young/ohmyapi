@@ -22,7 +22,6 @@ export const priceRules = pgTable(
     weekdaysMask: integer('weekdays_mask'),
     startMinute: integer('start_minute'),
     endMinute: integer('end_minute'),
-    timezone: text('timezone').default('Asia/Shanghai').notNull(),
     inputPriceMicros: micros('input_price_micros').notNull(),
     outputPriceMicros: micros('output_price_micros').notNull(),
     // NULL means unsupported/unconfigured, not free.
@@ -43,7 +42,6 @@ export const priceRules = pgTable(
       'price_rules_time_shape',
       sql`(${table.kind} in ('time', 'combined') and ${table.weekdaysMask} is not null and ${table.weekdaysMask} between 1 and 127 and ${table.startMinute} is not null and ${table.startMinute} >= 0 and ${table.endMinute} is not null and ${table.endMinute} <= 1440 and ${table.endMinute} > ${table.startMinute}) or (${table.kind} in ('default', 'context') and ${table.weekdaysMask} is null and ${table.startMinute} is null and ${table.endMinute} is null)`,
     ),
-    check('price_rules_timezone', sql`${table.timezone} = 'Asia/Shanghai'`),
     check(
       'price_rules_search_prices_nonnegative',
       sql`(${table.webSearchPriceMicros} is null or ${table.webSearchPriceMicros} >= 0) and (${table.webSearchPreviewPriceMicros} is null or ${table.webSearchPreviewPriceMicros} >= 0)`,

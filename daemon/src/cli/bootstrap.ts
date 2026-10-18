@@ -1,6 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
 
-import { billingConventions } from '../core/money.ts';
 import { recordAudit } from '../plugins/auth/audit.ts';
 import { hashPassword, validatePassword } from '../plugins/auth/password.ts';
 import type { Database } from '../plugins/database/client.ts';
@@ -8,24 +7,17 @@ import { assertMigrationsCurrent } from '../plugins/database/migrate.ts';
 import { systemSettings, users, wallets } from '../plugins/database/schema/index.ts';
 
 export interface BootstrapOptions {
-  currency: string;
   username?: string;
   password?: string;
 }
 
 /** A single transaction, serialized across simultaneous init processes. */
 export async function initializeDatabase(db: Database, options: BootstrapOptions) {
-  if (!['USD', 'CNY'].includes(options.currency)) throw new Error('Billing currency must be USD or CNY');
   await assertMigrationsCurrent(db);
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(1330138457)`);
     const [existing] = await tx.select().from(systemSettings).where(eq(systemSettings.id, 1));
-    if (existing) {
-      if (existing.currency !== options.currency) {
-        await tx.update(systemSettings).set({ currency: options.currency }).where(eq(systemSettings.id, 1));
-      }
-      return { created: false, adminId: existing.bootstrapAdminId };
-    }
+    if (existing) return { created: false, adminId: existing.bootstrapAdminId };
 
     if (!options.username || !/^[a-z0-9][a-z0-9_.-]{2,63}$/.test(options.username)) {
       throw new Error(
@@ -47,22 +39,12 @@ export async function initializeDatabase(db: Database, options: BootstrapOptions
       })
       .returning({ id: users.id });
     await tx.insert(wallets).values({ userId: admin.id });
-    await tx.insert(systemSettings).values({
-      currency: options.currency,
-      moneyScale: Number(billingConventions.moneyScale),
-      priceTokenUnit: Number(billingConventions.priceTokenUnit),
-      timezone: billingConventions.timezone,
-      contextPricing: billingConventions.contextPricing,
-      rounding: billingConventions.rounding,
-      missingUsage: billingConventions.missingUsage,
-      bootstrapAdminId: admin.id,
-    });
+    await tx.insert(systemSettings).values({ bootstrapAdminId: admin.id });
     await recordAudit(tx, {
       actorId: admin.id,
       action: 'system.bootstrap',
       targetType: 'user',
       targetId: admin.id,
-      metadata: { currency: options.currency },
     });
     return { created: true, adminId: admin.id };
   });

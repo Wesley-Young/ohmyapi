@@ -1,11 +1,12 @@
+/**
+ * 计费约定：金额以百万分之一货币单位保存，单价按每百万 Token 计；时段规则按北京时间匹配；
+ * 多条规则同时匹配时按 rulePrecedence 的顺序取第一条。
+ */
 export const billingConventions = {
   moneyScale: 1_000_000n,
   priceTokenUnit: 1_000_000n,
   timezone: 'Asia/Shanghai',
-  contextPricing: 'whole_request',
-  rounding: 'ceil_total',
   rulePrecedence: ['combined', 'context', 'time', 'default'],
-  missingUsage: 'needs_review',
 } as const;
 
 const maxDatabaseInteger = 9_223_372_036_854_775_807n;

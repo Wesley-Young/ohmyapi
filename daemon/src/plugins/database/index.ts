@@ -17,13 +17,10 @@ export class DatabaseService implements Disposable {
     this.db = this.connection.db;
   }
 
-  async assertInitialized(currency: string) {
+  async assertInitialized() {
     await assertMigrationsCurrent(this.db);
     const [settings] = await this.db.select().from(systemSettings).where(eq(systemSettings.id, 1));
     if (!settings) throw new Error('Database is not initialized; run pnpm db:migrate and pnpm db:init');
-    if (settings.currency !== currency) {
-      await this.db.update(systemSettings).set({ currency }).where(eq(systemSettings.id, 1));
-    }
   }
 
   async checkConnection() {
@@ -41,6 +38,6 @@ export const DatabasePlugin = definePlugin({
   async apply(ctx) {
     const service = new DatabaseService(ctx.config.database);
     ctx.provide(DatabaseService, service);
-    await service.assertInitialized(ctx.config.currency);
+    await service.assertInitialized();
   },
 });

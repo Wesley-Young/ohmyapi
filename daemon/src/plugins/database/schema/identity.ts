@@ -130,30 +130,17 @@ export const adminTokens = pgTable(
   ],
 );
 
+/** 初始化标记：存在即表示已创建首个管理员。货币和计费约定由配置与代码决定，见 config.ts 和 core/money.ts。 */
 export const systemSettings = pgTable(
   'system_settings',
   {
     id: integer('id').primaryKey().default(1),
-    currency: text('currency').notNull(),
-    moneyScale: integer('money_scale').default(1_000_000).notNull(),
-    priceTokenUnit: integer('price_token_unit').default(1_000_000).notNull(),
-    timezone: text('timezone').default('Asia/Shanghai').notNull(),
-    contextPricing: text('context_pricing').default('whole_request').notNull(),
-    rounding: text('rounding').default('ceil_total').notNull(),
-    missingUsage: text('missing_usage').default('needs_review').notNull(),
     bootstrapAdminId: uuid('bootstrap_admin_id')
       .notNull()
       .references(() => users.id),
     createdAt: createdAt(),
   },
-  (table) => [
-    check('system_settings_singleton', sql`${table.id} = 1`),
-    check('system_settings_currency', sql`${table.currency} in ('USD', 'CNY')`),
-    check(
-      'system_settings_conventions',
-      sql`${table.moneyScale} = 1000000 and ${table.priceTokenUnit} = 1000000 and ${table.timezone} = 'Asia/Shanghai' and ${table.contextPricing} = 'whole_request' and ${table.rounding} = 'ceil_total' and ${table.missingUsage} = 'needs_review'`,
-    ),
-  ],
+  (table) => [check('system_settings_singleton', sql`${table.id} = 1`)],
 );
 
 export const adminAuditLogs = pgTable(

@@ -9,15 +9,7 @@ import { generatePassword, hashPassword } from '../auth/password.ts';
 import { type AuthService, type Principal, publicUser } from '../auth/service.ts';
 import type { Database } from '../database/client.ts';
 import { containsText, createdBefore, createdPosition, paginate } from '../database/query.ts';
-import {
-  adminTokens,
-  apiKeys,
-  sessions,
-  systemSettings,
-  userGroupMembers,
-  users,
-  wallets,
-} from '../database/schema/index.ts';
+import { adminTokens, apiKeys, sessions, userGroupMembers, users, wallets } from '../database/schema/index.ts';
 import type { GroupService } from '../groups/service.ts';
 import { postLedgerEntry } from '../wallet/ledger.ts';
 
@@ -27,21 +19,27 @@ export class UserService {
   private readonly auth: AuthService;
   private readonly groups: GroupService;
   private readonly initialBalanceMicros: bigint;
-  constructor(deps: { db: Database; auth: AuthService; groups: GroupService; initialBalanceMicros: bigint }) {
+  private readonly currency: string;
+  constructor(deps: {
+    db: Database;
+    auth: AuthService;
+    groups: GroupService;
+    initialBalanceMicros: bigint;
+    currency: string;
+  }) {
     this.db = deps.db;
     this.auth = deps.auth;
     this.groups = deps.groups;
     this.initialBalanceMicros = deps.initialBalanceMicros;
+    this.currency = deps.currency;
   }
 
   /** 创建用户表单的预填值。 */
-  async createDefaults() {
-    const [settings] = await this.db.select({ currency: systemSettings.currency }).from(systemSettings);
-    return { currency: settings.currency, initialBalance: formatMoney(this.initialBalanceMicros) };
+  createDefaults() {
+    return { currency: this.currency, initialBalance: formatMoney(this.initialBalanceMicros) };
   }
 
   async list(page: number, search: string) {
-    const [settings] = await this.db.select({ currency: systemSettings.currency }).from(systemSettings);
     const rows = await paginate(
       this.db
         .select({ user: users, wallet: wallets })
@@ -54,7 +52,7 @@ export class UserService {
     );
     const { items, hasMore } = toPage(rows);
     return {
-      currency: settings.currency,
+      currency: this.currency,
       items: items.map(({ user, wallet }) => ({
         ...publicUser(user),
         createdAt: user.createdAt.toISOString(),

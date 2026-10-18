@@ -16,6 +16,7 @@ export const UsersPlugin = definePlugin({
         auth: ctx.auth,
         groups: ctx.groups,
         initialBalanceMicros: ctx.config.userInitialBalanceMicros,
+        currency: ctx.config.currency,
       }),
     );
   },

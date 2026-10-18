@@ -8,6 +8,9 @@ export const WalletPlugin = definePlugin({
   inject: { database: DatabaseService, auth: AuthService },
   provides: [WalletService],
   apply(ctx) {
-    ctx.provide(WalletService, new WalletService({ db: ctx.database.db, auth: ctx.auth }));
+    ctx.provide(
+      WalletService,
+      new WalletService({ db: ctx.database.db, auth: ctx.auth, currency: ctx.config.currency }),
+    );
   },
 });
