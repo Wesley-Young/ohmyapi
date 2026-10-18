@@ -1,60 +1,30 @@
 import { Button, Field, HStack, NativeSelect, Stack } from '@chakra-ui/react';
-import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
-import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import { type AccessEndpoint, pickAccessEndpoint, storedAccessEndpointId } from '../lib/access-endpoints';
 import {
-  type AccessEndpoint,
-  accessEndpointOptions,
-  pickAccessEndpoint,
-  storedAccessEndpointId,
-} from '../lib/access-endpoints';
-import { buildCCSwitchUrl, type CCSwitchModels, ccSwitchApps, ccSwitchModelFields } from '../lib/cc-switch';
-import { formError } from '../lib/format';
-import { trpc } from '../lib/trpc';
+  buildCCSwitchUrl,
+  type CCSwitchModels,
+  ccSwitchApps,
+  ccSwitchModelFields,
+  supportsCCSwitch,
+} from '../lib/cc-switch';
 import { AccessEndpointField } from './access-endpoint-field';
-import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
-
-type ExportKey = RouterOutputs['keys']['playgroundOptions'][number];
+import { type ExportKey, KeyExportDialog, keyExpired } from './key-export-dialog';
+import { ErrorText, FormInput, PrimaryButton } from './ui';
 
 export function CCSwitchDialog({ keyId, onClose }: { keyId: string; onClose: () => void }) {
-  const options = useQuery(trpc.keys.playgroundOptions.queryOptions(undefined, { staleTime: 0, gcTime: 0 }));
-  const accessEndpoints = useQuery(trpc.keys.accessEndpoints.queryOptions());
-  const selectedKey = options.data?.find((key) => key.id === keyId);
-  const error = options.error ?? accessEndpoints.error;
   return (
-    <FormDialog open title="导出到 CC Switch" onClose={onClose}>
-      {options.isPending || !options.isFetchedAfterMount || accessEndpoints.isPending ? (
-        <Loading />
-      ) : error ? (
-        <Stack gap="4">
-          <ErrorText>{formError(error)?.message}</ErrorText>
-          <Button
-            variant="outline"
-            alignSelf="start"
-            loading={options.isFetching || accessEndpoints.isFetching}
-            onClick={() => {
-              if (options.error) options.refetch();
-              if (accessEndpoints.error) accessEndpoints.refetch();
-            }}
-          >
-            重试
-          </Button>
-        </Stack>
-      ) : !selectedKey ? (
-        <ErrorText>此 Key 已失效，或渠道没有已授权且已定价的可用模型。</ErrorText>
-      ) : !ccSwitchApps.some((app) => selectedKey.endpoints.includes(app.endpoint)) ? (
-        <ErrorText>此 Key 的渠道未提供 CC Switch 配置所需的 Messages 或 Responses 端点。</ErrorText>
-      ) : (
-        <ExportForm
-          key={selectedKey.id}
-          apiKey={selectedKey}
-          accessEndpoints={accessEndpointOptions(accessEndpoints.data)}
-          refreshing={options.isFetching}
-          onClose={onClose}
-        />
-      )}
-    </FormDialog>
+    <KeyExportDialog
+      keyId={keyId}
+      title="导出到 CC Switch"
+      unsupported={(key) =>
+        supportsCCSwitch(key.endpoints) ? undefined : '此 Key 的渠道未提供 CC Switch 配置所需的 Responses 端点。'
+      }
+      onClose={onClose}
+    >
+      {(props) => <ExportForm key={props.apiKey.id} {...props} onClose={onClose} />}
+    </KeyExportDialog>
   );
 }
 
@@ -93,7 +63,7 @@ function ExportForm({
         setSubmitted(true);
         setLaunchError(undefined);
         if (refreshing || !name.trim() || fields.some((field) => modelError(field))) return;
-        if (apiKey.expiresAt && new Date(apiKey.expiresAt).getTime() <= Date.now()) {
+        if (keyExpired(apiKey)) {
           setLaunchError('此 Key 已过期，请选择其他 Key');
           return;
         }

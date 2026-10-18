@@ -1,24 +1,85 @@
-import { Badge, Box, Button, Grid, HStack, Stack, Table, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Grid, HStack, Menu, Portal, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { BookOpen, Check, Copy, Download, Pencil, Trash2 } from 'lucide-react';
+import { BookOpen, Check, ChevronDown, Copy, Download, Pencil, Trash2 } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
 import { CCSwitchDialog } from '../components/cc-switch-dialog';
 import { IconButton } from '../components/icon-button';
 import { KeyForm } from '../components/key-form';
 import { KeyUsageDialog } from '../components/key-usage-dialog';
+import { OhmyswitchDialog } from '../components/ohmyswitch-dialog';
 import { ErrorText, Loading, NameAction, PageControls, PrimaryButton, pinnedColumn, Title } from '../components/ui';
+import { supportsCCSwitch } from '../lib/cc-switch';
 import { displayMoney, formError, localDate } from '../lib/format';
+import { ohmyswitchEndpointsOf } from '../lib/ohmyswitch';
 import { queryClient, trpc } from '../lib/trpc';
 
 type ApiKey = RouterOutputs['keys']['list']['items'][number];
+
+const exportTargets = [
+  { id: 'ohmyswitch', label: 'ohmyswitch', supports: (endpoints) => ohmyswitchEndpointsOf(endpoints).length > 0 },
+  { id: 'cc-switch', label: 'CC Switch', supports: supportsCCSwitch },
+] as const satisfies readonly { id: string; label: string; supports: (endpoints: ApiKey['endpoints']) => boolean }[];
+
+type ExportTarget = (typeof exportTargets)[number]['id'];
+
+function ExportMenu({
+  apiKey,
+  disabled,
+  onSelect,
+}: {
+  apiKey: ApiKey;
+  disabled: boolean;
+  onSelect: (target: ExportTarget) => void;
+}) {
+  const available = exportTargets.filter((target) => target.supports(apiKey.endpoints));
+  return (
+    <Menu.Root
+      positioning={{ placement: 'bottom-end' }}
+      onSelect={({ value }) => {
+        const target = available.find((item) => item.id === value);
+        if (target) onSelect(target.id);
+      }}
+    >
+      <Menu.Trigger asChild>
+        <Button
+          type="button"
+          aria-label={`导出「${apiKey.name}」`}
+          variant="outline"
+          size="sm"
+          disabled={disabled || !available.length}
+        >
+          <Download size={16} aria-hidden="true" />
+          导出
+          <ChevronDown size={14} aria-hidden="true" />
+        </Button>
+      </Menu.Trigger>
+      <Portal>
+        <Menu.Positioner>
+          <Menu.Content minW="160px" borderRadius="xl">
+            <Menu.ItemGroup>
+              <Menu.ItemGroupLabel fontSize="xs" color="gray.500">
+                导出到
+              </Menu.ItemGroupLabel>
+              {exportTargets.map((target) => (
+                <Menu.Item key={target.id} value={target.id} borderRadius="lg" disabled={!available.includes(target)}>
+                  {target.label}
+                </Menu.Item>
+              ))}
+            </Menu.ItemGroup>
+          </Menu.Content>
+        </Menu.Positioner>
+      </Portal>
+    </Menu.Root>
+  );
+}
 
 export default function Keys() {
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
   const [showingUsage, setShowingUsage] = useState(false);
-  const [exportingKeyId, setExportingKeyId] = useState<string>();
+  const [exporting, setExporting] = useState<{ keyId: string; target: ExportTarget }>();
   const data = useQuery(trpc.keys.list.queryOptions({ page }));
   const channels = useQuery(trpc.keys.channels.queryOptions());
   const currency = useQuery(trpc.wallet.get.queryOptions()).data?.currency;
@@ -66,7 +127,12 @@ export default function Keys() {
       <ErrorText>{copyError}</ErrorText>
       <ErrorText>{formError(deletion.error)?.message}</ErrorText>
       {showingUsage && <KeyUsageDialog onClose={() => setShowingUsage(false)} />}
-      {exportingKeyId && <CCSwitchDialog keyId={exportingKeyId} onClose={() => setExportingKeyId(undefined)} />}
+      {exporting?.target === 'cc-switch' && (
+        <CCSwitchDialog keyId={exporting.keyId} onClose={() => setExporting(undefined)} />
+      )}
+      {exporting?.target === 'ohmyswitch' && (
+        <OhmyswitchDialog keyId={exporting.keyId} onClose={() => setExporting(undefined)} />
+      )}
       {(creating || editing) && (
         <KeyForm
           key={editing?.id ?? 'new'}
@@ -190,17 +256,11 @@ export default function Keys() {
                         </Table.Cell>
                         <Table.Cell {...pinnedColumn}>
                           <HStack gap="2">
-                            <Button
-                              type="button"
-                              aria-label={`导出「${key.name}」到 CC Switch`}
-                              variant="outline"
-                              size="sm"
-                              disabled={!key.exportable || expired}
-                              onClick={() => setExportingKeyId(key.id)}
-                            >
-                              <Download size={16} aria-hidden="true" />
-                              导出
-                            </Button>
+                            <ExportMenu
+                              apiKey={key}
+                              disabled={expired}
+                              onSelect={(target) => setExporting({ keyId: key.id, target })}
+                            />
                             <IconButton
                               aria-label={`编辑 Key「${key.name}」`}
                               title="编辑 Key"

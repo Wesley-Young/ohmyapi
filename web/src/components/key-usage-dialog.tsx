@@ -45,6 +45,10 @@ export function KeyUsageDialog({ onClose }: { onClose: () => void }) {
             <Link href="https://ccswitch.io/" color={brandColor}>
               CC Switch
             </Link>{' '}
+            或{' '}
+            <Link href="https://github.com/Wesley-Young/ohmyswitch" color={brandColor}>
+              ohmyswitch
+            </Link>{' '}
             管理。
           </Text>
           <Text color="gray.600">

@@ -1,9 +1,17 @@
+import type { Endpoint } from './endpoints';
+
 export const ccSwitchApps = [
   { id: 'claude', label: 'Claude', endpoint: '/v1/messages' },
   { id: 'codex', label: 'Codex', endpoint: '/v1/responses' },
 ] as const;
 
 type CCSwitchApp = (typeof ccSwitchApps)[number]['id'];
+
+/**
+ * CC Switch 配置的是官方客户端，而本站不支持 Claude Code，所以渠道需要提供 Codex 使用的 Responses 端点才能导出；
+ * 同时提供 Messages 时也可以导出 Claude 配置。
+ */
+export const supportsCCSwitch = (endpoints: readonly Endpoint[]) => endpoints.includes('/v1/responses');
 
 const primaryModel = { key: 'model', label: '主模型', required: true } as const;
 const claudeModels = [

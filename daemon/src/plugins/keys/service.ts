@@ -5,7 +5,7 @@ import type { AccessEndpoint } from '../../config.ts';
 import { AppError } from '../../core/errors.ts';
 import { formatMoney } from '../../core/money.ts';
 import { toPage } from '../../core/pagination.ts';
-import { protocolFor } from '../../protocols/index.ts';
+import { type Endpoint, endpoints } from '../../protocols/index.ts';
 import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
 import { compareChannels } from '../catalog/order.ts';
@@ -307,16 +307,17 @@ export class KeyService {
         ])
       : [[], []];
     const usageByKey = new Map(usage.map((row) => [row.keyId, row]));
-    // CC Switch export needs an available channel that serves an OpenAI protocol.
-    const exportableChannels = new Set(
-      offerings
-        .filter((row) => ['chat', 'responses'].includes(protocolFor(row.endpoint).family))
-        .map((row) => row.channelId),
-    );
+    // Endpoints the bound channel serves to this user, in gateway order; each export target picks the ones its
+    // clients speak.
+    const channelEndpoints = new Map<string, Endpoint[]>();
+    for (const endpoint of endpoints) {
+      for (const channelId of new Set(offerings.filter((row) => row.endpoint === endpoint).map((row) => row.channelId)))
+        channelEndpoints.set(channelId, [...(channelEndpoints.get(channelId) ?? []), endpoint]);
+    }
     return {
       items: items.map((key) => ({
         ...key,
-        exportable: !key.revokedAt && key.channelId !== null && exportableChannels.has(key.channelId),
+        endpoints: (!key.revokedAt && key.channelId && channelEndpoints.get(key.channelId)) || [],
         expiresAt: key.expiresAt?.toISOString() ?? null,
         revokedAt: key.revokedAt?.toISOString() ?? null,
         createdAt: key.createdAt.toISOString(),
