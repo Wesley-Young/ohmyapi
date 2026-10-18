@@ -12,12 +12,13 @@ import {
   channels,
   models,
   type PricingMode,
+  priceRuleKind,
   priceRules,
   pricingModes,
 } from '../database/schema/index.ts';
 import type { KeyService } from '../keys/service.ts';
 import { expandRules, type Quantities, quote, type Rule, validateRules } from './rules.ts';
-import { multiplierInput, type PreviewInput, type PriceScope, ruleInput, type SavePriceInput } from './schemas.ts';
+import type { PreviewInput, PriceScope, SavePriceInput } from './schemas.ts';
 import { applySearchDefaults, defaultSearchPrices } from './search-defaults.ts';
 
 const serializeRule = (r: Rule) => ({
@@ -41,13 +42,33 @@ const routingSnapshot = z.object({
   executionChannelId: z.uuid(),
   pricingChannelId: z.uuid(),
 });
+const snapshotMoney = z.string().regex(/^-?(0|[1-9]\d*)(\.\d{1,6})?$/);
+const snapshotCount = z.string().regex(/^(0|[1-9]\d*)$/);
+/**
+ * 请求保存的规则快照，与规则编辑的输入校验分开：调整编辑限制后，已有请求仍按受理时的规则结算。
+ * 快照来自已保存的规则，已满足互斥和区间约束。
+ */
+const snapshotRule = z.object({
+  id: z.uuid(),
+  label: z.string(),
+  kind: z.enum(priceRuleKind.enumValues),
+  contextMin: snapshotCount.nullable(),
+  contextMax: snapshotCount.nullable(),
+  weekdaysMask: z.number().int().nullable(),
+  startMinute: z.number().int().nullable(),
+  endMinute: z.number().int().nullable(),
+  inputPrice: snapshotMoney,
+  outputPrice: snapshotMoney,
+  cacheReadPrice: snapshotMoney.nullable(),
+  cacheWritePrice: snapshotMoney.nullable(),
+  webSearchPrice: snapshotMoney.nullable().default(null),
+  webSearchPreviewPrice: snapshotMoney.nullable().default(null),
+});
+const nullableMoney = (value: string | null) => (value === null ? null : parseMoney(value));
 const snapshotInput = z.object({
   modelId: z.uuid(),
-  rules: z
-    .array(ruleInput.safeExtend({ id: z.uuid() }))
-    .min(1)
-    .max(200),
-  multiplier: multiplierInput,
+  rules: z.array(snapshotRule).min(1),
+  multiplier: snapshotMoney,
   multiplierSource: z.enum(['model', 'channel']),
   pricingMode: z.enum(pricingModes).default('unified'),
   routing: routingSnapshot.optional(),
@@ -300,8 +321,22 @@ export class PricingService {
   restore(snapshot: unknown, receivedAt: Date): LockedPrice {
     const saved = snapshotInput.parse(snapshot);
     if (new Date(saved.receivedAt).getTime() !== receivedAt.getTime()) throw new Error('Price snapshot time mismatch');
-    const rules = saved.rules.map((r) => ({ ...expandRules([r])[0], id: r.id }));
-    validateRules(rules);
+    const rules: Rule[] = saved.rules.map((r) => ({
+      id: r.id,
+      label: r.label,
+      kind: r.kind,
+      contextMin: r.contextMin === null ? null : BigInt(r.contextMin),
+      contextMax: r.contextMax === null ? null : BigInt(r.contextMax),
+      weekdaysMask: r.weekdaysMask,
+      startMinute: r.startMinute,
+      endMinute: r.endMinute,
+      inputPriceMicros: parseMoney(r.inputPrice),
+      outputPriceMicros: parseMoney(r.outputPrice),
+      cacheReadPriceMicros: nullableMoney(r.cacheReadPrice),
+      cacheWritePriceMicros: nullableMoney(r.cacheWritePrice),
+      webSearchPriceMicros: nullableMoney(r.webSearchPrice),
+      webSearchPreviewPriceMicros: nullableMoney(r.webSearchPreviewPrice),
+    }));
     return {
       modelId: saved.modelId,
       rules,

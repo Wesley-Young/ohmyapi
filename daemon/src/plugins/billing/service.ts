@@ -134,15 +134,7 @@ export class BillingService implements Disposable {
           channelId: input.channelId,
           subscriptionAccountId: input.subscriptionAccountId,
           reasoningEffort: input.reasoningEffort,
-          pricingSnapshot: {
-            multiplier: formatMoney(input.price.multiplierMicros),
-            multiplierSource: input.price.multiplierSource,
-            pricingMode: input.price.pricingMode,
-            routing: input.price.routing,
-            receivedAt: input.price.receivedAt.toISOString(),
-            currency: this.pricing.currency,
-            billed: false,
-          },
+          // 价格快照只在这里保存一份；结算时写入 pricingSnapshot 的报价。
           reservationSnapshot: {
             pricing: this.pricing.snapshot(input.price),
             outputTokenLimit: input.outputLimit,

@@ -129,7 +129,6 @@ export class BillingReview {
       } else {
         amount = parseMoney(input.amount as string);
         snapshot = {
-          ...r.pricingSnapshot,
           total: formatMoney(amount),
           totalMicros: amount.toString(),
           source: 'administrator_amount',

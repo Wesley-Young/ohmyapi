@@ -37,7 +37,7 @@ export async function releaseRequest(tx: Transaction, r: RequestRow, actorId: st
     .where(eq(requests.id, r.id));
 }
 
-/** 按确定的金额结算：扣除费用并释放预占，金额可以超过预占。 */
+/** 按确定的金额结算：扣除费用并释放早期请求的预占。报价明细保存在请求的 pricingSnapshot，流水不重复保存。 */
 export async function settleRequest(
   tx: Transaction,
   r: RequestRow,
@@ -56,7 +56,6 @@ export async function settleRequest(
     reservedDeltaMicros: -r.heldMicros,
     actorId,
     reason,
-    metadata: { pricing: snapshot, exceededReservation: amount > r.reservedMicros },
   });
   await tx
     .update(requests)
