@@ -91,8 +91,9 @@ function readGatewayConfig(env: Environment) {
     bodyIdleTimeoutMs: integerSetting(env, 'GATEWAY_BODY_IDLE_TIMEOUT_MS', 20_000, 600_000),
     streamIdleTimeoutMs: integerSetting(env, 'GATEWAY_STREAM_IDLE_TIMEOUT_MS', 300_000, 3_600_000),
     disconnectDrainTimeoutMs: integerSetting(env, 'GATEWAY_DISCONNECT_DRAIN_TIMEOUT_MS', 600_000, 3_600_000),
-    maxUsageEventBytes: integerSetting(env, 'GATEWAY_MAX_USAGE_EVENT_BYTES', 128 * 1024 * 1024, 256 * 1024 * 1024),
-    maxUsageBodyBytes: integerSetting(env, 'GATEWAY_MAX_USAGE_BODY_BYTES', 128 * 1024 * 1024, 256 * 1024 * 1024),
+    // 用量解析在事件循环中同步执行 JSON.parse，上限同时约束单次阻塞时长和每个请求额外占用的内存。
+    maxUsageEventBytes: integerSetting(env, 'GATEWAY_MAX_USAGE_EVENT_BYTES', 16 * 1024 * 1024, 64 * 1024 * 1024),
+    maxUsageBodyBytes: integerSetting(env, 'GATEWAY_MAX_USAGE_BODY_BYTES', 16 * 1024 * 1024, 64 * 1024 * 1024),
     maxConcurrent: integerSetting(env, 'GATEWAY_USER_CONCURRENCY', 4, 100),
     requestsPerMinute: integerSetting(env, 'GATEWAY_USER_RPM', 60, 10_000),
   };
