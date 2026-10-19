@@ -1,13 +1,40 @@
-import { Badge, Button, Field, HStack, Link, NativeSelect, Stack, Text } from '@chakra-ui/react';
-import { Check, Copy } from 'lucide-react';
+import {
+  Badge,
+  Button,
+  Field,
+  Group,
+  HStack,
+  IconButton,
+  Link,
+  Menu,
+  NativeSelect,
+  Portal,
+  Stack,
+  Text,
+} from '@chakra-ui/react';
+import { Check, ChevronDown, Copy } from 'lucide-react';
 import { useState } from 'react';
 
 import { type AccessEndpoint, pickAccessEndpoint, storedAccessEndpointId } from '../lib/access-endpoints';
-import { buildOhmyswitchUrl, buildOmsCommand, type OhmyswitchProvider, ohmyswitchEndpointsOf } from '../lib/ohmyswitch';
+import {
+  buildOhmyswitchUrl,
+  buildOmsCommand,
+  defaultOmsShell,
+  type OhmyswitchProvider,
+  type OmsCommand,
+  type OmsShell,
+  ohmyswitchEndpointsOf,
+  omsShells,
+} from '../lib/ohmyswitch';
 import { brandColor } from '../lib/theme';
 import { AccessEndpointField } from './access-endpoint-field';
 import { type ExportKey, KeyExportDialog, keyExpired } from './key-export-dialog';
 import { ErrorText, FormInput, PrimaryButton } from './ui';
+
+const commandErrors = {
+  'unpassable-name': '供应商名称含有双引号或以反斜杠结尾，无法用于 PowerShell 命令，请修改名称',
+  'too-long': '模型过多，命令超出了 Windows 命令行的长度上限，请改用导入链接',
+} satisfies Record<Extract<OmsCommand, { error: string }>['error'], string>;
 
 export function OhmyswitchDialog({ keyId, onClose }: { keyId: string; onClose: () => void }) {
   return (
@@ -42,6 +69,8 @@ function ExportForm({
   const [submitted, setSubmitted] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [copied, setCopied] = useState(false);
+  const [shell, setShell] = useState(defaultOmsShell);
+  const shellLabel = omsShells.find((item) => item.id === shell)?.label;
 
   /** 校验表单；可以导出时返回要导出的供应商。 */
   const prepare = (): OhmyswitchProvider | undefined => {
@@ -62,6 +91,21 @@ function ExportForm({
       iconUrl: window.location.origin,
       models: apiKey.models.map((model) => model.name),
     };
+  };
+  const copyCommand = async (target: OmsShell) => {
+    const provider = prepare();
+    if (!provider) return;
+    const result = buildOmsCommand(provider, target);
+    if ('error' in result) {
+      setActionError(commandErrors[result.error]);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(result.command);
+      setCopied(true);
+    } catch {
+      setActionError('复制失败，请检查浏览器剪贴板权限后重试');
+    }
   };
   const edited = () => {
     setCopied(false);
@@ -153,25 +197,62 @@ function ExportForm({
           <PrimaryButton type="submit" disabled={refreshing}>
             导入到 ohmyswitch
           </PrimaryButton>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={refreshing}
-            aria-label={copied ? '已复制 oms 命令' : '复制 oms 命令'}
-            onClick={async () => {
-              const provider = prepare();
-              if (!provider) return;
-              try {
-                await navigator.clipboard.writeText(buildOmsCommand(provider));
-                setCopied(true);
-              } catch {
-                setActionError('复制失败，请检查浏览器剪贴板权限后重试');
-              }
-            }}
-          >
-            {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
-            复制 oms 命令
-          </Button>
+          <Group attached>
+            <Button
+              type="button"
+              variant="ghost"
+              pe="2"
+              disabled={refreshing}
+              title={`复制 ${shellLabel} 的 oms 命令`}
+              aria-label={copied ? `已复制 ${shellLabel} 的 oms 命令` : `复制 ${shellLabel} 的 oms 命令`}
+              onClick={() => copyCommand(shell)}
+            >
+              {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+              复制 oms 命令
+            </Button>
+            <Menu.Root
+              positioning={{ placement: 'bottom-end' }}
+              onSelect={({ value }) => {
+                const next = omsShells.find((item) => item.id === value);
+                if (!next) return;
+                setShell(next.id);
+                copyCommand(next.id);
+              }}
+            >
+              <Menu.Trigger asChild>
+                <IconButton
+                  type="button"
+                  variant="ghost"
+                  minW="8"
+                  color="gray.600"
+                  disabled={refreshing}
+                  title="选择终端"
+                  aria-label={`选择终端，当前为 ${shellLabel}`}
+                >
+                  <ChevronDown size={16} aria-hidden="true" />
+                </IconButton>
+              </Menu.Trigger>
+              <Portal>
+                <Menu.Positioner>
+                  <Menu.Content minW="180px" borderRadius="xl">
+                    <Menu.ItemGroup>
+                      <Menu.ItemGroupLabel fontSize="xs" color="gray.500">
+                        复制命令用于
+                      </Menu.ItemGroupLabel>
+                      {omsShells.map((item) => (
+                        <Menu.Item key={item.id} value={item.id} borderRadius="lg">
+                          {item.label}
+                          {item.id === shell && (
+                            <Check size={14} aria-label="当前" style={{ marginInlineStart: 'auto' }} />
+                          )}
+                        </Menu.Item>
+                      ))}
+                    </Menu.ItemGroup>
+                  </Menu.Content>
+                </Menu.Positioner>
+              </Portal>
+            </Menu.Root>
+          </Group>
           <Link href="https://github.com/Wesley-Young/ohmyswitch" target="_blank" rel="noreferrer" color={brandColor}>
             了解 ohmyswitch
           </Link>
