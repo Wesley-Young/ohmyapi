@@ -1,4 +1,4 @@
-import { Button, Field, HStack, NativeSelect, Stack } from '@chakra-ui/react';
+import { Field, HStack, NativeSelect, Stack } from '@chakra-ui/react';
 import { useState } from 'react';
 
 import { type AccessEndpoint, pickAccessEndpoint, storedAccessEndpointId } from '../lib/access-endpoints';
@@ -23,7 +23,7 @@ export function CCSwitchDialog({ keyId, onClose }: { keyId: string; onClose: () 
       }
       onClose={onClose}
     >
-      {(props) => <ExportForm key={props.apiKey.id} {...props} onClose={onClose} />}
+      {(props) => <ExportForm key={props.apiKey.id} {...props} />}
     </KeyExportDialog>
   );
 }
@@ -32,12 +32,10 @@ function ExportForm({
   apiKey,
   accessEndpoints,
   refreshing,
-  onClose,
 }: {
   apiKey: ExportKey;
   accessEndpoints: AccessEndpoint[];
   refreshing: boolean;
-  onClose: () => void;
 }) {
   const [accessEndpointId, setAccessEndpointId] = useState(storedAccessEndpointId);
   const accessEndpoint = pickAccessEndpoint(accessEndpoints, accessEndpointId);
@@ -147,9 +145,6 @@ function ExportForm({
           <PrimaryButton type="submit" disabled={refreshing}>
             导入 CC Switch
           </PrimaryButton>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            关闭
-          </Button>
         </HStack>
       </Stack>
     </form>
