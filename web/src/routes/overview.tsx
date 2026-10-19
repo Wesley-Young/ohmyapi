@@ -1,16 +1,18 @@
 import { Button, Grid, HStack, Stack, Text } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 import ModelUsage from '../components/model-usage';
 import { ErrorText, FormDialog, Loading, PageControls, Panel, Title } from '../components/ui';
 import UsageTrend from '../components/usage-trend';
 import UserUsage from '../components/user-usage';
+import { ViewSwitch } from '../components/view-switch';
 import { Ledger } from '../components/wallet';
 import { useAuth } from '../lib/auth';
 import { displayMoney, formatCount, formError } from '../lib/format';
-import { queryClient, trpc } from '../lib/trpc';
+import { brandColor } from '../lib/theme';
+import { trpc } from '../lib/trpc';
 
 function LedgerDialog({ onClose }: { onClose: () => void }) {
   const [page, setPage] = useState(0);
@@ -49,13 +51,16 @@ function balanceAmount(value: string) {
   return `${negative && cents !== 0n ? '-' : ''}${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`;
 }
 
-function StatCard({ label, value, unit }: { label: string; value: string; unit?: string }) {
+function StatCard({ label, value, unit, action }: { label: string; value: string; unit?: string; action?: ReactNode }) {
   return (
     <Panel>
       <Stack gap="3">
-        <Text fontSize="sm" color="gray.500">
-          {label}
-        </Text>
+        <HStack justify="space-between" gap="3" flexWrap="wrap">
+          <Text fontSize="sm" color="gray.500">
+            {label}
+          </Text>
+          {action}
+        </HStack>
         <Text
           fontSize="26px"
           fontWeight="600"
@@ -77,10 +82,10 @@ function StatCard({ label, value, unit }: { label: string; value: string; unit?:
 }
 
 const views = [
-  { key: 'platform', label: '平台' },
-  { key: 'personal', label: '个人' },
+  { value: 'platform', label: '平台' },
+  { value: 'personal', label: '个人' },
 ] as const;
-type View = (typeof views)[number]['key'];
+type View = (typeof views)[number]['value'];
 
 export default function Overview() {
   const { data: user } = useAuth();
@@ -98,60 +103,22 @@ export default function Overview() {
   const platformOptions = { enabled: !personal, refetchOnMount: 'always', refetchInterval: 60_000 } as const;
   const platform = useQuery(trpc.admin.stats.queryOptions(undefined, platformOptions));
   const platformTrend = useQuery(trpc.admin.trend.queryOptions(undefined, platformOptions));
-  const refresh = () =>
-    personal
-      ? queryClient.invalidateQueries(trpc.wallet.pathFilter())
-      : Promise.all([
-          queryClient.invalidateQueries(trpc.admin.stats.queryFilter()),
-          queryClient.invalidateQueries(trpc.admin.trend.queryFilter()),
-          queryClient.invalidateQueries(trpc.admin.models.pathFilter()),
-          queryClient.invalidateQueries(trpc.admin.userRanking.pathFilter()),
-        ]);
   return (
     <Stack gap="7">
       <Title
         action={
-          <HStack gap="3" flexWrap="wrap">
-            {personal && (
-              <Button variant="outline" size="sm" borderRadius="full" onClick={() => setViewingLedger(true)}>
-                查询流水
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              borderRadius="full"
-              loading={
-                personal
-                  ? wallet.isFetching || stats.isFetching || trend.isFetching
-                  : platform.isFetching || platformTrend.isFetching
-              }
-              onClick={() => void refresh()}
-            >
-              刷新
-            </Button>
-          </HStack>
+          admin && (
+            <ViewSwitch
+              label="统计视图"
+              items={views}
+              value={view}
+              onChange={(next) => setSearchParams(next === 'platform' ? {} : { view: next }, { replace: true })}
+            />
+          )
         }
       >
         总览
       </Title>
-      {admin && (
-        <HStack gap="1" aria-label="统计视图">
-          {views.map((item) => (
-            <Button
-              key={item.key}
-              size="sm"
-              variant="ghost"
-              borderRadius="full"
-              aria-pressed={view === item.key}
-              bg={view === item.key ? 'gray.100' : 'transparent'}
-              onClick={() => setSearchParams(item.key === 'platform' ? {} : { view: item.key }, { replace: true })}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </HStack>
-      )}
       {personal ? (
         <>
           <ErrorText>{formError(wallet.error ?? stats.error)?.message}</ErrorText>
@@ -164,7 +131,27 @@ export default function Overview() {
                 {[
                   { label: '近 24 小时请求数', value: formatCount(stats.data.requestCount), unit: '次' },
                   { label: '近 24 小时 Token 量', value: formatCount(stats.data.tokens) },
-                  { label: '钱包总余额', value: balanceAmount(wallet.data.balance), unit: wallet.data.currency },
+                  {
+                    label: '钱包总余额',
+                    value: balanceAmount(wallet.data.balance),
+                    unit: wallet.data.currency,
+                    action: (
+                      <Button
+                        variant="plain"
+                        h="auto"
+                        minW="0"
+                        p="0"
+                        fontSize="sm"
+                        fontWeight="500"
+                        color="gray.600"
+                        _hover={{ color: brandColor }}
+                        _focusVisible={{ outline: `2px solid ${brandColor}`, outlineOffset: '2px' }}
+                        onClick={() => setViewingLedger(true)}
+                      >
+                        查看流水
+                      </Button>
+                    ),
+                  },
                   {
                     label: '近 24 小时消费',
                     value: displayMoney(stats.data.chargedAmount),

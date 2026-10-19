@@ -1,22 +1,23 @@
-import { Box, Button, Grid, Heading, HStack, Stack, Text } from '@chakra-ui/react';
+import { Box, Grid, Heading, HStack, Stack, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useId, useState } from 'react';
 
 import { displayMoney, formatCount } from '../lib/format';
 import { brandColor } from '../lib/theme';
 import { Panel } from './ui';
+import { ViewSwitch } from './view-switch';
 
 const metrics = [
-  { key: 'chargedAmount', label: '消费' },
-  { key: 'tokens', label: 'Token 量' },
-  { key: 'requestCount', label: '请求数' },
+  { value: 'chargedAmount', label: '消费' },
+  { value: 'tokens', label: 'Token 量' },
+  { value: 'requestCount', label: '请求数' },
 ] as const;
-type Metric = (typeof metrics)[number]['key'];
+type Metric = (typeof metrics)[number]['value'];
 
 export default function UsageTrend({ days, currency }: { days: RouterOutputs['wallet']['trend']; currency?: string }) {
   const [metric, setMetric] = useState<Metric>('chargedAmount');
   const titleId = useId();
-  const label = metrics.find((item) => item.key === metric)?.label;
+  const label = metrics.find((item) => item.value === metric)?.label;
   const values = days.map((day) => BigInt(day[metric].replace('.', '')));
   const maximum = values.reduce((max, value) => (value > max ? value : max), 0n);
   const points = values.map((value, index) => ({
@@ -31,21 +32,7 @@ export default function UsageTrend({ days, currency }: { days: RouterOutputs['wa
           <Heading as="h2" id={titleId} fontSize="lg" fontWeight="600">
             近 7 天趋势
           </Heading>
-          <HStack gap="1" aria-label="趋势指标">
-            {metrics.map((item) => (
-              <Button
-                key={item.key}
-                size="sm"
-                variant="ghost"
-                borderRadius="full"
-                aria-pressed={metric === item.key}
-                bg={metric === item.key ? 'gray.100' : 'transparent'}
-                onClick={() => setMetric(item.key)}
-              >
-                {item.label}
-              </Button>
-            ))}
-          </HStack>
+          <ViewSwitch label="趋势指标" items={metrics} value={metric} onChange={setMetric} />
         </HStack>
         <Box overflowX="auto">
           <Box minW="520px">

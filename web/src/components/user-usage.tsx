@@ -1,4 +1,4 @@
-import { Box, Button, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
+import { Box, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
 import { useId, useState } from 'react';
@@ -6,12 +6,13 @@ import { useId, useState } from 'react';
 import { displayMoney, formatCount, formError } from '../lib/format';
 import { trpc } from '../lib/trpc';
 import { ErrorText, Loading, Panel } from './ui';
+import { ViewSwitch } from './view-switch';
 
 const ranges = [
-  { key: '24h', label: '近 24 小时' },
-  { key: '30d', label: '近 30 天' },
+  { value: '24h', label: '近 24 小时' },
+  { value: '30d', label: '近 30 天' },
 ] as const;
-type Range = (typeof ranges)[number]['key'];
+type Range = (typeof ranges)[number]['value'];
 
 type Row = RouterOutputs['admin']['userRanking'][number];
 const columns: { key: string; label: string; value: (row: Row) => string }[] = [
@@ -37,21 +38,7 @@ export default function UserUsage({ currency }: { currency?: string }) {
           <Heading as="h2" id={titleId} fontSize="lg" fontWeight="600">
             用户消费排行
           </Heading>
-          <HStack gap="1" aria-label="统计范围">
-            {ranges.map((item) => (
-              <Button
-                key={item.key}
-                size="sm"
-                variant="ghost"
-                borderRadius="full"
-                aria-pressed={range === item.key}
-                bg={range === item.key ? 'gray.100' : 'transparent'}
-                onClick={() => setRange(item.key)}
-              >
-                {item.label}
-              </Button>
-            ))}
-          </HStack>
+          <ViewSwitch label="统计范围" items={ranges} value={range} onChange={setRange} />
         </HStack>
         <ErrorText>{formError(usage.error)?.message}</ErrorText>
         {usage.isPending ? (

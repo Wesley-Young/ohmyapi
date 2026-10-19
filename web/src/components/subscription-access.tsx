@@ -1,4 +1,4 @@
-import { Button, Field, HStack, Link, Stack, Text, Textarea } from '@chakra-ui/react';
+import { Button, Field, Link, Stack, Text, Textarea } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { RefreshCw } from 'lucide-react';
 
@@ -8,9 +8,15 @@ import { brandColor } from '../lib/theme';
 import { ProviderIcon } from './brand-icon';
 import { OpenAIResetCredits } from './openai-reset-credits';
 import { ErrorText, FormInput } from './ui';
+import { ViewSwitch } from './view-switch';
 
 type Channel = RouterOutputs['admin']['catalog']['list']['channels'][number];
 export type SubscriptionAccessMode = 'oauth' | 'import';
+
+const accessModes = [
+  { value: 'oauth', label: 'OAuth 授权' },
+  { value: 'import', label: '导入凭据' },
+] as const satisfies readonly { value: SubscriptionAccessMode; label: string }[];
 
 /** 已接入订阅账号的令牌状态、手动刷新与重置卡。 */
 export function SubscriptionAccount({
@@ -90,26 +96,7 @@ export function SubscriptionAccess({
     <>
       <Field.Root>
         <Field.Label>接入方式</Field.Label>
-        <HStack gap="2" flexWrap="wrap" role="group" aria-label="接入方式">
-          {(
-            [
-              { value: 'oauth', label: 'OAuth 授权' },
-              { value: 'import', label: '导入凭据' },
-            ] as const
-          ).map((option) => (
-            <Button
-              key={option.value}
-              type="button"
-              size="sm"
-              variant={mode === option.value ? 'solid' : 'outline'}
-              aria-pressed={mode === option.value}
-              disabled={busy}
-              onClick={() => onModeChange(option.value)}
-            >
-              {option.label}
-            </Button>
-          ))}
-        </HStack>
+        <ViewSwitch label="接入方式" items={accessModes} value={mode} disabled={busy} onChange={onModeChange} />
       </Field.Root>
       {mode === 'import' ? (
         <Field.Root>

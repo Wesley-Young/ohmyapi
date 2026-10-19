@@ -11,6 +11,7 @@ import { IconButton } from '../components/icon-button';
 import { RequestDetail } from '../components/request-detail';
 import { useReviewCount } from '../components/review-badge';
 import { ErrorText, Loading, PageControls, pinnedColumn, Title } from '../components/ui';
+import { ViewSwitch } from '../components/view-switch';
 import { useAuth } from '../lib/auth';
 import { formError, localDate } from '../lib/format';
 import { trpc } from '../lib/trpc';
@@ -99,10 +100,10 @@ function RequestDuration({ request: r }: { request: RequestItem }) {
 }
 
 const views = [
-  { key: 'platform', label: '平台' },
-  { key: 'personal', label: '个人' },
+  { value: 'platform', label: '平台' },
+  { value: 'personal', label: '个人' },
 ] as const;
-type View = (typeof views)[number]['key'];
+type View = (typeof views)[number]['value'];
 
 export default function Requests() {
   const { data: user } = useAuth();
@@ -139,7 +140,6 @@ export default function Requests() {
   const reviews = useReviewCount(admin);
   const reviewing = platform && reviewOnly;
   const switchView = (next: View) => {
-    if (next === view) return;
     setParams(next === 'platform' ? {} : { view: next }, { replace: true });
     setPage(0);
     setSelectedIds([]);
@@ -150,58 +150,23 @@ export default function Requests() {
   const selectedOnPage = pageIds.filter((id) => selectedIds.includes(id)).length;
   return (
     <Stack gap="7">
-      <Title
-        action={
-          <Button size="sm" variant="outline" loading={data.isFetching} onClick={() => void data.refetch()}>
-            刷新
-          </Button>
-        }
-      >
+      <Title action={admin && <ViewSwitch label="请求视图" items={views} value={view} onChange={switchView} />}>
         请求记录
       </Title>
-      {admin && (
-        <HStack gap="1" aria-label="请求视图">
-          {views.map((item) => (
-            <Button
-              key={item.key}
-              size="sm"
-              variant="ghost"
-              borderRadius="full"
-              aria-pressed={view === item.key}
-              bg={view === item.key ? 'gray.100' : 'transparent'}
-              onClick={() => switchView(item.key)}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </HStack>
-      )}
       {platform && (
-        <HStack flexWrap="wrap">
-          <Button
-            size="sm"
-            variant={reviewOnly ? 'outline' : 'solid'}
-            onClick={() => {
-              setReviewOnly(false);
-              setPage(0);
-              setSelectedIds([]);
-            }}
-          >
-            全部请求
-          </Button>
-          <Button
-            size="sm"
-            variant={reviewOnly ? 'solid' : 'outline'}
-            aria-label={reviews ? `待核对，${reviews} 条` : '待核对'}
-            onClick={() => {
-              setReviewOnly(true);
-              setPage(0);
-              setSelectedIds([]);
-            }}
-          >
-            待核对 ({reviews})
-          </Button>
-        </HStack>
+        <ViewSwitch
+          label="请求筛选"
+          items={[
+            { value: 'all', label: '全部请求' },
+            { value: 'review', label: `待核对 (${reviews})` },
+          ]}
+          value={reviewOnly ? 'review' : 'all'}
+          onChange={(next) => {
+            setReviewOnly(next === 'review');
+            setPage(0);
+            setSelectedIds([]);
+          }}
+        />
       )}
       {admin && reviewing && (
         <HStack gap="3" flexWrap="wrap">
