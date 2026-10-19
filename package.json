@@ -10,10 +10,10 @@
   },
   "scripts": {
     "dev": "pnpm --parallel --filter @ohmyapi/daemon --filter @ohmyapi/web dev",
-    "build": "pnpm -r build",
+    "build": "pnpm --filter @ohmyapi/web build",
     "setup": "node scripts/deploy.mjs setup",
     "deploy": "node scripts/deploy.mjs deploy",
-    "start": "node --env-file=.env scripts/start.mjs",
+    "start": "node --conditions=@ohmyapi/source --env-file=.env scripts/start.mjs",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "format": "biome check --write .",
@@ -25,7 +25,6 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@types/node": "^24.13.3",
-    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
 }

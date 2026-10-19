@@ -101,7 +101,7 @@ function readGatewayConfig(env: Environment) {
 
 export type GatewayConfig = ReturnType<typeof readGatewayConfig>;
 
-/** 仓库根目录下的接入点配置；`src/` 与 `dist/` 深度相同，开发和生产指向同一个文件。 */
+/** 仓库根目录下的接入点配置。 */
 const accessEndpointsFile = new URL('../../endpoints.json', import.meta.url);
 
 function isBaseUrl(raw: string) {

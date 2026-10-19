@@ -24,12 +24,15 @@ try {
   process.env.NODE_ENV = 'production';
   validateProductionConfig();
 
-  // The workspace builds from source, so development dependencies are required.
+  // Type checking and the web build need development dependencies.
   const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
   await run(pnpm, ['install', '--frozen-lockfile', '--prod=false']);
+  // The daemon runs from source without a build, so type errors are caught here instead.
+  await run(pnpm, ['typecheck']);
   await run(pnpm, ['build']);
-  await run(process.execPath, ['daemon/dist/cli/migrate.js']);
-  if (mode === 'setup') await run(process.execPath, ['daemon/dist/cli/init.js']);
+  const daemon = (script) => run(process.execPath, ['--conditions=@ohmyapi/source', `daemon/src/cli/${script}`]);
+  await daemon('migrate.ts');
+  if (mode === 'setup') await daemon('init.ts');
 
   console.info('Deployment prepared. Start with pnpm start.');
   if (mode === 'setup') console.info('Remove BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD from .env.');
