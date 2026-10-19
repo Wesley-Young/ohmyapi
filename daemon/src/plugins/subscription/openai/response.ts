@@ -1,7 +1,7 @@
-import { GatewayError } from '../../../core/errors.ts';
-import { responseHeaders } from '../../gateway/protocol.ts';
+import { GatewayError } from '@ohmyapi/protocols';
+import { responseHeaders, SseObserver } from '@ohmyapi/relay';
+
 import { type ForwardResponseOptions, forwardResponse } from '../../gateway/response.ts';
-import { SseObserver } from '../../gateway/usage.ts';
 
 async function normalizeEventStream(options: ForwardResponseOptions): Promise<Response> {
   const { upstream, lifecycle, config } = options;

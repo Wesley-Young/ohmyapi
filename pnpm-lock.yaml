@@ -196,6 +196,12 @@ importers:
       '@hono/zod-openapi':
         specifier: ^1.6.3
         version: 1.6.3(hono@4.13.13)(zod@4.6.5)
+      '@ohmyapi/protocols':
+        specifier: workspace:*
+        version: link:../packages/protocols
+      '@ohmyapi/relay':
+        specifier: workspace:*
+        version: link:../packages/relay
       '@trpc/server':
         specifier: ^11.19.0
         version: 11.19.0(typescript@7.0.2)
@@ -224,6 +230,14 @@ importers:
       drizzle-kit:
         specifier: ^0.31.11
         version: 0.31.11
+
+  packages/protocols: {}
+
+  packages/relay:
+    dependencies:
+      '@ohmyapi/protocols':
+        specifier: workspace:^
+        version: link:../protocols
 
   web:
     dependencies:

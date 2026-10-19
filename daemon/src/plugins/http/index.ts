@@ -1,4 +1,5 @@
 import { HonoService } from '@fraqjs/plugin-hono';
+import { protocols } from '@ohmyapi/protocols';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie } from 'hono/cookie';
@@ -7,7 +8,6 @@ import { serialize } from 'hono/utils/cookie';
 import { errorDetails, formatEvent } from '../../core/logging.ts';
 import { definePlugin } from '../../kernel.ts';
 import { createPublicApi } from '../../openapi/router.ts';
-import { protocols } from '../../protocols/index.ts';
 import { createAppRouter } from '../../trpc/router.ts';
 import { AuthService } from '../auth/service.ts';
 import { AdminTokens } from '../auth/tokens.ts';

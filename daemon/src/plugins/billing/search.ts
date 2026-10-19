@@ -1,5 +1,5 @@
-import { GatewayError } from '../../core/errors.ts';
-import { protocolFor, type SearchKind } from '../../protocols/index.ts';
+import { GatewayError, protocolFor, type SearchKind } from '@ohmyapi/protocols';
+
 import type { Endpoint } from '../database/schema/index.ts';
 import { maxSearchCalls } from '../pricing/rules.ts';
 

@@ -1,4 +1,5 @@
-import { protocolFor } from '../../protocols/index.ts';
+import { protocolFor } from '@ohmyapi/protocols';
+
 import type { Endpoint } from '../database/schema/index.ts';
 
 /** 请求的会话标识，按协议约定的候选字段取第一个非空值。 */

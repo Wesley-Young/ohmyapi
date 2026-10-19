@@ -1,4 +1,5 @@
-import { protocolFor } from '../../protocols/index.ts';
+import { protocolFor } from '@ohmyapi/protocols';
+
 import type { Endpoint } from '../database/schema/index.ts';
 
 export function reportedCacheReadTokens(endpoint: Endpoint, raw: Record<string, unknown>): string | null {

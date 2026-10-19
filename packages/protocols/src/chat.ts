@@ -1,4 +1,4 @@
-import { GatewayError } from '../core/errors.ts';
+import { GatewayError } from './errors.ts';
 import { bearerHeaders, mergeDetails, openAIErrorBody, openAIUsage } from './openai.ts';
 import type { ApiProtocol, UsageReader } from './types.ts';
 import { bodyTarget, isFunctionTool, messageObjects, object, versionedUrl } from './util.ts';

@@ -1,4 +1,4 @@
-import { GatewayError } from '../../core/errors.ts';
+import { GatewayError } from '@ohmyapi/protocols';
 
 /**
  * 读取 JSON 请求体：限制大小，响应取消和超时信号，要求请求体为对象。

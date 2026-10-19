@@ -1,5 +1,5 @@
-import { GatewayError } from '../../../core/errors.ts';
-import { codexRequestHeaders } from '../../../protocols/index.ts';
+import { codexRequestHeaders, GatewayError } from '@ohmyapi/protocols';
+
 import type { ChannelAdapter } from '../../gateway/adapters.ts';
 import type { SubscriptionRuntime } from '../runtime.ts';
 import { accountHeaders, codexBaseUrl } from './client.ts';

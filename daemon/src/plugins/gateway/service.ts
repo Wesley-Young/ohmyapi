@@ -1,11 +1,18 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
+import {
+  GatewayError,
+  type ModelInfo,
+  modelListBody,
+  modelListPath,
+  protocolFor,
+  type RequestTarget,
+} from '@ohmyapi/protocols';
+import { errorResponse, RequestLifecycle, readJsonBody, requestNotSent, responseHeaders } from '@ohmyapi/relay';
 import { and, eq } from 'drizzle-orm';
 
 import type { GatewayConfig } from '../../config.ts';
-import { GatewayError } from '../../core/errors.ts';
 import { createLogSampler, type EventLogger, errorDetails, formatEvent } from '../../core/logging.ts';
 import type { CredentialVault } from '../../core/vault.ts';
-import { type ModelInfo, protocolFor, type RequestTarget } from '../../protocols/index.ts';
 import { validateBillableRequest } from '../billing/admission.ts';
 import { searchRequest } from '../billing/search.ts';
 import type { BillingService } from '../billing/service.ts';
@@ -19,12 +26,9 @@ import type { PricingService } from '../pricing/service.ts';
 import { channelAdapter, type SubscriptionChannels } from './adapters.ts';
 import { type AffinitySelection, ChannelAffinity } from './affinity.ts';
 import { ForwardBillingSession } from './billing-session.ts';
-import { readJsonBody } from './body.ts';
-import { requestNotSent } from './dispatch.ts';
 import { type ApiKeySources, identifyApiKey } from './identity.ts';
-import { RequestLifecycle } from './lifecycle.ts';
-import { availableModels, modelListResponse } from './models.ts';
-import { errorResponse, reasoningEffort, responseHeaders } from './protocol.ts';
+import { availableModels } from './models.ts';
+import { reasoningEffort } from './protocol.ts';
 import { UserRateLimiter } from './rate-limit.ts';
 import { resolveEntryRoute, selectExecutionChannel } from './routing.ts';
 
@@ -99,7 +103,7 @@ export class GatewayService implements Disposable {
     return this.disposal;
   }
 
-  error(endpoint: Endpoint | '/v1/models', status: number, code: string, message: string, id: string) {
+  error(endpoint: Endpoint | typeof modelListPath, status: number, code: string, message: string, id: string) {
     if (code === 'method_not_allowed' && this.sampleLog(code))
       this.logger.warn(
         formatEvent('网关请求被拒绝', {
@@ -115,8 +119,10 @@ export class GatewayService implements Disposable {
 
   /** OpenAI 和 Anthropic 客户端共用的模型列表，按请求头选择响应格式。 */
   listModels(req: Request): Promise<Response> {
-    return this.serveModels(req, '/v1/models', { headers: ['x-api-key'] }, undefined, (available, id) =>
-      modelListResponse(req, available, id),
+    return this.serveModels(req, modelListPath, { headers: ['x-api-key'] }, undefined, (available, id) =>
+      Response.json(modelListBody(req, available, 'ohmyapi'), {
+        headers: { 'x-request-id': id, 'cache-control': 'no-store' },
+      }),
     );
   }
 
@@ -143,7 +149,7 @@ export class GatewayService implements Disposable {
 
   private async serveModels(
     req: Request,
-    errorEndpoint: Endpoint | '/v1/models',
+    errorEndpoint: Endpoint | typeof modelListPath,
     sources: ApiKeySources,
     endpoint: Endpoint | undefined,
     respond: (available: ModelInfo[], id: string) => Response,

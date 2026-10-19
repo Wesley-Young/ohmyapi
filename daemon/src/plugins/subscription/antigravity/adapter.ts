@@ -1,5 +1,5 @@
-import { GatewayError } from '../../../core/errors.ts';
-import { repairGeminiHistory } from '../../../protocols/index.ts';
+import { GatewayError, repairGeminiHistory } from '@ohmyapi/protocols';
+
 import type { ChannelAdapter } from '../../gateway/adapters.ts';
 import { forwardResponse } from '../../gateway/response.ts';
 import type { SubscriptionRuntime } from '../runtime.ts';

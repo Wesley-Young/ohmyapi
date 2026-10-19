@@ -1,4 +1,5 @@
-import { GatewayError } from '../../../core/errors.ts';
+import { GatewayError } from '@ohmyapi/protocols';
+
 import { claudeBetas } from './betas.ts';
 import { cacheControl, prepareCache } from './cache.ts';
 import type { ClaudeCredentials } from './credentials.ts';

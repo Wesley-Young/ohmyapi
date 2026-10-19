@@ -19,17 +19,6 @@ export class AppError extends Error {
   }
 }
 
-/** 网关协议错误：携带 HTTP 状态和兼容 OpenAI/Anthropic 的错误代码。 */
-export class GatewayError extends Error {
-  readonly status: number;
-  readonly code: string;
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-}
-
 const requestErrors: Record<string, string> = {
   aggregate_unavailable: '聚合渠道当前没有可执行请求的子渠道。',
   aggregate_request_unsupported: '聚合渠道中没有支持该端点的子渠道。',

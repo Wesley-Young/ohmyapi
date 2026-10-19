@@ -1,4 +1,5 @@
-import { GatewayError } from '../../../core/errors.ts';
+import { GatewayError } from '@ohmyapi/protocols';
+
 import { formatEvent } from '../../../core/logging.ts';
 import { type ForwardResponseOptions, forwardResponse } from '../../gateway/response.ts';
 import { readJson } from '../openai/client.ts';

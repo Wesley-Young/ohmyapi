@@ -1,4 +1,5 @@
-import type { ApiProtocol, SearchActivity, SearchKind } from '../../protocols/index.ts';
+import type { ApiProtocol, SearchActivity, SearchKind } from '@ohmyapi/protocols';
+
 import type { SearchRequest } from '../billing/search.ts';
 import type { UsageEstimate } from '../database/schema/index.ts';
 import { maxSearchCalls } from '../pricing/rules.ts';

@@ -1,8 +1,9 @@
 import { serviceToken } from '@fraqjs/kernel';
+import { GatewayError } from '@ohmyapi/protocols';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { AppError, GatewayError } from '../../core/errors.ts';
+import { AppError } from '../../core/errors.ts';
 import { formatMoney, parseMoney } from '../../core/money.ts';
 import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';

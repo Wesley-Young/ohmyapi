@@ -1,6 +1,6 @@
-import { GatewayError } from '../../core/errors.ts';
+import { GatewayError, protocolFor, type RequestTarget } from '@ohmyapi/protocols';
+
 import type { CredentialVault } from '../../core/vault.ts';
-import { protocolFor, type RequestTarget } from '../../protocols/index.ts';
 import type { ChannelType, channels } from '../database/schema/catalog.ts';
 import type { Endpoint } from '../database/schema/index.ts';
 import { type ForwardResponseOptions, forwardResponse } from './response.ts';

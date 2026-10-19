@@ -1,9 +1,6 @@
-import type { Endpoint } from './endpoints.ts';
+import type { Endpoint, ProtocolFamily } from './endpoints.ts';
 
 export type Data = Record<string, unknown>;
-
-/** 同一协议族共享请求和响应结构，例如 Responses 与 compact。 */
-export type ProtocolFamily = 'chat' | 'responses' | 'messages' | 'gemini';
 
 export type SearchKind = 'webSearch' | 'webSearchPreview';
 /** 客户端执行的工具，或按调用次数计费的搜索工具。 */

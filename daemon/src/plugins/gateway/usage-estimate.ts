@@ -1,4 +1,5 @@
-import type { ApiProtocol, OutputSink } from '../../protocols/index.ts';
+import type { ApiProtocol, OutputSink } from '@ohmyapi/protocols';
+
 import { OutputTokenEstimate } from '../billing/estimation.ts';
 
 /** 只在内存中观察已生成内容，持久化时保留计数和来源。 */

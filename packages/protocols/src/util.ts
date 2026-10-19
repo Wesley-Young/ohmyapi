@@ -1,4 +1,4 @@
-import { GatewayError } from '../core/errors.ts';
+import { GatewayError } from './errors.ts';
 import type { Data, RequestTarget } from './types.ts';
 
 export const object = (value: unknown): Data | undefined =>

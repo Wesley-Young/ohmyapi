@@ -1,4 +1,4 @@
-import { GatewayError } from '../core/errors.ts';
+import { GatewayError } from './errors.ts';
 import type { ApiProtocol, Data, ModelInfo, NormalizedUsage, SearchActivity, UsageReader } from './types.ts';
 import { count, object } from './util.ts';
 

@@ -1,6 +1,6 @@
+import { GatewayError } from '@ohmyapi/protocols';
 import { z } from 'zod';
 
-import { GatewayError } from '../../../core/errors.ts';
 import type { OutboundFetch } from '../../outbound/index.ts';
 import { readJson } from '../openai/client.ts';
 import { planValue } from '../plan.ts';

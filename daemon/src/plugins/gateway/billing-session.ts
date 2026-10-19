@@ -1,9 +1,9 @@
+import { protocolFor } from '@ohmyapi/protocols';
 import { eq } from 'drizzle-orm';
 
 import type { GatewayConfig } from '../../config.ts';
 import { requestErrorMessage } from '../../core/errors.ts';
 import { type EventLogger, errorDetails, formatEvent, type LogFields } from '../../core/logging.ts';
-import { protocolFor } from '../../protocols/index.ts';
 import type { BillingSummary } from '../billing/requests.ts';
 import type { BillingService } from '../billing/service.ts';
 import type { Database } from '../database/client.ts';

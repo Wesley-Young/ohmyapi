@@ -1,11 +1,11 @@
 import { serviceToken } from '@fraqjs/kernel';
+import { type Endpoint, endpoints } from '@ohmyapi/protocols';
 import { and, desc, eq, gt, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AccessEndpoint } from '../../config.ts';
 import { AppError } from '../../core/errors.ts';
 import { formatMoney } from '../../core/money.ts';
 import { toPage } from '../../core/pagination.ts';
-import { type Endpoint, endpoints } from '../../protocols/index.ts';
 import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
 import { compareChannels } from '../catalog/order.ts';

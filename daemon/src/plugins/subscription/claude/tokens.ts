@@ -1,6 +1,6 @@
+import { GatewayError } from '@ohmyapi/protocols';
 import { and, eq, isNull } from 'drizzle-orm';
 
-import { GatewayError } from '../../../core/errors.ts';
 import type { CredentialVault } from '../../../core/vault.ts';
 import type { Database } from '../../database/client.ts';
 import { channels, subscriptionAccounts } from '../../database/schema/index.ts';

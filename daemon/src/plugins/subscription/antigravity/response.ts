@@ -1,4 +1,5 @@
-import { GatewayError } from '../../../core/errors.ts';
+import { GatewayError } from '@ohmyapi/protocols';
+
 import { type ForwardResponseOptions, forwardResponse } from '../../gateway/response.ts';
 
 type Data = Record<string, unknown>;

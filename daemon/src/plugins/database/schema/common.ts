@@ -1,8 +1,7 @@
+import { endpoints } from '@ohmyapi/protocols';
 import { bigint, pgEnum, timestamp, uuid } from 'drizzle-orm/pg-core';
 
-import { endpoints } from '../../../protocols/endpoints.ts';
-
-export { type Endpoint, endpoints } from '../../../protocols/endpoints.ts';
+export { type Endpoint, endpoints } from '@ohmyapi/protocols';
 
 export const endpoint = pgEnum('endpoint', endpoints);
 export const id = () => uuid('id').defaultRandom().primaryKey();

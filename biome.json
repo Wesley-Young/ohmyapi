@@ -107,7 +107,41 @@
       }
     },
     {
-      "includes": ["daemon/src/protocols/**"],
+      "includes": ["packages/protocols/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["**/daemon/**", "**/web/**", "@ohmyapi/*"],
+                    "message": "protocols \u53ea\u63cf\u8ff0 API \u534f\u8bae\uff0c\u4e0d\u4f9d\u8d56\u5176\u4ed6\u5305\u548c\u5e94\u7528\u3002"
+                  },
+                  {
+                    "group": [
+                      "@fraqjs/*",
+                      "hono",
+                      "hono/*",
+                      "@hono/*",
+                      "@trpc/*",
+                      "drizzle-orm",
+                      "drizzle-orm/*",
+                      "pg",
+                      "undici"
+                    ],
+                    "message": "\u5171\u4eab\u5305\u4e0d\u4f9d\u8d56\u5e94\u7528\u6846\u67b6\u3001\u5b58\u50a8\u548c\u51fa\u7ad9\u7f51\u7edc\u5e93\uff0c\u8fd9\u4e9b\u7531\u4f7f\u7528\u65b9\u63d0\u4f9b\u3002"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/relay/**"],
       "linter": {
         "rules": {
           "style": {
@@ -117,14 +151,26 @@
                 "patterns": [
                   {
                     "group": [
-                      "**/plugins/**",
-                      "**/trpc/**",
-                      "**/openapi/**",
-                      "**/kernel.ts",
-                      "**/app.ts",
-                      "**/config.ts"
+                      "**/daemon/**",
+                      "**/web/**",
+                      "@ohmyapi/daemon",
+                      "@ohmyapi/daemon/*"
                     ],
-                    "message": "protocols \u53ea\u63cf\u8ff0 API \u534f\u8bae\uff0c\u53ea\u80fd\u4f9d\u8d56 core\u3002"
+                    "message": "relay \u53ea\u4f9d\u8d56 @ohmyapi/protocols\uff0c\u4e0d\u4f9d\u8d56\u5e94\u7528\u3002"
+                  },
+                  {
+                    "group": [
+                      "@fraqjs/*",
+                      "hono",
+                      "hono/*",
+                      "@hono/*",
+                      "@trpc/*",
+                      "drizzle-orm",
+                      "drizzle-orm/*",
+                      "pg",
+                      "undici"
+                    ],
+                    "message": "\u5171\u4eab\u5305\u4e0d\u4f9d\u8d56\u5e94\u7528\u6846\u67b6\u3001\u5b58\u50a8\u548c\u51fa\u7ad9\u7f51\u7edc\u5e93\uff0c\u8fd9\u4e9b\u7531\u4f7f\u7528\u65b9\u63d0\u4f9b\u3002"
                   }
                 ]
               }

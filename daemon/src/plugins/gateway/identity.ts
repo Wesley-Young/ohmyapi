@@ -1,4 +1,5 @@
-import { GatewayError } from '../../core/errors.ts';
+import { GatewayError } from '@ohmyapi/protocols';
+
 import type { Database } from '../database/client.ts';
 import { apiKeyPattern, findKeyIdentity } from '../keys/access.ts';
 

@@ -1,5 +1,5 @@
-import { GatewayError } from '../../core/errors.ts';
-import { type ApiProtocol, protocolFor, valueAt } from '../../protocols/index.ts';
+import { type ApiProtocol, GatewayError, protocolFor, valueAt } from '@ohmyapi/protocols';
+
 import type { Endpoint } from '../database/schema/index.ts';
 import { ruleTimeMatcher } from '../pricing/rules.ts';
 import type { LockedPrice } from '../pricing/service.ts';

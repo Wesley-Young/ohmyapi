@@ -9,13 +9,13 @@
     }
   },
   "scripts": {
-    "dev": "tsx watch --env-file-if-exists=../.env src/index.ts",
+    "dev": "tsx watch --conditions=@ohmyapi/source --env-file-if-exists=../.env src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file=../.env ../scripts/start.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.tools.json",
-    "db:generate": "node --env-file-if-exists=../.env node_modules/drizzle-kit/bin.cjs generate",
-    "db:migrate": "tsx --env-file-if-exists=../.env src/cli/migrate.ts",
-    "db:init": "tsx --env-file-if-exists=../.env src/cli/init.ts"
+    "db:generate": "node --conditions=@ohmyapi/source --env-file-if-exists=../.env node_modules/drizzle-kit/bin.cjs generate",
+    "db:migrate": "tsx --conditions=@ohmyapi/source --env-file-if-exists=../.env src/cli/migrate.ts",
+    "db:init": "tsx --conditions=@ohmyapi/source --env-file-if-exists=../.env src/cli/init.ts"
   },
   "dependencies": {
     "@fraqjs/color-log": "^1.1.1",
@@ -23,6 +23,8 @@
     "@fraqjs/plugin-hono": "^1.1.0",
     "@hono/node-server": "^2.1.3",
     "@hono/zod-openapi": "^1.6.3",
+    "@ohmyapi/protocols": "workspace:*",
+    "@ohmyapi/relay": "workspace:*",
     "@trpc/server": "^11.19.0",
     "drizzle-orm": "^0.45.3",
     "hash-wasm": "^4.12.0",

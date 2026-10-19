@@ -1,5 +1,6 @@
+import { isGeminiPathModel } from '@ohmyapi/protocols';
+
 import { AppError } from '../../../core/errors.ts';
-import { isGeminiPathModel } from '../../../protocols/index.ts';
 import type { OutboundFetch } from '../../outbound/index.ts';
 import type { PlanCache } from '../plan.ts';
 import { fetchAntigravityGeminiQuota, fetchAntigravityModels, loadAntigravityAccount } from './client.ts';

@@ -1,4 +1,5 @@
-import { GatewayError } from '../../../core/errors.ts';
+import { GatewayError } from '@ohmyapi/protocols';
+
 import type { OutboundFetch } from '../../outbound/index.ts';
 import type { OpenAICredentials } from './credentials.ts';
 

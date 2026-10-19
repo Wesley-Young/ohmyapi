@@ -1,4 +1,5 @@
-import { GatewayError } from '../../../core/errors.ts';
+import { GatewayError } from '@ohmyapi/protocols';
+
 import { words } from './words.ts';
 
 import { createHmac } from 'node:crypto';

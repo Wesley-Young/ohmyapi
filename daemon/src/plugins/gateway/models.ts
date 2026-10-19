@@ -1,6 +1,6 @@
+import type { ModelInfo } from '@ohmyapi/protocols';
 import { and, eq } from 'drizzle-orm';
 
-import type { ModelInfo } from '../../protocols/index.ts';
 import type { Database } from '../database/client.ts';
 import { activeModel } from '../database/query.ts';
 import {
@@ -46,37 +46,4 @@ export async function availableModels(
       ),
     )
     .orderBy(models.name);
-}
-
-/** 按客户端协议输出模型列表。 */
-export function modelListResponse(req: Request, available: ModelInfo[], id: string): Response {
-  const headers = { 'x-request-id': id, 'cache-control': 'no-store' };
-  // 与 New API 一致：同时带 x-api-key 和 anthropic-version 时返回 Anthropic 格式，其余返回 OpenAI 格式。
-  if (req.headers.get('x-api-key') && req.headers.get('anthropic-version'))
-    return Response.json(
-      {
-        data: available.map((model) => ({
-          type: 'model',
-          id: model.name,
-          display_name: model.name,
-          created_at: model.createdAt.toISOString().replace(/\.\d{3}Z$/, 'Z'),
-        })),
-        has_more: false,
-        first_id: available[0]?.name ?? null,
-        last_id: available.at(-1)?.name ?? null,
-      },
-      { headers },
-    );
-  return Response.json(
-    {
-      object: 'list',
-      data: available.map((model) => ({
-        id: model.name,
-        object: 'model',
-        created: Math.floor(model.createdAt.getTime() / 1000),
-        owned_by: 'ohmyapi',
-      })),
-    },
-    { headers },
-  );
 }

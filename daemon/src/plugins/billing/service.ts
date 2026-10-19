@@ -1,7 +1,8 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
+import { GatewayError } from '@ohmyapi/protocols';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 
-import { GatewayError, requestErrorMessage } from '../../core/errors.ts';
+import { requestErrorMessage } from '../../core/errors.ts';
 import { type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '../../core/logging.ts';
 import { formatMoney } from '../../core/money.ts';
 import type { Database, Transaction } from '../database/client.ts';

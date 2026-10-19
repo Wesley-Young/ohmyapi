@@ -1,4 +1,4 @@
-import { GatewayError } from '../../../core/errors.ts';
+import { GatewayError } from '@ohmyapi/protocols';
 
 import { createHash, randomUUID } from 'node:crypto';
 

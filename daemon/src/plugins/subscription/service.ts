@@ -1,8 +1,9 @@
 import { type Disposable, serviceToken } from '@fraqjs/kernel';
+import { GatewayError } from '@ohmyapi/protocols';
 import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { AppError, GatewayError } from '../../core/errors.ts';
+import { AppError } from '../../core/errors.ts';
 import type { CredentialVault } from '../../core/vault.ts';
 import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';

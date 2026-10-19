@@ -1,6 +1,6 @@
+import { GatewayError } from '@ohmyapi/protocols';
 import { and, desc, eq, sql } from 'drizzle-orm';
 
-import { GatewayError } from '../../core/errors.ts';
 import type { Database } from '../database/client.ts';
 import { activeChannel, activeModel, availableSubscription } from '../database/query.ts';
 import type { Endpoint } from '../database/schema/index.ts';

@@ -1,5 +1,7 @@
+import { type ApiProtocol, protocolFor, type UsageReader } from '@ohmyapi/protocols';
+import type { ResponseObserver } from '@ohmyapi/relay';
+
 import { safeErrorMessage } from '../../core/logging.ts';
-import { type ApiProtocol, protocolFor, type UsageReader } from '../../protocols/index.ts';
 import { reportedCacheReadTokens } from '../billing/cache-usage.ts';
 import { tokenEstimateMethod } from '../billing/estimation.ts';
 import type { SearchRequest } from '../billing/search.ts';
@@ -27,7 +29,7 @@ function usageNumbers(raw: ObjectValue, depth = 0): ObjectValue {
 }
 
 /** 仅保留用量元数据和脱敏后的错误消息；字段结构由端点协议解析。 */
-export class UsageCollector {
+export class UsageCollector implements ResponseObserver {
   usage?: Usage;
   upstreamId?: string;
   errorMessage?: string;
@@ -43,7 +45,7 @@ export class UsageCollector {
   readonly estimate = new StreamUsageEstimate();
   private reportedUsage: ObjectValue = {};
   private reportedOutput?: bigint;
-  private malformed = false;
+  private malformedUsage = false;
   private readonly search = new SearchUsageCollector();
   private readonly endpoint: Endpoint;
   private readonly protocol: ApiProtocol;
@@ -63,10 +65,14 @@ export class UsageCollector {
     this.reader.configure?.(body);
   }
 
-  markInvalid(error: unknown) {
+  malformed(error: unknown) {
     this.invalid = true;
-    this.malformed = true;
+    this.malformedUsage = true;
     this.errorMessage = safeErrorMessage(error);
+  }
+
+  truncated() {
+    this.observationIncomplete = true;
   }
 
   get searchIncomplete() {
@@ -83,7 +89,7 @@ export class UsageCollector {
       this.usageEstimate ||
       (this.finalUsage && !this.searchIncomplete) ||
       this.invalid ||
-      this.malformed ||
+      this.malformedUsage ||
       this.unknownCosts ||
       this.observationIncomplete ||
       this.failed ||
@@ -134,7 +140,7 @@ export class UsageCollector {
     }
   }
 
-  observe(value: unknown) {
+  event(value: unknown) {
     const data = object(value);
     if (!data) return;
     const { reader } = this;
@@ -159,7 +165,7 @@ export class UsageCollector {
       const reportedOutput = count(usage[reader.outputKey]);
       if (reportedInput !== undefined || reportedOutput !== undefined) this.estimate.started = true;
       if (reportedOutput !== undefined) {
-        if (this.reportedOutput !== undefined && reportedOutput < this.reportedOutput) this.malformed = true;
+        if (this.reportedOutput !== undefined && reportedOutput < this.reportedOutput) this.malformedUsage = true;
         this.reportedOutput = reportedOutput;
         this.estimate.output.reset();
       }
@@ -212,99 +218,7 @@ export class UsageCollector {
 
   private rejectUsage() {
     this.invalid = true;
-    this.malformed = true;
+    this.malformedUsage = true;
     this.usage = undefined;
-  }
-}
-
-/** Bounded incremental SSE observer. The bytes delivered to the client remain untouched. */
-export class SseObserver {
-  private decoder = new TextDecoder();
-  private line = '';
-  private lineLength = 0;
-  private data: string[] = [];
-  private size = 0;
-  private skip = false;
-  private previousCR = false;
-  private readonly collector: UsageCollector;
-  private readonly maxEventBytes: number;
-  private readonly onEvent?: (value: unknown) => void;
-  constructor(collector: UsageCollector, maxEventBytes: number, onEvent?: (value: unknown) => void) {
-    this.onEvent = onEvent;
-    this.collector = collector;
-    this.maxEventBytes = maxEventBytes;
-  }
-
-  push(chunk: Uint8Array) {
-    this.consume(this.decoder.decode(chunk, { stream: true }));
-  }
-
-  finish(interrupted = false) {
-    // 断连时末尾可能只有半个事件，只用此前已完整解析的事件估算。
-    if (interrupted) {
-      this.line = '';
-      this.data = [];
-      return;
-    }
-    this.consume(this.decoder.decode());
-    if (this.line) this.endLine();
-    this.event();
-  }
-
-  private consume(text: string) {
-    let offset = 0;
-    const breaks = /[\r\n]/g;
-    while (offset < text.length) {
-      if (this.previousCR) {
-        this.previousCR = false;
-        if (text[offset] === '\n') {
-          offset++;
-          continue;
-        }
-      }
-      breaks.lastIndex = offset;
-      const end = breaks.exec(text)?.index ?? text.length;
-      const fragment = text.slice(offset, end);
-      this.lineLength += fragment.length;
-      if (!this.skip) {
-        this.size += Buffer.byteLength(fragment, 'utf8');
-        if (this.size > this.maxEventBytes) {
-          this.skip = true;
-          this.line = '';
-          this.data = [];
-          this.collector.observationIncomplete = true;
-        } else this.line += fragment;
-      }
-      if (end === text.length) break;
-      this.previousCR = text[end] === '\r';
-      this.endLine();
-      offset = end + 1;
-    }
-  }
-
-  private endLine() {
-    if (!this.lineLength) this.event();
-    else if (this.line.startsWith('data:')) this.data.push(this.line.slice(5).replace(/^ /, ''));
-    this.line = '';
-    this.lineLength = 0;
-  }
-
-  private event() {
-    if (!this.skip && this.data.length) {
-      const raw = this.data.join('\n');
-      if (raw === '[DONE]') this.collector.done();
-      else {
-        try {
-          const value: unknown = JSON.parse(raw);
-          this.collector.observe(value);
-          this.onEvent?.(value);
-        } catch (error) {
-          this.collector.markInvalid(error);
-        }
-      }
-    }
-    this.data = [];
-    this.size = 0;
-    this.skip = false;
   }
 }
