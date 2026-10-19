@@ -1,8 +1,9 @@
-import { Badge, Button, HStack, Link, Stack, Text } from '@chakra-ui/react';
+import { Badge, Button, Field, HStack, Link, NativeSelect, Stack, Text } from '@chakra-ui/react';
+import { Check, Copy } from 'lucide-react';
 import { useState } from 'react';
 
 import { type AccessEndpoint, pickAccessEndpoint, storedAccessEndpointId } from '../lib/access-endpoints';
-import { buildOhmyswitchUrl, ohmyswitchEndpointsOf } from '../lib/ohmyswitch';
+import { buildOhmyswitchUrl, buildOmsCommand, type OhmyswitchProvider, ohmyswitchEndpointsOf } from '../lib/ohmyswitch';
 import { brandColor } from '../lib/theme';
 import { AccessEndpointField } from './access-endpoint-field';
 import { type ExportKey, KeyExportDialog, keyExpired } from './key-export-dialog';
@@ -18,7 +19,7 @@ export function OhmyswitchDialog({ keyId, onClose }: { keyId: string; onClose: (
       }
       onClose={onClose}
     >
-      {(props) => <ExportForm key={props.apiKey.id} {...props} onClose={onClose} />}
+      {(props) => <ExportForm key={props.apiKey.id} {...props} />}
     </KeyExportDialog>
   );
 }
@@ -27,101 +28,154 @@ function ExportForm({
   apiKey,
   accessEndpoints,
   refreshing,
-  onClose,
 }: {
   apiKey: ExportKey;
   accessEndpoints: AccessEndpoint[];
   refreshing: boolean;
-  onClose: () => void;
 }) {
   const [accessEndpointId, setAccessEndpointId] = useState(storedAccessEndpointId);
   const accessEndpoint = pickAccessEndpoint(accessEndpoints, accessEndpointId);
   const [name, setName] = useState(`ohmyapi - ${apiKey.name}`);
-  const [submitted, setSubmitted] = useState(false);
-  const [launchError, setLaunchError] = useState<string>();
   const endpoints = ohmyswitchEndpointsOf(apiKey.endpoints);
+  const [selectedEndpoint, setSelectedEndpoint] = useState(endpoints[0]);
+  const endpoint = endpoints.find((item) => item === selectedEndpoint) ?? endpoints[0];
+  const [submitted, setSubmitted] = useState(false);
+  const [actionError, setActionError] = useState<string>();
+  const [copied, setCopied] = useState(false);
+
+  /** 校验表单；可以导出时返回要导出的供应商。 */
+  const prepare = (): OhmyswitchProvider | undefined => {
+    setSubmitted(true);
+    setActionError(undefined);
+    setCopied(false);
+    if (refreshing || !name.trim()) return;
+    if (keyExpired(apiKey)) {
+      setActionError('此 Key 已过期，请选择其他 Key');
+      return;
+    }
+    return {
+      name,
+      baseUrl: accessEndpoint.baseUrl,
+      endpoint,
+      endpoints,
+      apiKey: apiKey.token,
+      iconUrl: window.location.origin,
+      models: apiKey.models.map((model) => model.name),
+    };
+  };
+  const edited = () => {
+    setCopied(false);
+    setActionError(undefined);
+  };
 
   return (
     <form
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
-        setSubmitted(true);
-        setLaunchError(undefined);
-        if (refreshing || !name.trim()) return;
-        if (keyExpired(apiKey)) {
-          setLaunchError('此 Key 已过期，请选择其他 Key');
-          return;
-        }
-        const url = buildOhmyswitchUrl({
-          name,
-          baseUrl: accessEndpoint.baseUrl,
-          endpoints,
-          apiKey: apiKey.token,
-          iconUrl: window.location.origin,
-          models: apiKey.models.map((model) => model.name),
-        });
+        const provider = prepare();
+        if (!provider) return;
+        const url = buildOhmyswitchUrl(provider);
         if (!url) {
-          setLaunchError('模型过多，超出了 ohmyswitch 导入链接的长度上限');
+          setActionError('模型过多，超出了 ohmyswitch 导入链接的长度上限，请改用 oms 命令导入');
           return;
         }
         try {
           window.location.assign(url);
         } catch {
-          setLaunchError('无法打开 ohmyswitch，请确认已安装并允许浏览器打开');
+          setActionError('无法打开 ohmyswitch，请确认已安装并允许浏览器打开');
         }
       }}
     >
       <Stack gap="5">
-        <AccessEndpointField options={accessEndpoints} value={accessEndpoint} onChange={setAccessEndpointId} />
+        <AccessEndpointField
+          options={accessEndpoints}
+          value={accessEndpoint}
+          onChange={(id) => {
+            setAccessEndpointId(id);
+            edited();
+          }}
+        />
         <FormInput
           label="供应商名称"
           value={name}
           required
           maxLength={128}
           error={submitted && !name.trim() ? '请填写供应商名称' : undefined}
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) => {
+            setName(event.target.value);
+            edited();
+          }}
         />
-        <Stack as="dl" gap="3" fontSize="sm">
-          <Stack gap="1.5">
-            <Text as="dt" fontWeight="500">
-              端点
+        {endpoints.length > 1 ? (
+          <Field.Root>
+            <Field.Label>端点</Field.Label>
+            <NativeSelect.Root>
+              <NativeSelect.Field
+                fontFamily="mono"
+                value={endpoint}
+                onChange={(event) => {
+                  const next = endpoints.find((item) => item === event.target.value);
+                  if (!next) return;
+                  setSelectedEndpoint(next);
+                  edited();
+                }}
+              >
+                {endpoints.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </NativeSelect.Field>
+              <NativeSelect.Indicator />
+            </NativeSelect.Root>
+          </Field.Root>
+        ) : (
+          <Stack gap="1.5" fontSize="sm">
+            <Text fontWeight="500">端点</Text>
+            <Text fontFamily="mono" color="gray.700" overflowWrap="anywhere">
+              {endpoint}
             </Text>
-            <Stack as="dd" gap="1">
-              {endpoints.map((endpoint) => (
-                <Text key={endpoint} fontFamily="mono" color="gray.700" overflowWrap="anywhere">
-                  {endpoint}
-                </Text>
-              ))}
-            </Stack>
           </Stack>
-          <Stack gap="1.5">
-            <Text as="dt" fontWeight="500">
-              模型
-            </Text>
-            <HStack as="dd" gap="2" flexWrap="wrap" maxH="40" overflowY="auto">
-              {apiKey.models.map((model) => (
-                <Badge key={model.id} colorPalette="gray" maxW="full" whiteSpace="normal" overflowWrap="anywhere">
-                  {model.name}
-                </Badge>
-              ))}
-            </HStack>
-          </Stack>
-        </Stack>
-        <ErrorText>{launchError}</ErrorText>
-        <Stack gap="3">
-          <HStack gap="3" flexWrap="wrap">
-            <PrimaryButton type="submit" disabled={refreshing}>
-              导入到 ohmyswitch
-            </PrimaryButton>
-            <Button type="button" variant="ghost" onClick={onClose}>
-              关闭
-            </Button>
-            <Link href="https://github.com/Wesley-Young/ohmyswitch" target="_blank" rel="noreferrer" color={brandColor}>
-              了解 ohmyswitch
-            </Link>
+        )}
+        <Stack gap="1.5" fontSize="sm">
+          <Text fontWeight="500">模型</Text>
+          <HStack gap="2" flexWrap="wrap" maxH="40" overflowY="auto">
+            {apiKey.models.map((model) => (
+              <Badge key={model.id} colorPalette="gray" maxW="full" whiteSpace="normal" overflowWrap="anywhere">
+                {model.name}
+              </Badge>
+            ))}
           </HStack>
         </Stack>
+        <ErrorText>{actionError}</ErrorText>
+        <HStack gap="3" flexWrap="wrap">
+          <PrimaryButton type="submit" disabled={refreshing}>
+            导入到 ohmyswitch
+          </PrimaryButton>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={refreshing}
+            aria-label={copied ? '已复制 oms 命令' : '复制 oms 命令'}
+            onClick={async () => {
+              const provider = prepare();
+              if (!provider) return;
+              try {
+                await navigator.clipboard.writeText(buildOmsCommand(provider));
+                setCopied(true);
+              } catch {
+                setActionError('复制失败，请检查浏览器剪贴板权限后重试');
+              }
+            }}
+          >
+            {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+            复制 oms 命令
+          </Button>
+          <Link href="https://github.com/Wesley-Young/ohmyswitch" target="_blank" rel="noreferrer" color={brandColor}>
+            了解 ohmyswitch
+          </Link>
+        </HStack>
       </Stack>
     </form>
   );
