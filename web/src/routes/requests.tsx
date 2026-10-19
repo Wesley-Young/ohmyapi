@@ -40,7 +40,7 @@ const durationColors = {
   danger: 'oklch(0.577 0.245 27.325)',
 };
 
-type RequestItem = RouterOutputs['requests']['items'][number];
+type RequestItem = RouterOutputs['requests']['items'][number] | RouterOutputs['admin']['requests']['items'][number];
 
 /** 网关测量的输出速度；流式请求只统计首个内容之后的生成阶段。 */
 function outputRate(r: RequestItem) {
@@ -98,9 +98,15 @@ function RequestDuration({ request: r }: { request: RequestItem }) {
   );
 }
 
+const views = [
+  { key: 'platform', label: '平台' },
+  { key: 'personal', label: '个人' },
+] as const;
+type View = (typeof views)[number]['key'];
+
 export default function Requests() {
   const { data: user } = useAuth();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const [detailId, setDetailId] = useState<string | undefined>(params.get('request') ?? undefined);
   const [action, setAction] = useState<{ requestId: string; kind: 'resolve' | 'correct' }>();
   const [reviewOnly, setReviewOnly] = useState(params.get('reviewOnly') === 'true');
@@ -108,11 +114,14 @@ export default function Requests() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [resolvedCount, setResolvedCount] = useState(0);
   const admin = user?.role === 'admin';
+  // 管理员默认看平台的全部请求；普通用户只有个人视图。
+  const view: View = admin && params.get('view') !== 'personal' ? 'platform' : 'personal';
+  const platform = view === 'platform';
   const own = useQuery(
     trpc.requests.queryOptions(
       { page },
       {
-        enabled: !admin,
+        enabled: !platform,
         refetchInterval: 5000,
       },
     ),
@@ -121,13 +130,21 @@ export default function Requests() {
     trpc.admin.requests.queryOptions(
       { page, reviewOnly },
       {
-        enabled: admin,
+        enabled: platform,
         refetchInterval: 5000,
       },
     ),
   );
-  const data = admin ? all : own;
+  const data = platform ? all : own;
   const reviews = useReviewCount(admin);
+  const reviewing = platform && reviewOnly;
+  const switchView = (next: View) => {
+    if (next === view) return;
+    setParams(next === 'platform' ? {} : { view: next }, { replace: true });
+    setPage(0);
+    setSelectedIds([]);
+    setResolvedCount(0);
+  };
   const selectable = data.data?.items.filter((r) => r.billingEnabled && r.status === 'needs_review') ?? [];
   const pageIds = selectable.map((r) => r.id);
   const selectedOnPage = pageIds.filter((id) => selectedIds.includes(id)).length;
@@ -143,6 +160,23 @@ export default function Requests() {
         请求记录
       </Title>
       {admin && (
+        <HStack gap="1" aria-label="请求视图">
+          {views.map((item) => (
+            <Button
+              key={item.key}
+              size="sm"
+              variant="ghost"
+              borderRadius="full"
+              aria-pressed={view === item.key}
+              bg={view === item.key ? 'gray.100' : 'transparent'}
+              onClick={() => switchView(item.key)}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </HStack>
+      )}
+      {platform && (
         <HStack flexWrap="wrap">
           <Button
             size="sm"
@@ -169,7 +203,7 @@ export default function Requests() {
           </Button>
         </HStack>
       )}
-      {admin && reviewOnly && (
+      {admin && reviewing && (
         <HStack gap="3" flexWrap="wrap">
           <Text fontSize="sm" color="gray.600">
             已选 {selectedIds.length} / 100
@@ -207,7 +241,7 @@ export default function Requests() {
               <Table.Root size="sm" whiteSpace="nowrap">
                 <Table.Header>
                   <Table.Row>
-                    {admin && reviewOnly && (
+                    {reviewing && (
                       <Table.ColumnHeader width="10">
                         <Checkbox.Root
                           checked={
@@ -239,8 +273,8 @@ export default function Requests() {
                     {[
                       '时间',
                       '渠道',
-                      ...(admin ? ['用户'] : []),
-                      'API Key',
+                      // 平台视图按用户区分请求，Key 名称只在个人视图展示。
+                      ...(platform ? ['用户'] : ['API Key']),
                       '模型',
                       'Token 用量',
                       '耗时',
@@ -254,7 +288,7 @@ export default function Requests() {
                 <Table.Body>
                   {data.data.items.map((r) => (
                     <Table.Row key={r.id}>
-                      {admin && reviewOnly && (
+                      {reviewing && (
                         <Table.Cell>
                           <Checkbox.Root
                             checked={selectedIds.includes(r.id)}
@@ -278,8 +312,15 @@ export default function Requests() {
                       )}
                       <Table.Cell>{localDate(r.receivedAt)}</Table.Cell>
                       <Table.Cell>{r.channelName ?? r.channelId ?? '—'}</Table.Cell>
-                      {admin && <Table.Cell>{r.username}</Table.Cell>}
-                      <Table.Cell>{r.apiKeyName === null ? <Text color="gray.500">—</Text> : r.apiKeyName}</Table.Cell>
+                      <Table.Cell>
+                        {platform ? (
+                          r.username
+                        ) : 'apiKeyName' in r && typeof r.apiKeyName === 'string' ? (
+                          r.apiKeyName
+                        ) : (
+                          <Text color="gray.500">—</Text>
+                        )}
+                      </Table.Cell>
                       <Table.Cell>
                         <Stack gap="2" align="start">
                           <ModelLabel model={r.model} />
@@ -329,7 +370,7 @@ export default function Requests() {
                           <IconButton aria-label="查看详情" size="sm" variant="ghost" onClick={() => setDetailId(r.id)}>
                             <Eye size={16} aria-hidden="true" />
                           </IconButton>
-                          {admin && r.billingEnabled && r.status === 'needs_review' && (
+                          {platform && r.billingEnabled && r.status === 'needs_review' && (
                             <IconButton
                               aria-label="核对费用"
                               size="sm"
@@ -339,7 +380,7 @@ export default function Requests() {
                               <ClipboardCheck size={16} aria-hidden="true" />
                             </IconButton>
                           )}
-                          {admin && r.billingEnabled && r.status === 'settled' && (
+                          {platform && r.billingEnabled && r.status === 'settled' && (
                             <IconButton
                               aria-label="修正费用"
                               size="sm"

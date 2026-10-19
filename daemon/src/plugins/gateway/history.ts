@@ -19,7 +19,18 @@ export class RequestHistory {
     this.pricing = deps.pricing;
   }
 
-  async list(userId: string | undefined, page: number, reviewOnly = false) {
+  /** 用户自己的请求，包含所用 API Key 的名称。 */
+  listOwn(userId: string, page: number) {
+    return this.list(userId, page);
+  }
+
+  /** 平台的全部请求；Key 名称由各用户自行设置，平台视图只展示所属用户。 */
+  async listAll(page: number, reviewOnly: boolean) {
+    const { items, ...result } = await this.list(undefined, page, reviewOnly);
+    return { ...result, items: items.map(({ apiKeyName: _, ...item }) => item) };
+  }
+
+  private async list(userId: string | undefined, page: number, reviewOnly = false) {
     const rows = await paginate(
       this.db
         .select({
