@@ -9,14 +9,14 @@ import { prepareSession } from './session.ts';
 
 export function openAIAdapter(service: SubscriptionRuntime): ChannelAdapter {
   return {
-    async prepareRequest({ channel, endpoint, parsed, request, signal }) {
+    async prepareRequest({ channel, endpoint, parsed, request, signal, reservation }) {
       const body = prepareBody(parsed, endpoint);
       if (!channel.subscriptionAccountId)
         throw new GatewayError(503, 'subscription_unavailable', 'Bind a subscription account first');
       const sessionHeaders = codexRequestHeaders(request);
       prepareSession(sessionHeaders, body, parsed, request, channel.id, endpoint);
       const id = channel.subscriptionAccountId;
-      const lease = await service.acquire(id, signal);
+      const lease = await service.acquire(id, signal, reservation);
       if (signal.aborted) {
         lease.release();
         throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');

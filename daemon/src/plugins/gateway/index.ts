@@ -1,6 +1,7 @@
 import { CredentialVault } from '../../core/vault.ts';
 import { definePlugin } from '../../kernel.ts';
 import { BillingService } from '../billing/service.ts';
+import { ChannelConcurrency } from '../catalog/concurrency.ts';
 import { DatabaseService } from '../database/index.ts';
 import { OutboundHttp } from '../outbound/index.ts';
 import { PricingService } from '../pricing/service.ts';
@@ -16,6 +17,7 @@ export const GatewayPlugin = definePlugin({
     billing: BillingService,
     vault: CredentialVault,
     subscriptions: SubscriptionRuntime,
+    concurrency: ChannelConcurrency,
     outbound: OutboundHttp,
   },
   provides: [GatewayService, RequestHistory],
@@ -26,6 +28,7 @@ export const GatewayPlugin = definePlugin({
       billing: ctx.billing,
       vault: ctx.vault,
       subscriptions: ctx.subscriptions,
+      concurrency: ctx.concurrency,
       outbound: ctx.outbound,
       config: ctx.config.gateway,
       logger: ctx.logger,

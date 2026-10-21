@@ -72,6 +72,10 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
     return this.concurrency.active(accountId);
   }
 
+  reserve(accountId: string, maximum: number) {
+    return this.stopped ? undefined : this.concurrency.tryAcquire(accountId, maximum);
+  }
+
   async provider(id: string) {
     const [row] = await this.db
       .select({ provider: subscriptionAccounts.provider })
@@ -81,7 +85,8 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
     return row.provider;
   }
 
-  async acquire(id: string, signal: AbortSignal) {
+  /** reservation 是网关选择渠道时已占用的并发名额，传入时不再重复占用。 */
+  async acquire(id: string, signal: AbortSignal, reservation?: () => void) {
     const [row] = await this.db
       .select()
       .from(subscriptionAccounts)
@@ -90,7 +95,7 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
       throw new GatewayError(503, 'subscription_unavailable', 'The subscription account is unavailable');
     if (row.cooldownUntil && row.cooldownUntil.getTime() > Date.now())
       throw new GatewayError(429, 'subscription_rate_limited', 'The subscription account is cooling down');
-    const release = this.concurrency.acquire(id, row.maxConcurrent);
+    const release = reservation ?? this.concurrency.acquire(id, row.maxConcurrent);
     const cancelled = () => new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
     let onAbort = () => {};
     try {
@@ -111,7 +116,13 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
     }
   }
 
-  async acquireClaude(id: string, signal: AbortSignal, model: string, proxyUrl: string | null) {
+  async acquireClaude(
+    id: string,
+    signal: AbortSignal,
+    model: string,
+    proxyUrl: string | null,
+    reservation?: () => void,
+  ) {
     const [row] = await this.db
       .select()
       .from(subscriptionAccounts)
@@ -120,7 +131,7 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
       throw new GatewayError(503, 'subscription_unavailable', 'The Claude account is unavailable');
     if ((row.cooldownUntil?.getTime() ?? 0) > Date.now() || Date.parse(row.modelCooldowns[model] ?? '') > Date.now())
       throw new GatewayError(429, 'subscription_rate_limited', 'The Claude account or model is cooling down');
-    const release = this.concurrency.acquire(id, row.maxConcurrent);
+    const release = reservation ?? this.concurrency.acquire(id, row.maxConcurrent);
     const cancelled = () => new GatewayError(400, 'request_cancelled', 'Request cancelled before forwarding');
     let onAbort = () => {};
     try {
@@ -142,7 +153,13 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
   }
 
   /** Antigravity 的额度按模型计算，模型冷却期间同账号的其他模型仍可使用。 */
-  async acquireAntigravity(id: string, signal: AbortSignal, model: string, proxyUrl: string | null) {
+  async acquireAntigravity(
+    id: string,
+    signal: AbortSignal,
+    model: string,
+    proxyUrl: string | null,
+    reservation?: () => void,
+  ) {
     const [row] = await this.db
       .select()
       .from(subscriptionAccounts)
@@ -151,7 +168,7 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
       throw new GatewayError(503, 'subscription_unavailable', 'The Antigravity account is unavailable');
     if ((row.cooldownUntil?.getTime() ?? 0) > Date.now() || Date.parse(row.modelCooldowns[model] ?? '') > Date.now())
       throw new GatewayError(429, 'subscription_rate_limited', 'The Antigravity account or model is cooling down');
-    const release = this.concurrency.acquire(id, row.maxConcurrent);
+    const release = reservation ?? this.concurrency.acquire(id, row.maxConcurrent);
     const cancelled = () => new GatewayError(400, 'request_cancelled', 'Request cancelled before forwarding');
     let onAbort = () => {};
     try {

@@ -17,6 +17,8 @@ type PrepareRequestOptions = {
   bytes: Buffer<ArrayBuffer>;
   vault: CredentialVault;
   signal: AbortSignal;
+  /** 聚合渠道选择订阅成员时已占用的账号并发名额，适配器用它代替重新占用；重复释放没有副作用，网关在请求结束时也会释放。 */
+  reservation?: () => void;
 };
 
 type PreparedRequest = {
@@ -38,6 +40,8 @@ export interface SubscriptionChannels {
   supportsEndpoint(provider: string, endpoint: Endpoint): boolean;
   /** 订阅账号当前正在执行的请求数。 */
   activeRequests(accountId: string): number;
+  /** 未达并发上限时同步占用订阅账号的一个名额，返回释放函数；已满或服务停止时返回 undefined。 */
+  reserve(accountId: string, maximum: number): (() => void) | undefined;
 }
 
 export interface ChannelAdapter {

@@ -10,7 +10,7 @@ import { forwardAntigravityResponse } from './response.ts';
 
 export function antigravityAdapter(service: SubscriptionRuntime): ChannelAdapter {
   return {
-    async prepareRequest({ channel, endpoint, target, foreignHistory, parsed, signal, vault }) {
+    async prepareRequest({ channel, endpoint, target, foreignHistory, parsed, signal, vault, reservation }) {
       if (endpoint !== '/v1beta/generateContent')
         throw new GatewayError(
           400,
@@ -23,7 +23,7 @@ export function antigravityAdapter(service: SubscriptionRuntime): ChannelAdapter
       // 先构造请求，格式错误时不占用账号并发。
       const body = counting ? undefined : (repairGeminiHistory(parsed, foreignHistory) ?? parsed);
       const proxy = channel.proxyUrlEncrypted ? vault.decrypt(channel.proxyUrlEncrypted) : null;
-      const lease = await service.acquireAntigravity(id, signal, target.model, proxy);
+      const lease = await service.acquireAntigravity(id, signal, target.model, proxy, reservation);
       try {
         const { credentials } = lease;
         const projectId = credentials.projectId as string;

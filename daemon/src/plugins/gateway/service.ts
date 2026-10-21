@@ -16,6 +16,7 @@ import type { CredentialVault } from '../../core/vault.ts';
 import { validateBillableRequest } from '../billing/admission.ts';
 import { searchRequest } from '../billing/search.ts';
 import type { BillingService } from '../billing/service.ts';
+import type { ChannelConcurrency } from '../catalog/concurrency.ts';
 import type { Database } from '../database/client.ts';
 import { activeChannel, availableSubscription } from '../database/query.ts';
 import type { Endpoint } from '../database/schema/index.ts';
@@ -41,6 +42,12 @@ import { randomUUID } from 'node:crypto';
 const foreignHistory = (affinity: AffinitySelection | undefined, channelId: string) =>
   affinity !== undefined && affinity.previous?.channelId !== channelId;
 
+/** 选择渠道时占用的名额与适配器占用的上游资源一起释放；两者可能是同一个释放函数，重复调用没有副作用。 */
+const releaseBoth = (reservation?: () => void, release?: () => void) => () => {
+  reservation?.();
+  release?.();
+};
+
 /**
  * 网关请求流程：鉴权与限流 → 读取请求体 → 入库 → 解析路由 → 锁定价格 → 预占 → 转发 → 收尾计费。
  * 平滑停止时拒绝新请求，等待进行中的请求自然结束；强制停止时中止进行中的请求，并等待其完成计费收尾。
@@ -53,6 +60,7 @@ export class GatewayService implements Disposable {
   private readonly billing: BillingService;
   private readonly vault: CredentialVault;
   private readonly subscriptions: SubscriptionChannels;
+  private readonly concurrency: ChannelConcurrency;
   private readonly outbound: OutboundHttp;
   private readonly config: GatewayConfig;
   private readonly logger: EventLogger;
@@ -67,6 +75,7 @@ export class GatewayService implements Disposable {
     billing: BillingService;
     vault: CredentialVault;
     subscriptions: SubscriptionChannels;
+    concurrency: ChannelConcurrency;
     outbound: OutboundHttp;
     config: GatewayConfig;
     logger: EventLogger;
@@ -76,6 +85,7 @@ export class GatewayService implements Disposable {
     this.billing = deps.billing;
     this.vault = deps.vault;
     this.subscriptions = deps.subscriptions;
+    this.concurrency = deps.concurrency;
     this.outbound = deps.outbound;
     this.config = deps.config;
     this.logger = deps.logger;
@@ -282,9 +292,14 @@ export class GatewayService implements Disposable {
       });
       session.recorded = true;
       const { model, channel } = await resolveEntryRoute(this.db, identity, target.model, endpoint, session);
-      const { channel: executionChannel, affinity } = await selectExecutionChannel(
+      const {
+        channel: executionChannel,
+        affinity,
+        release: reservation,
+      } = await selectExecutionChannel(
         this.db,
         this.subscriptions,
+        this.concurrency,
         channel,
         parsed,
         target.model,
@@ -293,6 +308,8 @@ export class GatewayService implements Disposable {
         this.affinity,
         identity.user.id,
       );
+      // 选择时占用的并发名额在请求收尾时释放，失败时同样释放。
+      lifecycle.releaseUpstream = reservation;
       if (affinity) binding = { selection: affinity, channelId: executionChannel.id };
       session.executionChannelId = executionChannel.id;
       const attemptId = randomUUID();
@@ -327,9 +344,10 @@ export class GatewayService implements Disposable {
         bytes,
         vault: this.vault,
         signal: abort.signal,
+        reservation,
       });
 
-      lifecycle.releaseUpstream = prepared.release;
+      lifecycle.releaseUpstream = releaseBoth(reservation, prepared.release);
       const outputLimit = prepared.usesModelOutputLimit ? model.outputTokenLimit : requestedOutputLimit;
       const { url, body, headers } = prepared;
       const request = this.outbound.forProxy(
@@ -432,9 +450,14 @@ export class GatewayService implements Disposable {
     const { req, endpoint, target, parsed, bytes, identity, lifecycle, session, finish } = options;
     const { id, abort } = lifecycle;
     const { channel } = await resolveEntryRoute(this.db, identity, target.model, endpoint, session);
-    const { channel: executionChannel, affinity } = await selectExecutionChannel(
+    const {
+      channel: executionChannel,
+      affinity,
+      release: reservation,
+    } = await selectExecutionChannel(
       this.db,
       this.subscriptions,
+      this.concurrency,
       channel,
       parsed,
       target.model,
@@ -443,6 +466,7 @@ export class GatewayService implements Disposable {
       this.affinity,
       identity.user.id,
     );
+    lifecycle.releaseUpstream = reservation;
     session.executionChannelId = executionChannel.id;
     const adapter = await channelAdapter(executionChannel, this.subscriptions);
     const timeoutMs = Math.min(channel.timeoutMs, executionChannel.timeoutMs);
@@ -460,8 +484,9 @@ export class GatewayService implements Disposable {
       bytes,
       vault: this.vault,
       signal: abort.signal,
+      reservation,
     });
-    lifecycle.releaseUpstream = prepared.release;
+    lifecycle.releaseUpstream = releaseBoth(reservation, prepared.release);
     const request = this.outbound.forProxy(
       executionChannel.proxyUrlEncrypted ? this.vault.decrypt(executionChannel.proxyUrlEncrypted) : null,
     );

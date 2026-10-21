@@ -29,6 +29,10 @@ const apiChannel = z
     type: z.literal('api'),
     ...commonFields,
     baseUrl: z.string().meta({ description: '上游地址' }),
+    maxConcurrent: z.number().int().nullable().meta({
+      description: '渠道同时执行的请求数上限，null 表示不限；达到上限时聚合渠道跳过该渠道，直接使用时返回 429',
+    }),
+    activeRequests: z.number().int().meta({ description: '进行中的请求数' }),
   })
   .meta({ id: 'ApiChannel', description: '通过 API Key 连接上游的渠道' });
 

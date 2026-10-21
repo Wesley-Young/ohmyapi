@@ -19,6 +19,17 @@ import { subscriptionProviderLabels } from '../lib/subscription';
 import { brandColor } from '../lib/theme';
 import { trpc, trpcClient } from '../lib/trpc';
 
+/** 进行中的请求数；有上限时按占用比例着色。 */
+function ConcurrencyBadge({ active, maximum }: { active: number; maximum: number | null }) {
+  const ratio = maximum === null ? 0 : active / maximum;
+  return (
+    <Badge colorPalette={ratio >= 0.8 ? 'red' : ratio >= 0.5 ? 'yellow' : active > 0 ? 'green' : 'gray'}>
+      并发 {active}
+      {maximum !== null && ` / ${maximum}`}
+    </Badge>
+  );
+}
+
 export default function Channels() {
   const data = useQuery(trpc.admin.catalog.list.queryOptions());
   const [edit, setEdit] = useState<{ id?: string }>();
@@ -154,21 +165,12 @@ export default function Channels() {
                             <Badge colorPalette={c.enabled ? 'green' : 'gray'}>{c.enabled ? '启用' : '禁用'}</Badge>
                             <Badge colorPalette="gray">{c.isPublic ? '公开' : '非公开'}</Badge>
                           </HStack>
+                          {c.type === 'api' && (c.maxConcurrent !== null || c.active > 0) && (
+                            <ConcurrencyBadge active={c.active} maximum={c.maxConcurrent} />
+                          )}
                           {c.subscription && (
                             <>
-                              <Badge
-                                colorPalette={
-                                  c.subscription.active / c.subscription.maxConcurrent >= 0.8
-                                    ? 'red'
-                                    : c.subscription.active / c.subscription.maxConcurrent >= 0.5
-                                      ? 'yellow'
-                                      : c.subscription.active > 0
-                                        ? 'green'
-                                        : 'gray'
-                                }
-                              >
-                                并发 {c.subscription.active} / {c.subscription.maxConcurrent}
-                              </Badge>
+                              <ConcurrencyBadge active={c.subscription.active} maximum={c.subscription.maxConcurrent} />
                               {c.subscription.errorCode && (
                                 <Badge colorPalette="red">
                                   {c.subscription.errorCode === 'subscription_refresh_uncertain'

@@ -32,6 +32,8 @@ export const channelInput = z.object({
   enabled: z.boolean(),
   isPublic: z.boolean().default(true),
   timeoutMs: z.number().int().min(100).max(600_000),
+  /** API 渠道的并发上限；null 表示不限，未提交时沿用已有配置。 */
+  maxConcurrent: z.number().int().min(1).max(1000).nullable().optional(),
   multiplier: multiplierInput.optional(),
   availableModels: z
     .array(z.object({ name: modelName, multiplier: multiplierInput.nullable() }))

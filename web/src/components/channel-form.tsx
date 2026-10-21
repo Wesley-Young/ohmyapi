@@ -88,6 +88,7 @@ export function ChannelForm({
   const passthrough = type === 'aggregate' && pricingMode === 'passthrough';
   const [members, setMembers] = useState<CatalogData['channels'][number]['members']>(initial?.members ?? []);
   const [maximum, setMaximum] = useState(String(initial?.subscription?.maxConcurrent ?? 5));
+  const [channelMaximum, setChannelMaximum] = useState(String(initial?.maxConcurrent ?? ''));
   const [provider, setProvider] = useState<SubscriptionProvider>(initial?.subscription?.provider ?? 'openai');
   const [mode, setMode] = useState<SubscriptionAccessMode>('oauth');
   const [credentials, setCredentials] = useState('');
@@ -179,6 +180,7 @@ export function ChannelForm({
                     }
                   : undefined,
               timeoutMs: Number(timeout),
+              maxConcurrent: type === 'api' ? (channelMaximum.trim() ? Number(channelMaximum) : null) : undefined,
               enabled,
               isPublic,
               endpoints: type === 'aggregate' ? [] : scopes,
@@ -297,6 +299,16 @@ export function ChannelForm({
                   onChange={(e) => setCredential(e.target.value)}
                   required={!initial}
                   maxLength={4096}
+                />
+                <FormInput
+                  label="并发上限"
+                  type="number"
+                  value={channelMaximum}
+                  onChange={(e) => setChannelMaximum(e.target.value)}
+                  min={1}
+                  max={1000}
+                  placeholder="不限"
+                  helper="1–1000，留空不限。聚合渠道会跳过已满的子渠道。"
                 />
               </>
             )}

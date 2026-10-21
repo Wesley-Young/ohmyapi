@@ -58,6 +58,8 @@ export const channels = pgTable(
     enabled: boolean('enabled').default(true).notNull(),
     isPublic: boolean('is_public').default(true).notNull(),
     timeoutMs: integer('timeout_ms').default(120_000).notNull(),
+    /** API 渠道同时执行的请求数上限，null 表示不限；订阅渠道使用账号的上限。 */
+    maxConcurrent: integer('max_concurrent'),
     multiplierMicros: bigint('multiplier_micros', { mode: 'bigint' }).default(sql`1000000`).notNull(),
     createdAt: createdAt(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -69,6 +71,10 @@ export const channels = pgTable(
       .where(sql`${table.deletedAt} is null`),
     check('channels_proxy_type', sql`${table.type} <> 'aggregate' or ${table.proxyUrlEncrypted} is null`),
     check('channels_timeout_positive', sql`${table.timeoutMs} > 0`),
+    check(
+      'channels_concurrency',
+      sql`${table.maxConcurrent} is null or (${table.type} = 'api' and ${table.maxConcurrent} between 1 and 1000)`,
+    ),
     check(
       'channels_subscription_config',
       sql`(${table.type} = 'subscription' and ${table.subscriptionAccountId} is not null) or (${table.type} <> 'subscription' and ${table.subscriptionAccountId} is null)`,

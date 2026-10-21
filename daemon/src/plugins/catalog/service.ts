@@ -24,6 +24,7 @@ import type { OutboundHttp } from '../outbound/index.ts';
 import { providerSupports } from '../subscription/providers.ts';
 import type { SubscriptionService } from '../subscription/service.ts';
 import { auditCatalog } from './audit.ts';
+import type { ChannelConcurrency } from './concurrency.ts';
 import { compareChannels } from './order.ts';
 import type { ChannelInput, FetchChannelModelsInput } from './schemas.ts';
 import { fetchUpstreamModels, type UpstreamModelsTrace } from './upstream-models.ts';
@@ -37,6 +38,7 @@ export class CatalogService {
   private readonly vault: CredentialVault;
   private readonly subscription: SubscriptionService;
   private readonly outbound: OutboundHttp;
+  private readonly concurrency: ChannelConcurrency;
   private readonly logger: EventLogger;
   constructor(deps: {
     db: Database;
@@ -44,6 +46,7 @@ export class CatalogService {
     vault: CredentialVault;
     subscription: SubscriptionService;
     outbound: OutboundHttp;
+    concurrency: ChannelConcurrency;
     logger: EventLogger;
   }) {
     this.db = deps.db;
@@ -51,6 +54,7 @@ export class CatalogService {
     this.vault = deps.vault;
     this.subscription = deps.subscription;
     this.outbound = deps.outbound;
+    this.concurrency = deps.concurrency;
     this.logger = deps.logger;
   }
 
@@ -77,6 +81,7 @@ export class CatalogService {
           enabled: channels.enabled,
           isPublic: channels.isPublic,
           timeoutMs: channels.timeoutMs,
+          maxConcurrent: channels.maxConcurrent,
           multiplierMicros: channels.multiplierMicros,
         })
         .from(channels)
@@ -93,6 +98,7 @@ export class CatalogService {
       channels: channelRows.map(({ multiplierMicros, proxyUrlEncrypted, ...c }) => ({
         ...c,
         proxyUrl: proxyUrlEncrypted ? this.vault.decrypt(proxyUrlEncrypted) : null,
+        active: c.type === 'api' ? this.concurrency.active(c.id) : 0,
         subscription: c.subscription
           ? {
               provider: c.subscription.provider,
@@ -249,7 +255,7 @@ export class CatalogService {
         credentialChanged: Boolean(input.credential || credentials),
         proxyChanged: values.proxyUrlEncrypted !== (existing?.proxyUrlEncrypted ?? null),
         proxyEnabled: Boolean(values.proxyUrlEncrypted),
-        maxConcurrent: input.subscription?.maxConcurrent,
+        maxConcurrent: input.type === 'api' ? values.maxConcurrent : input.subscription?.maxConcurrent,
       });
       const priced = resolved.length
         ? await tx
@@ -295,6 +301,8 @@ export class CatalogService {
       throw new AppError('bad_request', '渠道类型创建后不可更改，请新建渠道');
     if (input.type !== 'aggregate' && (!input.endpoints.length || input.members.length))
       throw new AppError('bad_request', '普通渠道需配置端点，且不能配置子渠道');
+    if (input.type !== 'api' && input.maxConcurrent != null)
+      throw new AppError('bad_request', '只有 API 渠道可以设置渠道并发上限');
     let aggregateModels: { id: string; name: string }[] = [];
     if (input.type === 'aggregate') {
       if (input.baseUrl || input.credential || input.subscription || input.endpoints.length || input.proxyUrl)
@@ -418,6 +426,13 @@ export class CatalogService {
       enabled: input.enabled,
       isPublic: input.isPublic,
       timeoutMs: input.timeoutMs,
+      // 未提交时沿用已有配置，null 表示不限。
+      maxConcurrent:
+        input.type !== 'api'
+          ? null
+          : input.maxConcurrent === undefined
+            ? (existing?.maxConcurrent ?? null)
+            : input.maxConcurrent,
       multiplierMicros:
         passthrough && existing
           ? existing.multiplierMicros

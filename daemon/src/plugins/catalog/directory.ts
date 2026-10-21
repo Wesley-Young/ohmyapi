@@ -15,6 +15,7 @@ import {
   subscriptionAccounts,
 } from '../database/schema/index.ts';
 import type { SubscriptionService } from '../subscription/service.ts';
+import type { ChannelConcurrency } from './concurrency.ts';
 
 const channelColumns = {
   id: channels.id,
@@ -25,6 +26,7 @@ const channelColumns = {
   enabled: channels.enabled,
   isPublic: channels.isPublic,
   timeoutMs: channels.timeoutMs,
+  maxConcurrent: channels.maxConcurrent,
   multiplierMicros: channels.multiplierMicros,
   createdAt: channels.createdAt,
   position: createdPosition(channels.createdAt),
@@ -44,9 +46,19 @@ export class ChannelDirectory {
   static readonly token = serviceToken<ChannelDirectory>('ohmyapi/channel-directory');
   private readonly db: Database;
   private readonly subscription: SubscriptionService;
-  constructor({ db, subscription }: { db: Database; subscription: SubscriptionService }) {
+  private readonly concurrency: ChannelConcurrency;
+  constructor({
+    db,
+    subscription,
+    concurrency,
+  }: {
+    db: Database;
+    subscription: SubscriptionService;
+    concurrency: ChannelConcurrency;
+  }) {
     this.db = db;
     this.subscription = subscription;
+    this.concurrency = concurrency;
   }
 
   /** 未删除的渠道，按创建时间倒序的游标分页。 */
@@ -143,7 +155,14 @@ export class ChannelDirectory {
             .filter((member) => member.aggregateChannelId === row.id)
             .map((member) => ({ channelId: member.memberChannelId, priority: member.priority, weight: member.weight })),
         };
-      return { ...identity, type: 'api' as const, ...common, baseUrl: row.baseUrl ?? '' };
+      return {
+        ...identity,
+        type: 'api' as const,
+        ...common,
+        baseUrl: row.baseUrl ?? '',
+        maxConcurrent: row.maxConcurrent,
+        activeRequests: this.concurrency.active(row.id),
+      };
     });
   }
 }

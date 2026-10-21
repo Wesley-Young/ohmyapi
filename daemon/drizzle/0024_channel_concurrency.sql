@@ -1,0 +1,2 @@
+ALTER TABLE "channels" ADD COLUMN "max_concurrent" integer;--> statement-breakpoint
+ALTER TABLE "channels" ADD CONSTRAINT "channels_concurrency" CHECK ("channels"."max_concurrent" is null or ("channels"."type" = 'api' and "channels"."max_concurrent" between 1 and 1000));

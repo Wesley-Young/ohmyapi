@@ -9,14 +9,14 @@ import { forwardClaudeResponse } from './response.ts';
 
 export function claudeAdapter(service: SubscriptionRuntime): ChannelAdapter {
   return {
-    async prepareRequest({ channel, endpoint, parsed, request, signal, vault, userId }) {
+    async prepareRequest({ channel, endpoint, parsed, request, signal, vault, userId, reservation }) {
       if (endpoint !== '/v1/messages')
         throw new GatewayError(400, 'subscription_endpoint_unsupported', 'Claude subscriptions support Messages only');
       validateClaudeRequest(parsed);
       const id = channel.subscriptionAccountId;
       if (!id) throw new GatewayError(503, 'subscription_unavailable', 'Bind a Claude subscription account first');
       const proxy = channel.proxyUrlEncrypted ? vault.decrypt(channel.proxyUrlEncrypted) : null;
-      const lease = await service.acquireClaude(id, signal, String(parsed.model), proxy);
+      const lease = await service.acquireClaude(id, signal, String(parsed.model), proxy, reservation);
       try {
         const session = service.claudeSessions.begin(id, userId, channel.id, request, parsed);
         const prepared = await prepareClaudeRequest(parsed, request, lease.credentials, session, `${id}:${userId}`);
