@@ -20,6 +20,9 @@ const userSchema = z
     username: z.string(),
     role: z.enum(['admin', 'user']),
     status: z.enum(['active', 'disabled']),
+    maxConcurrent: z.number().int().nullable().meta({
+      description: '网关并发请求数上限；null 表示使用服务端的全局配置',
+    }),
     createdAt: z.iso.datetime(),
   })
   .meta({ id: 'User' });
@@ -49,9 +52,9 @@ const forbidden = errorResponse('令牌缺少所需权限');
 
 /** 隐藏已删除的用户，与列表保持一致。 */
 async function activeUser(users: UserService, userId: string) {
-  const { deleted, ...user } = await users.get(userId);
+  const { id, username, role, status, maxConcurrent, createdAt, deleted } = await users.get(userId);
   if (deleted) throw new AppError('not_found', '用户不存在');
-  return user;
+  return { id, username, role, status, maxConcurrent, createdAt };
 }
 
 export function userApi(users: UserService, auth: ApiAuth) {

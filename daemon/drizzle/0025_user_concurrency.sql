@@ -1,0 +1,2 @@
+ALTER TABLE "users" ADD COLUMN "max_concurrent" integer;--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_concurrency" CHECK ("users"."max_concurrent" is null or "users"."max_concurrent" between 1 and 1000);

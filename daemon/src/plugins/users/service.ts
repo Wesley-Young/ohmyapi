@@ -20,18 +20,22 @@ export class UserService {
   private readonly groups: GroupService;
   private readonly initialBalanceMicros: bigint;
   private readonly currency: string;
+  private readonly defaultMaxConcurrent: number;
   constructor(deps: {
     db: Database;
     auth: AuthService;
     groups: GroupService;
     initialBalanceMicros: bigint;
     currency: string;
+    /** GATEWAY_USER_CONCURRENCY，用户未单独设置并发上限时使用。 */
+    defaultMaxConcurrent: number;
   }) {
     this.db = deps.db;
     this.auth = deps.auth;
     this.groups = deps.groups;
     this.initialBalanceMicros = deps.initialBalanceMicros;
     this.currency = deps.currency;
+    this.defaultMaxConcurrent = deps.defaultMaxConcurrent;
   }
 
   /** 创建用户表单的预填值。 */
@@ -79,7 +83,11 @@ export class UserService {
       .limit(limit + 1);
     const { items, nextCursor } = toCursorPage(rows, limit, (row) => ({ createdAt: row.position, id: row.user.id }));
     return {
-      items: items.map(({ user }) => ({ ...publicUser(user), createdAt: user.createdAt.toISOString() })),
+      items: items.map(({ user }) => ({
+        ...publicUser(user),
+        maxConcurrent: user.maxConcurrent,
+        createdAt: user.createdAt.toISOString(),
+      })),
       nextCursor,
     };
   }
@@ -87,7 +95,35 @@ export class UserService {
   async get(userId: string) {
     const [user] = await this.db.select().from(users).where(eq(users.id, userId));
     if (!user) throw new AppError('not_found', '用户不存在');
-    return { ...publicUser(user), createdAt: user.createdAt.toISOString(), deleted: user.deletedAt !== null };
+    return {
+      ...publicUser(user),
+      maxConcurrent: user.maxConcurrent,
+      defaultMaxConcurrent: this.defaultMaxConcurrent,
+      createdAt: user.createdAt.toISOString(),
+      deleted: user.deletedAt !== null,
+    };
+  }
+
+  /** 设置用户的网关并发上限，覆盖全局配置；null 恢复使用全局配置。下一个请求起生效。 */
+  async setConcurrency(principal: Principal, userId: string, maxConcurrent: number | null) {
+    return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
+      const [target] = await tx
+        .select()
+        .from(users)
+        .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+        .for('update');
+      if (!target) throw new AppError('not_found', '用户不存在');
+      if (target.maxConcurrent === maxConcurrent) return { maxConcurrent };
+      await tx.update(users).set({ maxConcurrent }).where(eq(users.id, userId));
+      await recordAudit(tx, {
+        actorId: actor.id,
+        action: 'user.set_concurrency',
+        targetType: 'user',
+        targetId: userId,
+        metadata: { username: target.username, previous: target.maxConcurrent, maxConcurrent },
+      });
+      return { maxConcurrent };
+    });
   }
 
   /**

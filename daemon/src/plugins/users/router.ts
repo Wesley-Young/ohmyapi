@@ -3,6 +3,7 @@ import {
   createUserInput,
   listUsersInput,
   resetPasswordInput,
+  setConcurrencyInput,
   setRoleInput,
   setStatusInput,
   userIdInput,
@@ -29,6 +30,9 @@ export function userAdminRoutes(users: UserService) {
     resetPassword: adminProcedure
       .input(resetPasswordInput)
       .mutation(({ ctx, input }) => users.manage(ctx.principal, input.userId, 'reset_password', input.password)),
+    setConcurrency: adminProcedure
+      .input(setConcurrencyInput)
+      .mutation(({ ctx, input }) => users.setConcurrency(ctx.principal, input.userId, input.maxConcurrent)),
     revokeSessions: adminProcedure
       .input(userIdInput)
       .mutation(({ ctx, input }) => users.manage(ctx.principal, input.userId, 'revoke_sessions')),

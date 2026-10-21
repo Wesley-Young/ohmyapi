@@ -28,12 +28,15 @@ export const users = pgTable(
     passwordHash: text('password_hash').notNull(),
     role: userRole('role').default('user').notNull(),
     status: userStatus('status').default('active').notNull(),
+    /** 网关并发请求数上限，覆盖 GATEWAY_USER_CONCURRENCY；null 时使用全局配置。 */
+    maxConcurrent: integer('max_concurrent'),
     createdAt: createdAt(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => [
     uniqueIndex('users_username_unique').on(table.username).where(sql`${table.deletedAt} is null`),
     check('users_username_format', sql`${table.username} ~ '^[a-z0-9][a-z0-9_.-]{2,63}$'`),
+    check('users_concurrency', sql`${table.maxConcurrent} is null or ${table.maxConcurrent} between 1 and 1000`),
   ],
 );
 

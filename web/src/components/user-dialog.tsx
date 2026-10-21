@@ -73,6 +73,52 @@ function ResetPassword({ userId }: { userId: string }) {
   );
 }
 
+function ConcurrencyLimit({ userId, value, fallback }: { userId: string; value: number | null; fallback: number }) {
+  const [draft, setDraft] = useState(value === null ? '' : String(value));
+  const task = useMutation(
+    trpc.admin.users.setConcurrency.mutationOptions({
+      onSuccess: () => refreshUser(userId),
+    }),
+  );
+  const error = formError(task.error);
+  return (
+    <Section title="并发上限">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!task.isPending) task.mutate({ userId, maxConcurrent: draft.trim() ? Number(draft) : null });
+        }}
+      >
+        <Stack gap="5" maxW="400px">
+          <FormInput
+            label="同时进行的请求数"
+            type="number"
+            min={1}
+            max={1000}
+            value={draft}
+            placeholder={String(fallback)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              task.reset();
+            }}
+            error={error?.fields.maxConcurrent?.[0]}
+            helper={`1–1000，留空使用全局配置（${fallback}）`}
+          />
+          <ErrorText>{error?.message}</ErrorText>
+          {task.isSuccess && (
+            <Text role="status" fontSize="sm">
+              已保存
+            </Text>
+          )}
+          <PrimaryButton type="submit" alignSelf="start" loading={task.isPending}>
+            保存
+          </PrimaryButton>
+        </Stack>
+      </form>
+    </Section>
+  );
+}
+
 type AccountUser = { id: string; username: string; role: 'admin' | 'user'; status: 'active' | 'disabled' };
 
 function Account({ user, onDeleted }: { user: AccountUser; onDeleted: () => void }) {
@@ -145,7 +191,7 @@ function Account({ user, onDeleted }: { user: AccountUser; onDeleted: () => void
   );
 }
 
-/** 管理单个用户：账号状态与角色、钱包、密码、用户组、渠道授权与屏蔽、资金流水。 */
+/** 管理单个用户：账号状态与角色、并发上限、钱包、密码、用户组、渠道授权与屏蔽、资金流水。 */
 export function UserDialog({ userId, onClose }: { userId: string; onClose: () => void }) {
   const [page, setPage] = useState(0);
   const user = useQuery(trpc.admin.users.get.queryOptions({ userId }));
@@ -179,6 +225,13 @@ export function UserDialog({ userId, onClose }: { userId: string; onClose: () =>
               />
               <WalletSummary wallet={wallet.data} />
               {!user.data.deleted && <Account user={user.data} onDeleted={onClose} />}
+              {!user.data.deleted && (
+                <ConcurrencyLimit
+                  userId={userId}
+                  value={user.data.maxConcurrent}
+                  fallback={user.data.defaultMaxConcurrent}
+                />
+              )}
               {managed && (
                 <>
                   <ResetPassword userId={userId} />

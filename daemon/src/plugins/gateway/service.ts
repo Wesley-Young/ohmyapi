@@ -255,7 +255,7 @@ export class GatewayService implements Disposable {
       });
       session.userId = identity.user.id;
       session.channelId = identity.channelId ?? undefined;
-      lifecycle.releaseCapacity = this.rateLimiter.acquire(identity.user.id);
+      lifecycle.releaseCapacity = this.rateLimiter.acquire(identity.user);
 
       const received = await lifecycle.withBodyTimeout(
         this.config.bodyTimeoutMs,

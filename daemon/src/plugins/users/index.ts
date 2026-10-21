@@ -17,6 +17,7 @@ export const UsersPlugin = definePlugin({
         groups: ctx.groups,
         initialBalanceMicros: ctx.config.userInitialBalanceMicros,
         currency: ctx.config.currency,
+        defaultMaxConcurrent: ctx.config.gateway.maxConcurrent,
       }),
     );
   },

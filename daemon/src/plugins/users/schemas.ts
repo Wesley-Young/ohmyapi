@@ -27,3 +27,6 @@ export const createUserInput = z.object({
 export const setRoleInput = userIdInput.extend({ role: z.enum(['admin', 'user']) });
 export const setStatusInput = userIdInput.extend({ status: z.enum(['active', 'disabled']) });
 export const resetPasswordInput = userIdInput.extend({ password: passwordInput });
+/** null 表示使用全局配置 GATEWAY_USER_CONCURRENCY。 */
+export const userConcurrencyInput = z.number().int().min(1).max(1000).nullable();
+export const setConcurrencyInput = userIdInput.extend({ maxConcurrent: userConcurrencyInput });
