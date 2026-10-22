@@ -11,7 +11,7 @@ import { KeyUsageDialog } from '../components/key-usage-dialog';
 import { OhmyswitchDialog } from '../components/ohmyswitch-dialog';
 import { ErrorText, Loading, NameAction, PageControls, PrimaryButton, pinnedColumn, Title } from '../components/ui';
 import { supportsCCSwitch } from '../lib/cc-switch';
-import { displayMoney, formError, localDate } from '../lib/format';
+import { displayAmount, formError, localDate } from '../lib/format';
 import { ohmyswitchEndpointsOf } from '../lib/ohmyswitch';
 import { queryClient, trpc } from '../lib/trpc';
 
@@ -156,7 +156,7 @@ export default function Keys() {
               <Table.Root size="sm" whiteSpace="nowrap">
                 <Table.Header>
                   <Table.Row>
-                    {['名称', 'Key', '渠道', '有效期', '状态', currency ? `消费（${currency}）` : '消费'].map((h) => (
+                    {['名称', 'Key', '渠道', '有效期', '状态', '消费'].map((h) => (
                       <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
                     ))}
                     <Table.ColumnHeader {...pinnedColumn}>操作</Table.ColumnHeader>
@@ -249,7 +249,7 @@ export default function Keys() {
                                 <Text as="dt" color="gray.500">
                                   {label}
                                 </Text>
-                                <Text as="dd">{displayMoney(value)}</Text>
+                                <Text as="dd">{displayAmount(value, currency)}</Text>
                               </Fragment>
                             ))}
                           </Grid>

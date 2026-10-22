@@ -8,7 +8,15 @@ import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
 import type { Database } from '../database/client.ts';
 import { paginate } from '../database/query.ts';
-import { models, requests, requestUsage, users, walletLedger, wallets } from '../database/schema/index.ts';
+import {
+  models,
+  requestAttempts,
+  requests,
+  requestUsage,
+  users,
+  walletLedger,
+  wallets,
+} from '../database/schema/index.ts';
 import { type LedgerEntry, ledgerAmounts, lockWallet, postLedgerEntry } from './ledger.ts';
 import type { AdjustWalletInput, StatsRange } from './schemas.ts';
 
@@ -185,6 +193,30 @@ export class WalletService {
       const date = new Date(start + index * dayMs + offsetMs).toISOString().slice(0, 10);
       return { date, ...(byDate.get(date) ?? { requestCount: '0', tokens: '0', chargedAmount: '0.000000' }) };
     });
+  }
+
+  /** 近 24 小时和近 30 天实际执行在各 API 渠道上的已结算扣费。网关每个请求只有一次执行尝试。 */
+  async channelSpending() {
+    const settled = (window: SQL) =>
+      sql<string>`coalesce(sum(${requests.chargedMicros}) filter (where ${requests.status} = 'settled' and ${requests.receivedAt} >= now() - ${window}), 0)::text`;
+    const rows = await this.db
+      .select({
+        channelId: requestAttempts.channelId,
+        last24Hours: settled(sql`interval '24 hours'`),
+        last30Days: settled(sql`interval '30 days'`),
+      })
+      .from(requests)
+      .innerJoin(requestAttempts, eq(requestAttempts.requestId, requests.id))
+      .where(and(within('30d'), eq(requestAttempts.channelType, 'api')))
+      .groupBy(requestAttempts.channelId);
+    return {
+      currency: this.currency,
+      channels: rows.map((row) => ({
+        channelId: row.channelId,
+        last24Hours: formatMoney(BigInt(row.last24Hours)),
+        last30Days: formatMoney(BigInt(row.last30Days)),
+      })),
+    };
   }
 
   async platformStats() {

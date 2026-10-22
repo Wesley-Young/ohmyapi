@@ -34,6 +34,23 @@ export function formatUsd(amount: string) {
 
 export const displayMoney = (value: string) => value.replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
 
+/** 货币的简短符号，如 USD → $、CNY → ¥；无法识别时返回货币代码。 */
+export function currencySymbol(currency: string) {
+  try {
+    return (
+      new Intl.NumberFormat(undefined, { style: 'currency', currency, currencyDisplay: 'narrowSymbol' })
+        .formatToParts(0)
+        .find((part) => part.type === 'currency')?.value ?? currency
+    );
+  } catch {
+    return currency;
+  }
+}
+
+/** 带货币符号的金额，如 $1.5；货币未知时只显示数值。 */
+export const displayAmount = (value: string, currency: string | undefined) =>
+  `${currency ? currencySymbol(currency) : ''}${displayMoney(value)}`;
+
 /** 金额字符串是否为零，如 "0.000000"。 */
 export const isZeroMoney = (value: string) => /^-?0(\.0*)?$/.test(value);
 

@@ -9,7 +9,7 @@ import { IconButton } from '../components/icon-button';
 import { emptyModelFilter, ModelFilter } from '../components/model-filter';
 import { ErrorText, FormDialog, Loading, NameAction, pinnedColumn, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
-import { displayMoney, displayRange, formatCount, formError } from '../lib/format';
+import { currencySymbol, displayMoney, displayRange, formatCount, formError } from '../lib/format';
 import { filterModels, sortModelsByBrand } from '../lib/model-brands';
 import { minuteText } from '../lib/pricing';
 import { trpc } from '../lib/trpc';
@@ -24,18 +24,6 @@ const categories = [
   ['webSearchPrice', '搜索 / 千次'],
   ['webSearchPreviewPrice', '预览搜索 / 千次'],
 ] as const;
-
-function currencySymbol(currency: string) {
-  try {
-    return (
-      new Intl.NumberFormat(undefined, { style: 'currency', currency, currencyDisplay: 'narrowSymbol' })
-        .formatToParts(0)
-        .find((part) => part.type === 'currency')?.value ?? currency
-    );
-  } catch {
-    return currency;
-  }
-}
 
 function Price({
   value,
