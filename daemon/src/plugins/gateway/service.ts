@@ -264,7 +264,7 @@ export class GatewayService implements Disposable {
       );
       const { bytes } = received;
       const target = protocol.target(req, received.parsed, params);
-      // 计费和路由读取统一写法后的请求体，上游仍收到原始字节。
+      // 计费和路由读取统一写法后的请求体，上游收到解压后的原始请求体。
       const parsed = protocol.canonicalBody ? protocol.canonicalBody(received.parsed) : received.parsed;
       if (target.unbilled) {
         session.unbilled = true;
