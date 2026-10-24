@@ -1,9 +1,25 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
 
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
+
+/** 读取构建时仓库的 HEAD；没有 git 或不在仓库中时返回 null，前端不显示版本。 */
+function readVersion() {
+  try {
+    const output = execFileSync('git', ['log', '-1', '--format=%h%n%cI'], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const [commit, date] = output.trim().split('\n');
+    return commit && date ? { commit, date } : null;
+  } catch {
+    return null;
+  }
+}
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, projectRoot, 'VITE_');
@@ -14,6 +30,7 @@ export default defineConfig(({ mode }) => {
   return {
     envDir: projectRoot,
     plugins: [react()],
+    define: { __OMA_VERSION__: JSON.stringify(readVersion()) },
     server: {
       host: '127.0.0.1',
       port: 5173,
