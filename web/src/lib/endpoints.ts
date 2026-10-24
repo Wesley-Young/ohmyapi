@@ -10,6 +10,7 @@ export const endpoints = Object.keys({
   '/v1/messages': true,
   '/v1/responses/compact': true,
   '/v1beta/generateContent': true,
+  '/v1/systemone': true,
 } satisfies Record<Endpoint, true>) as Endpoint[];
 /** 端点对应的协议名称，用于在界面上选择协议。 */
 export const endpointProtocolNames = {
@@ -18,6 +19,7 @@ export const endpointProtocolNames = {
   '/v1/messages': 'Messages',
   '/v1/responses/compact': 'Responses Compact',
   '/v1beta/generateContent': 'Gemini',
+  '/v1/systemone': 'System One',
 } satisfies Record<Endpoint, string>;
 
 export const responsesEndpoints: Endpoint[] = ['/v1/responses', '/v1/responses/compact'];

@@ -197,6 +197,13 @@
       "when": 1792843218999,
       "tag": "0027_reasoning_effort_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1792845187866,
+      "tag": "0028_systemone_endpoint",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,7 @@ import type { Endpoint } from './endpoints.ts';
 import { geminiProtocol } from './gemini.ts';
 import { messagesProtocol } from './messages.ts';
 import { responses, responsesCompact } from './responses.ts';
+import { systemOneProtocol } from './systemone.ts';
 import type { ApiProtocol } from './types.ts';
 
 export {
@@ -26,6 +27,7 @@ const registry = {
   '/v1/messages': messagesProtocol,
   '/v1/responses/compact': responsesCompact,
   '/v1beta/generateContent': geminiProtocol,
+  '/v1/systemone': systemOneProtocol,
 } as const satisfies Record<Endpoint, ApiProtocol>;
 
 /** 端点对应的协议描述。 */
