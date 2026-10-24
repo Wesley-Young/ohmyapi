@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 // The source and compiled modules have the same directory depth. Never depend on cwd.
 const webRoot = fileURLToPath(new URL('../../../../web/dist/', import.meta.url));
-const reservedPath = /^\/(api|v1)(\/|$)|(?:^|\/)\./;
+const reservedPath = /^\/(api|v1|v1beta)(\/|$)|(?:^|\/)\./;
 
 export function serveWeb(app: HonoService['app']) {
   if (!statSync(join(webRoot, 'index.html'), { throwIfNoEntry: false })?.isFile()) {
