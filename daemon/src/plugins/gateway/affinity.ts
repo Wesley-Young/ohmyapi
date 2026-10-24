@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
-type Binding = { channelId: string; expiresAt: number };
+/** foreignHistory 是会话历史开头产生于其他上游的条数，见 UpstreamContext。 */
+type Binding = { channelId: string; foreignHistory: number; expiresAt: number };
 export type AffinitySelection = { key: string; previous?: Binding };
 
 export class ChannelAffinity {
@@ -21,11 +22,11 @@ export class ChannelAffinity {
     return { key, previous };
   }
 
-  remember(selection: AffinitySelection, channelId: string) {
+  remember(selection: AffinitySelection, channelId: string, foreignHistory: number) {
     // 较早开始的慢请求不能覆盖其他请求刚更新的绑定。
     if (this.bindings.get(selection.key) !== selection.previous) return;
     this.bindings.delete(selection.key);
-    this.bindings.set(selection.key, { channelId, expiresAt: Date.now() + this.ttlMs });
+    this.bindings.set(selection.key, { channelId, foreignHistory, expiresAt: Date.now() + this.ttlMs });
     if (this.bindings.size > this.capacity) {
       const oldest = this.bindings.keys().next().value;
       if (oldest !== undefined) this.bindings.delete(oldest);

@@ -36,11 +36,21 @@ import { resolveEntryRoute, selectExecutionChannel } from './routing.ts';
 import { randomUUID } from 'node:crypto';
 
 /**
- * 聚合渠道按会话选择成员；此前没有确认过的成员，或本次换了成员时，会话历史可能来自其他上游。
+ * 会话历史开头产生于其他上游的条数。聚合渠道按会话选择成员；此前没有确认过的成员，或本次换了成员时，
+ * 此前的全部历史都可能来自其他上游。仍由同一成员执行时沿用绑定记录的条数，客户端回退历史时不超过当前条数。
  * 非聚合渠道始终由同一渠道执行。
  */
-const foreignHistory = (affinity: AffinitySelection | undefined, channelId: string) =>
-  affinity !== undefined && affinity.previous?.channelId !== channelId;
+function foreignHistory(
+  affinity: AffinitySelection | undefined,
+  channelId: string,
+  endpoint: Endpoint,
+  parsed: Record<string, unknown>,
+) {
+  if (!affinity) return 0;
+  const length = protocolFor(endpoint).session?.historyLength?.(parsed) ?? 0;
+  const { previous } = affinity;
+  return previous?.channelId === channelId ? Math.min(previous.foreignHistory, length) : length;
+}
 
 /** 选择渠道时占用的名额与适配器占用的上游资源一起释放；两者可能是同一个释放函数，重复调用没有副作用。 */
 const releaseBoth = (reservation?: () => void, release?: () => void) => () => {
@@ -220,7 +230,7 @@ export class GatewayService implements Disposable {
       logger: this.logger,
       sampleLog: this.sampleLog,
     });
-    let binding: { selection: AffinitySelection; channelId: string } | undefined;
+    let binding: { selection: AffinitySelection; channelId: string; foreignHistory: number } | undefined;
     const finish = (errorCode?: string) => {
       const result = session.summary(errorCode);
       return lifecycle.finish(
@@ -232,7 +242,7 @@ export class GatewayService implements Disposable {
             (session.upstreamStatus ?? 0) >= 200 &&
             (session.upstreamStatus ?? 0) < 300
           ) {
-            this.affinity.remember(binding.selection, binding.channelId);
+            this.affinity.remember(binding.selection, binding.channelId, binding.foreignHistory);
           }
           return session.finish(result);
         },
@@ -310,7 +320,8 @@ export class GatewayService implements Disposable {
       );
       // 选择时占用的并发名额在请求收尾时释放，失败时同样释放。
       lifecycle.releaseUpstream = reservation;
-      if (affinity) binding = { selection: affinity, channelId: executionChannel.id };
+      const foreign = foreignHistory(affinity, executionChannel.id, endpoint, parsed);
+      if (affinity) binding = { selection: affinity, channelId: executionChannel.id, foreignHistory: foreign };
       session.executionChannelId = executionChannel.id;
       const attemptId = randomUUID();
       await this.db.insert(requestAttempts).values({
@@ -339,7 +350,7 @@ export class GatewayService implements Disposable {
         request: req,
         endpoint,
         target,
-        foreignHistory: foreignHistory(affinity, executionChannel.id),
+        foreignHistory: foreign,
         parsed,
         bytes,
         vault: this.vault,
@@ -479,7 +490,7 @@ export class GatewayService implements Disposable {
       request: req,
       endpoint,
       target,
-      foreignHistory: foreignHistory(affinity, executionChannel.id),
+      foreignHistory: foreignHistory(affinity, executionChannel.id, endpoint, parsed),
       parsed,
       bytes,
       vault: this.vault,

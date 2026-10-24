@@ -28,10 +28,11 @@ export type ModelInfo = { name: string; createdAt: Date; inputTokenLimit: number
 /** 构造上游请求时的会话状态。 */
 export type UpstreamContext = {
   /**
-   * 会话历史可能产生于其他上游：聚合渠道换了成员，或无法确认此前的成员。
-   * 与上游账号绑定的不透明状态（如 Gemini 的 thoughtSignature）需要失效处理。
+   * 会话历史开头产生于其他上游的条数，按协议的 session.historyLength 计数；0 表示全部产生于当前上游。
+   * 聚合渠道换了成员或无法确认此前的成员时，此前的历史都计入；之后的请求沿用这个条数，直到再次换成员。
+   * 这部分历史中与上游账号绑定的不透明状态（如 Gemini 的 thoughtSignature）需要失效处理。
    */
-  foreignHistory: boolean;
+  foreignHistory: number;
 };
 
 export type ErrorDetails = { status: number; type: string; code: string; message: string; id: string };
@@ -113,8 +114,15 @@ export interface ApiProtocol {
   canonicalBody?(body: Data): Data;
   /** 请求中的推理强度原值，由调用方校验格式。 */
   reasoningEffort(body: Data): unknown;
-  /** 会话标识的候选值，按优先级排列；family 区分不同协议的会话空间。 */
-  readonly session?: { readonly family: string; candidates(request: Request, body: Data): unknown[] };
+  /**
+   * 会话标识的候选值，按优先级排列；family 区分不同协议的会话空间。
+   * historyLength 是请求中会话历史的条数，用于计算 UpstreamContext.foreignHistory；未提供时 foreignHistory 为 0。
+   */
+  readonly session?: {
+    readonly family: string;
+    candidates(request: Request, body: Data): unknown[];
+    historyLength?(body: Data): number;
+  };
   errorBody(error: ErrorDetails): unknown;
   /** 协议自带的模型列表接口：path 返回列表，`${path}/:model` 返回单个模型。 */
   readonly modelList?: {

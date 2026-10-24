@@ -75,14 +75,14 @@ const dummyThoughtSignature = 'skip_thought_signature_validator';
 export const isPathModel = (name: string) => /^[A-Za-z0-9_.-]{1,128}$/.test(name) && !/^\.+$/.test(name);
 
 /**
- * 发往上游前修正历史内容：移除 parts 为空的消息（上游不接受）；
- * 为缺少签名的 functionCall 补占位签名；历史来自其他上游时，签名在当前上游无效，替换为占位签名。
- * 不需要修正时返回 undefined。
+ * 发往上游前修正历史内容：移除 parts 为空的消息（上游不接受）；为缺少签名的 functionCall 补占位签名；
+ * 前 foreignHistory 条内容来自其他上游，其中的签名在当前上游无效，替换为占位签名。
+ * 条数按客户端请求中的 contents 计算，与移除空消息无关。不需要修正时返回 undefined。
  */
-export function repairGeminiHistory(parsed: Data, foreignHistory: boolean): Data | undefined {
+export function repairGeminiHistory(parsed: Data, foreignHistory: number): Data | undefined {
   if (!Array.isArray(parsed.contents)) return undefined;
   let changed = false;
-  const contents = parsed.contents.flatMap((item): unknown[] => {
+  const contents = parsed.contents.flatMap((item, index): unknown[] => {
     const entry = object(item);
     if (!entry || !Array.isArray(entry.parts)) return [item];
     if (!entry.parts.length) {
@@ -95,7 +95,7 @@ export function repairGeminiHistory(parsed: Data, foreignHistory: boolean): Data
       if (!part) return value;
       const signature = part.thoughtSignature;
       const missing = object(part.functionCall) && (typeof signature !== 'string' || !signature.trim());
-      const foreign = foreignHistory && signature !== undefined && signature !== dummyThoughtSignature;
+      const foreign = index < foreignHistory && signature !== undefined && signature !== dummyThoughtSignature;
       if (!missing && !foreign) return value;
       partsChanged = true;
       return { ...part, thoughtSignature: dummyThoughtSignature };
@@ -321,7 +321,11 @@ export const geminiProtocol: ApiProtocol = {
     return { model, streaming, operation: method };
   },
   canonicalBody: (body) => canonical(body, requestSpec) as Data,
-  session: { family: endpoint, candidates: sessionCandidates },
+  session: {
+    family: endpoint,
+    candidates: sessionCandidates,
+    historyLength: (body) => (Array.isArray(body.contents) ? body.contents.length : 0),
+  },
   reasoningEffort: (body) => object(generationConfig(body)?.thinkingConfig)?.thinkingLevel,
   errorBody: ({ status, code, message }) => ({
     error: {

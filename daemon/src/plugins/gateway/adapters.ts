@@ -11,8 +11,8 @@ type PrepareRequestOptions = {
   request: Request;
   endpoint: Endpoint;
   target: RequestTarget;
-  /** 会话历史可能产生于其他上游，见 UpstreamContext。 */
-  foreignHistory: boolean;
+  /** 会话历史开头产生于其他上游的条数，见 UpstreamContext。 */
+  foreignHistory: number;
   parsed: Record<string, unknown>;
   bytes: Buffer<ArrayBuffer>;
   vault: CredentialVault;
