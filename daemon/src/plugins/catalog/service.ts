@@ -182,7 +182,7 @@ export class CatalogService {
     const proxyUrl = await channelProxy(this.auth, this.vault, principal, input.id, input.proxyUrl);
     const request = this.outbound.forProxy(proxyUrl);
     const signal = AbortSignal.timeout(20_000);
-    const trace: UpstreamModelsTrace = { stage: 'fetch', bytes: 0 };
+    const trace: UpstreamModelsTrace = { stage: 'fetch', format: 'openai', bytes: 0 };
     const startedAt = Date.now();
     let result: Awaited<ReturnType<typeof fetchUpstreamModels>>;
     try {
@@ -193,6 +193,7 @@ export class CatalogService {
           actorId: principal.user.id,
           channelId: input.id,
           stage: trace.stage,
+          format: trace.format,
           timedOut: signal.aborted,
           httpStatus: trace.httpStatus,
           durationMs: Date.now() - startedAt,
