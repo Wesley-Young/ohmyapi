@@ -28,6 +28,13 @@ export const chatProtocol: ApiProtocol = {
   target: (_request, body) => bodyTarget(body),
   withModel: withBodyModel,
   reasoningEffort: (body) => body.reasoning_effort ?? object(body.reasoning)?.effort,
+  // 与 reasoningEffort 读取同一个字段：reasoning_effort 优先，其次 reasoning.effort。
+  withReasoningEffort(body, effort) {
+    if (body.reasoning_effort !== undefined && body.reasoning_effort !== null)
+      return typeof body.reasoning_effort === 'string' ? { ...body, reasoning_effort: effort } : undefined;
+    const reasoning = object(body.reasoning);
+    return typeof reasoning?.effort === 'string' ? { ...body, reasoning: { ...reasoning, effort } } : undefined;
+  },
   errorBody: openAIErrorBody,
   request: {
     outputLimit: { fields: ['max_completion_tokens', 'max_tokens'], required: false, minimum: 1 },

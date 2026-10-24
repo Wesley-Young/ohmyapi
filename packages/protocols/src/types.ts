@@ -120,6 +120,11 @@ export interface ApiProtocol {
   /** 请求中的推理强度原值，由调用方校验格式。 */
   reasoningEffort(body: Data): unknown;
   /**
+   * 把 reasoningEffort 读取的字段改为 effort，用于渠道改写推理强度；不修改传入的对象。
+   * 请求中没有可改写的字符串强度时返回 undefined，表示请求体不变。
+   */
+  withReasoningEffort(body: Data, effort: string): Data | undefined;
+  /**
    * 会话标识的候选值，按优先级排列；family 区分不同协议的会话空间。
    * historyLength 是请求中会话历史的条数，用于计算 UpstreamContext.foreignHistory；未提供时 foreignHistory 为 0。
    */

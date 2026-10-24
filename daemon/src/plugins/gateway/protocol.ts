@@ -1,6 +1,6 @@
 import { protocolFor, type RequestTarget } from '@ohmyapi/protocols';
 
-import type { Endpoint } from '../database/schema/index.ts';
+import type { Endpoint, ReasoningEffortRule } from '../database/schema/index.ts';
 
 type UpstreamRequest = { target: RequestTarget; parsed: Record<string, unknown>; bytes: Buffer<ArrayBuffer> };
 
@@ -16,6 +16,23 @@ export function mapUpstreamModel(
   if (upstreamModel === null || upstreamModel === request.target.model) return request;
   const { target, body } = protocolFor(endpoint).withModel(request.target, request.parsed, upstreamModel);
   return body ? { target, parsed: body, bytes: Buffer.from(JSON.stringify(body)) } : { ...request, target };
+}
+
+/**
+ * 按执行渠道为该模型配置的规则改写推理强度，请求的强度不在规则中时原样返回。
+ * 比较时忽略大小写；适配器、计费估算和发往上游的字节都使用改写后的请求。
+ */
+export function mapReasoningEffort(
+  endpoint: Endpoint,
+  request: UpstreamRequest,
+  rules: readonly ReasoningEffortRule[],
+): UpstreamRequest {
+  if (!rules.length) return request;
+  const current = reasoningEffort(endpoint, request.parsed);
+  const mapped = current === null ? undefined : rules.find((rule) => rule.from === current)?.to;
+  if (mapped === undefined || mapped === current) return request;
+  const body = protocolFor(endpoint).withReasoningEffort(request.parsed, mapped);
+  return body ? { ...request, parsed: body, bytes: Buffer.from(JSON.stringify(body)) } : request;
 }
 
 /** 只记录短小的小写强度标识，避免把客户端任意字符串写入请求记录。 */

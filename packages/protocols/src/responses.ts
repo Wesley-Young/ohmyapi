@@ -79,6 +79,10 @@ function responsesProtocol(compact: boolean): ApiProtocol {
     target: (_request, body) => bodyTarget(body),
     withModel: withBodyModel,
     reasoningEffort: (body) => object(body.reasoning)?.effort,
+    withReasoningEffort(body, effort) {
+      const reasoning = object(body.reasoning);
+      return typeof reasoning?.effort === 'string' ? { ...body, reasoning: { ...reasoning, effort } } : undefined;
+    },
     session: {
       family: 'responses',
       candidates(request, body) {

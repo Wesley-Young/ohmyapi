@@ -4,7 +4,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import type { ChannelConcurrency } from '../catalog/concurrency.ts';
 import type { Database } from '../database/client.ts';
 import { activeChannel, activeModel, availableSubscription } from '../database/query.ts';
-import type { Endpoint } from '../database/schema/index.ts';
+import type { Endpoint, ReasoningEffortRule } from '../database/schema/index.ts';
 import {
   aggregateChannelMembers,
   channelAvailableModels,
@@ -21,11 +21,21 @@ import { requestSession } from './session.ts';
 
 type Channel = typeof channels.$inferSelect;
 
-/** Key 绑定的入口渠道和请求的模型；upstreamModel 是入口渠道为该模型配置的上游名称。 */
+/** Key 绑定的入口渠道和请求的模型；upstreamModel 和 reasoningEffortRules 是入口渠道为该模型配置的上游名称和推理强度规则。 */
 export type EntryRoute = {
   model: { id: string; name: string; inputTokenLimit: number; outputTokenLimit: number };
   channel: Channel;
   upstreamModel: string | null;
+  reasoningEffortRules: ReasoningEffortRule[];
+};
+
+/** 执行渠道为模型配置的转发改写：上游名称（null 表示使用模型名称）和推理强度规则。 */
+export type ExecutionRoute = {
+  channel: Channel;
+  upstreamModel: string | null;
+  reasoningEffortRules: ReasoningEffortRule[];
+  affinity?: AffinitySelection;
+  release?: () => void;
 };
 
 /** API 渠道按渠道计数；未设置上限时只计数不限制。 */
@@ -36,7 +46,7 @@ function reserveApiChannel(concurrency: ChannelConcurrency, channel: Channel) {
 /**
  * 选择执行请求的渠道，并为它占用并发名额：API 渠道按渠道计数，聚合渠道的订阅成员按账号计数。
  * 直接使用的订阅渠道由适配器按账号占用。release 释放这里占用的名额，可重复调用。
- * upstreamModel 是执行渠道为该模型配置的上游名称，null 表示使用模型名称。
+ * upstreamModel 和 reasoningEffortRules 是执行渠道为该模型配置的上游名称和推理强度规则。
  */
 export async function selectExecutionChannel(
   db: Database,
@@ -48,14 +58,15 @@ export async function selectExecutionChannel(
   request: Request,
   cache: ChannelAffinity,
   userId: string,
-): Promise<{ channel: Channel; upstreamModel: string | null; affinity?: AffinitySelection; release?: () => void }> {
+): Promise<ExecutionRoute> {
   const { channel: entry, model } = route;
   if (entry.type !== 'aggregate') {
-    if (entry.type !== 'api') return { channel: entry, upstreamModel: route.upstreamModel };
+    const { upstreamModel, reasoningEffortRules } = route;
+    if (entry.type !== 'api') return { channel: entry, upstreamModel, reasoningEffortRules };
     const release = reserveApiChannel(concurrency, entry);
     if (!release)
       throw new GatewayError(429, 'channel_concurrency_exceeded', 'The channel concurrency limit was reached');
-    return { channel: entry, upstreamModel: route.upstreamModel, release };
+    return { channel: entry, upstreamModel, reasoningEffortRules, release };
   }
   const session = requestSession(request, parsed, endpoint);
   const affinity = session
@@ -70,6 +81,7 @@ export async function selectExecutionChannel(
       member: aggregateChannelMembers,
       account: subscriptionAccounts,
       upstreamModel: channelAvailableModels.upstreamModel,
+      reasoningEffortRules: channelAvailableModels.reasoningEffortRules,
     })
     .from(aggregateChannelMembers)
     .innerJoin(channels, eq(channels.id, aggregateChannelMembers.memberChannelId))
@@ -111,7 +123,13 @@ export async function selectExecutionChannel(
       ? reserveApiChannel(concurrency, selected.channel)
       : selected.account && subscriptions.reserve(selected.account.id, selected.account.maxConcurrent);
   if (!release) throw new GatewayError(503, 'aggregate_unavailable', 'No aggregate member is currently available');
-  return { channel: selected.channel, upstreamModel: selected.upstreamModel, affinity, release };
+  return {
+    channel: selected.channel,
+    upstreamModel: selected.upstreamModel,
+    reasoningEffortRules: selected.reasoningEffortRules ?? [],
+    affinity,
+    release,
+  };
 }
 
 function weightedPick<T extends { member: { weight: number } }>(rows: T[]) {
@@ -154,11 +172,12 @@ export async function resolveEntryRoute(
         channel: channels,
         accessible: access ? sql<boolean>`(${access})` : sql<boolean>`true`,
         upstreamModel: channelAvailableModels.upstreamModel,
+        reasoningEffortRules: channelAvailableModels.reasoningEffortRules,
       })
       .from(channels)
       .innerJoin(effectiveChannelModels, eq(effectiveChannelModels.channelId, channels.id))
       .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, channels.id))
-      // 聚合渠道不配置上游名称，由选中的子渠道提供。
+      // 聚合渠道不配置上游名称和推理强度规则，由选中的子渠道提供。
       .leftJoin(
         channelAvailableModels,
         and(eq(channelAvailableModels.channelId, channels.id), eq(channelAvailableModels.modelId, model.id)),
@@ -178,9 +197,11 @@ export async function resolveEntryRoute(
   details.upstreamTimeoutMs = route.channel.timeoutMs;
 
   if (!route.accessible) throw new GatewayError(403, 'channel_forbidden', 'Channel is not authorized for this user');
+  const configured = route.channel.type !== 'aggregate';
   return {
     model,
     channel: route.channel,
-    upstreamModel: route.channel.type === 'aggregate' ? null : route.upstreamModel,
+    upstreamModel: configured ? route.upstreamModel : null,
+    reasoningEffortRules: configured ? (route.reasoningEffortRules ?? []) : [],
   };
 }

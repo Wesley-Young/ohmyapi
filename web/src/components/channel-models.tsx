@@ -1,6 +1,19 @@
-import { Badge, Box, Button, Field, Grid, HStack, Input, InputGroup, Stack, Text, Textarea } from '@chakra-ui/react';
+import {
+  Badge,
+  Box,
+  Button,
+  Field,
+  Grid,
+  HStack,
+  Input,
+  InputGroup,
+  Popover,
+  Stack,
+  Text,
+  Textarea,
+} from '@chakra-ui/react';
 import type { RouterInputs, RouterOutputs } from '@ohmyapi/daemon/trpc';
-import { Download, Plus, X } from 'lucide-react';
+import { Download, Gauge, Plus, X } from 'lucide-react';
 import { type ReactNode, useId, useState } from 'react';
 
 import { modelBrand } from '../lib/model-brands';
@@ -15,12 +28,26 @@ export type ChannelModel = ChannelModelInput & { key: string };
 export type CatalogModel = RouterOutputs['admin']['catalog']['list']['models'][number];
 
 let nextKey = 0;
-export const channelModel = (name: string, upstreamModel: string | null = null): ChannelModel => ({
+export const channelModel = (
+  name: string,
+  upstreamModel: string | null = null,
+  reasoningEffortRules: EffortRule[] = [],
+): ChannelModel => ({
   key: `model-${nextKey++}`,
   name,
   multiplier: null,
   upstreamModel,
+  reasoningEffortRules,
 });
+
+export type EffortRule = { from: string; to: string };
+/** 启用推理强度映射时预置的规则：把最高两档降为 high。 */
+export const defaultEffortRules = (): EffortRule[] => [
+  { from: 'xhigh', to: 'high' },
+  { from: 'max', to: 'high' },
+];
+const effortPattern = /^[a-z][a-z0-9_-]{0,15}$/;
+const normalizeEffort = (value: string) => value.trim().toLowerCase();
 
 const modelNamePattern = /^[A-Za-z0-9][A-Za-z0-9_./:-]*$/;
 export const validModelName = (name: string) => name.length <= 128 && modelNamePattern.test(name);
@@ -35,9 +62,25 @@ export const channelModelsInput = (rows: ChannelModel[]): ChannelModelInput[] =>
     name: row.name.trim(),
     multiplier: row.multiplier,
     upstreamModel: row.upstreamModel?.trim() || null,
+    reasoningEffortRules: (row.reasoningEffortRules ?? []).map((rule) => ({
+      from: normalizeEffort(rule.from),
+      to: normalizeEffort(rule.to),
+    })),
   }));
 
-type RowErrors = { name?: string; upstream?: string };
+type RowErrors = { name?: string; upstream?: string; rules?: string };
+
+function effortRulesError(rules: EffortRule[]) {
+  const seen = new Set<string>();
+  for (const rule of rules) {
+    const from = normalizeEffort(rule.from);
+    const to = normalizeEffort(rule.to);
+    if (!effortPattern.test(from) || !effortPattern.test(to)) return '推理强度需为 1–16 个字符，仅支持字母、数字和 _ -';
+    if (from === to) return '映射前后的推理强度不能相同';
+    if (seen.has(from)) return '映射前的推理强度不能重复';
+    seen.add(from);
+  }
+}
 
 export function channelModelErrors(rows: ChannelModel[]) {
   const counts = new Map<string, number>();
@@ -51,7 +94,9 @@ export function channelModelErrors(rows: ChannelModel[]) {
     else if (!validModelName(name)) error.name = modelNameError;
     else if ((counts.get(name) ?? 0) > 1) error.name = '对外名称重复';
     if (upstream && !validModelName(upstream)) error.upstream = modelNameError;
-    if (error.name || error.upstream) errors.set(row.key, error);
+    const rules = effortRulesError(row.reasoningEffortRules ?? []);
+    if (rules) error.rules = rules;
+    if (error.name || error.upstream || error.rules) errors.set(row.key, error);
   }
   return errors;
 }
@@ -104,11 +149,137 @@ function MultiplierField({
   );
 }
 
-const rowColumns = { base: 'minmax(0, 1fr) auto', sm: 'minmax(0, 1fr) minmax(0, 1fr) 120px auto' };
-const rowAreas = {
-  base: `"name remove" "upstream upstream" "multiplier multiplier"`,
-  sm: `"name upstream multiplier remove"`,
+const rowColumns = {
+  base: 'minmax(0, 1fr) auto',
+  sm: 'minmax(0, 1fr) minmax(0, 1fr) 120px auto auto',
 };
+const rowAreas = {
+  base: `"name remove" "upstream upstream" "multiplier effort"`,
+  sm: `"name upstream multiplier effort remove"`,
+};
+
+/**
+ * 推理强度映射：请求的强度等于左侧时，转发前改为右侧。图标按钮打开规则编辑；
+ * 首次打开时预置 xhigh → high、max → high，规则全部移除即不改写。
+ * 弹层不放入 Portal，留在弹窗的焦点范围内。
+ */
+function EffortRules({
+  label,
+  rules,
+  error,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  rules: EffortRule[];
+  error?: string;
+  disabled: boolean;
+  onChange: (rules: EffortRule[]) => void;
+}) {
+  const update = (index: number, next: EffortRule) => onChange(rules.map((rule, i) => (i === index ? next : rule)));
+  const summary = rules.map((rule) => `${rule.from.trim() || '?'} → ${rule.to.trim() || '?'}`).join('，');
+  return (
+    <Popover.Root
+      lazyMount
+      unmountOnExit
+      positioning={{ placement: 'bottom-end', strategy: 'fixed', shift: 12 }}
+      onOpenChange={({ open }) => {
+        if (open && !rules.length) onChange(defaultEffortRules());
+      }}
+    >
+      <Popover.Trigger asChild>
+        <IconButton
+          gridArea="effort"
+          type="button"
+          aria-label={`${label} 推理强度映射`}
+          title={error ?? (summary ? `推理强度映射：${summary}` : '推理强度映射')}
+          variant={rules.length ? 'subtle' : 'ghost'}
+          color={error ? 'red.600' : rules.length ? brandColor : undefined}
+          size="sm"
+          mt="1"
+          disabled={disabled}
+        >
+          <Gauge size={16} aria-hidden="true" />
+        </IconButton>
+      </Popover.Trigger>
+      <Popover.Positioner>
+        <Popover.Content
+          w="min(360px, calc(100vw - 24px))"
+          borderRadius="xl"
+          bg="white"
+          borderColor="gray.200"
+          boxShadow="0 8px 32px rgba(0, 0, 0, 0.12)"
+          pointerEvents="auto"
+        >
+          <Popover.Body p="4">
+            <Field.Root invalid={Boolean(error)} minW="0">
+              <Stack gap="2" w="full">
+                <Popover.Title fontSize="sm" fontWeight="600">
+                  推理强度映射
+                </Popover.Title>
+                {rules.map((rule, index) => (
+                  // 规则没有稳定标识，行内编辑时按位置区分。
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 规则可重复编辑且无 id
+                  <HStack key={index} gap="2" role="group" aria-label={`${label} 推理强度映射 ${index + 1}`}>
+                    <Input
+                      aria-label="请求的推理强度"
+                      value={rule.from}
+                      placeholder="请求"
+                      autoComplete="off"
+                      spellCheck={false}
+                      maxLength={16}
+                      onChange={(event) => update(index, { ...rule, from: event.target.value })}
+                      borderRadius="lg"
+                      size="sm"
+                      focusRingColor={brandColor}
+                    />
+                    <Text color="gray.500" aria-hidden="true">
+                      →
+                    </Text>
+                    <Input
+                      aria-label="改写为"
+                      value={rule.to}
+                      placeholder="改为"
+                      autoComplete="off"
+                      spellCheck={false}
+                      maxLength={16}
+                      onChange={(event) => update(index, { ...rule, to: event.target.value })}
+                      borderRadius="lg"
+                      size="sm"
+                      focusRingColor={brandColor}
+                    />
+                    <IconButton
+                      type="button"
+                      aria-label={`移除 ${rule.from.trim() || '空'} 映射`}
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => onChange(rules.filter((_, i) => i !== index))}
+                    >
+                      <X size={14} aria-hidden="true" />
+                    </IconButton>
+                  </HStack>
+                ))}
+                {error && <Field.ErrorText>{error}</Field.ErrorText>}
+                <Box>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    disabled={rules.length >= 16}
+                    onClick={() => onChange([...rules, { from: '', to: '' }])}
+                  >
+                    <Plus size={14} aria-hidden="true" />
+                    添加规则
+                  </Button>
+                </Box>
+              </Stack>
+            </Field.Root>
+          </Popover.Body>
+        </Popover.Content>
+      </Popover.Positioner>
+    </Popover.Root>
+  );
+}
 
 function ModelRow({
   row,
@@ -190,6 +361,13 @@ function ModelRow({
         onChange={(event) => onChange({ ...row, multiplier: event.target.value || null })}
         borderRadius="lg"
         focusRingColor={brandColor}
+      />
+      <EffortRules
+        label={label}
+        rules={row.reasoningEffortRules ?? []}
+        error={errors?.rules}
+        disabled={disabled}
+        onChange={(reasoningEffortRules) => onChange({ ...row, reasoningEffortRules })}
       />
       <IconButton
         gridArea="remove"

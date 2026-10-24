@@ -1,6 +1,6 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { isGeminiPathModel } from '@ohmyapi/protocols';
-import { and, asc, eq, inArray, isNotNull, isNull, notInArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
 
 import { AppError } from '../../core/errors.ts';
 import { type EventLogger, errorDetails, formatEvent } from '../../core/logging.ts';
@@ -18,6 +18,7 @@ import {
   endpoints,
   models,
   priceRules,
+  type ReasoningEffortRule,
   subscriptionAccounts,
 } from '../database/schema/index.ts';
 import { channelProxy } from '../outbound/channel-proxy.ts';
@@ -31,7 +32,12 @@ import type { ChannelInput, FetchChannelModelsInput } from './schemas.ts';
 import { fetchUpstreamModels, type UpstreamModelsTrace } from './upstream-models.ts';
 
 type Channel = typeof channels.$inferSelect;
-type ConfiguredModel = { name: string; multiplier: string | null; upstreamModel: string | null };
+type ConfiguredModel = {
+  name: string;
+  multiplier: string | null;
+  upstreamModel: string | null;
+  reasoningEffortRules: ReasoningEffortRule[];
+};
 
 export class CatalogService {
   static readonly token = serviceToken<CatalogService>('ohmyapi/catalog');
@@ -61,7 +67,7 @@ export class CatalogService {
   }
 
   async list() {
-    const [channelRows, modelRows, channelScopes, available, upstreamNames, activePrices, members] = await Promise.all([
+    const [channelRows, modelRows, channelScopes, available, rewrites, activePrices, members] = await Promise.all([
       this.db
         .select({
           id: channels.id,
@@ -97,9 +103,15 @@ export class CatalogService {
           channelId: channelAvailableModels.channelId,
           modelId: channelAvailableModels.modelId,
           upstreamModel: channelAvailableModels.upstreamModel,
+          reasoningEffortRules: channelAvailableModels.reasoningEffortRules,
         })
         .from(channelAvailableModels)
-        .where(isNotNull(channelAvailableModels.upstreamModel)),
+        .where(
+          or(
+            isNotNull(channelAvailableModels.upstreamModel),
+            sql`${channelAvailableModels.reasoningEffortRules} <> '[]'::jsonb`,
+          ),
+        ),
       this.db.select({ modelId: priceRules.modelId }).from(priceRules).where(eq(priceRules.kind, 'default')),
       this.db.select().from(aggregateChannelMembers),
     ]);
@@ -131,12 +143,15 @@ export class CatalogService {
         multiplier: formatMoney(multiplierMicros),
         availableModels: available
           .filter((a) => a.channelId === c.id && modelRows.some((m) => m.id === a.modelId))
-          .map((a) => ({
-            modelId: a.modelId,
-            multiplier: a.multiplierMicros === null ? null : formatMoney(a.multiplierMicros),
-            upstreamModel:
-              upstreamNames.find((u) => u.channelId === a.channelId && u.modelId === a.modelId)?.upstreamModel ?? null,
-          })),
+          .map((a) => {
+            const rewrite = rewrites.find((r) => r.channelId === a.channelId && r.modelId === a.modelId);
+            return {
+              modelId: a.modelId,
+              multiplier: a.multiplierMicros === null ? null : formatMoney(a.multiplierMicros),
+              upstreamModel: rewrite?.upstreamModel ?? null,
+              reasoningEffortRules: rewrite?.reasoningEffortRules ?? [],
+            };
+          }),
         endpoints: channelScopes.filter((s) => s.channelId === c.id).map((s) => s.endpoint),
       })),
       models: modelRows.map((m) => ({
@@ -222,19 +237,19 @@ export class CatalogService {
       if (input.type !== 'aggregate' && pricingMode !== 'unified')
         throw new AppError('bad_request', '仅聚合渠道支持透传倍率');
       const passthrough = pricingMode === 'passthrough';
-      // 未提交模型列表或上游名称时沿用已有配置；透传倍率的聚合渠道不单独配置模型。
+      // 未提交模型列表、上游名称或推理强度规则时沿用已有配置；透传倍率的聚合渠道不单独配置模型。
       const previous = existing ? await this.configuredModels(tx, existing.id) : [];
       const configuredModels = passthrough
         ? []
         : (input.availableModels?.map((model) => {
+            const before = previous.find((entry) => entry.name === model.name);
             const upstreamModel =
-              model.upstreamModel === undefined
-                ? (previous.find((entry) => entry.name === model.name)?.upstreamModel ?? null)
-                : model.upstreamModel;
+              model.upstreamModel === undefined ? (before?.upstreamModel ?? null) : model.upstreamModel;
             return {
               name: model.name,
               multiplier: model.multiplier,
               upstreamModel: upstreamModel === model.name ? null : upstreamModel,
+              reasoningEffortRules: model.reasoningEffortRules ?? before?.reasoningEffortRules ?? [],
             };
           }) ?? previous);
       const aggregateModels = await this.validateChannelType(tx, input, existing, configuredModels);
@@ -251,6 +266,7 @@ export class CatalogService {
           modelId: model.id,
           multiplier: configured?.multiplier ?? null,
           upstreamModel: configured?.upstreamModel ?? null,
+          reasoningEffortRules: configured?.reasoningEffortRules ?? [],
         };
       });
       const subscriptionAccountId =
@@ -311,6 +327,7 @@ export class CatalogService {
         name: models.name,
         multiplierMicros: channelAvailableModels.multiplierMicros,
         upstreamModel: channelAvailableModels.upstreamModel,
+        reasoningEffortRules: channelAvailableModels.reasoningEffortRules,
       })
       .from(channelAvailableModels)
       .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
@@ -319,6 +336,7 @@ export class CatalogService {
       name: model.name,
       multiplier: model.multiplierMicros === null ? null : formatMoney(model.multiplierMicros),
       upstreamModel: model.upstreamModel,
+      reasoningEffortRules: model.reasoningEffortRules,
     }));
   }
 
@@ -331,6 +349,8 @@ export class CatalogService {
   ) {
     if (input.type === 'aggregate' && configuredModels.some((model) => model.upstreamModel !== null))
       throw new AppError('bad_request', '聚合渠道的上游模型名由子渠道配置');
+    if (input.type === 'aggregate' && configuredModels.some((model) => model.reasoningEffortRules.length))
+      throw new AppError('bad_request', '聚合渠道的推理强度映射由子渠道配置');
     // Gemini 端点的模型名位于上游路径中。
     const pathless = input.endpoints.includes('/v1beta/generateContent')
       ? configuredModels.find((model) => model.upstreamModel !== null && !isGeminiPathModel(model.upstreamModel))
@@ -495,7 +515,12 @@ export class CatalogService {
     existing: Channel | undefined,
     values: ReturnType<CatalogService['channelValues']>,
     input: ChannelInput,
-    available: { modelId: string; multiplier: string | null; upstreamModel: string | null }[],
+    available: {
+      modelId: string;
+      multiplier: string | null;
+      upstreamModel: string | null;
+      reasoningEffortRules: ReasoningEffortRule[];
+    }[],
     passthrough: boolean,
   ) {
     const [row] = existing
@@ -527,6 +552,7 @@ export class CatalogService {
           modelId: m.modelId,
           multiplierMicros: m.multiplier === null ? null : parseMoney(m.multiplier),
           upstreamModel: m.upstreamModel,
+          reasoningEffortRules: m.reasoningEffortRules,
         })),
       );
     return row;

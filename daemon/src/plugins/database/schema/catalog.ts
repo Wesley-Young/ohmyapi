@@ -5,6 +5,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -120,6 +121,9 @@ export const aggregateChannelMembers = pgTable(
   ],
 );
 
+/** 请求的推理强度等于 from 时改为 to；按 from 精确匹配，不链式应用。 */
+export type ReasoningEffortRule = { from: string; to: string };
+
 export const channelAvailableModels = pgTable(
   'channel_available_models',
   {
@@ -135,6 +139,11 @@ export const channelAvailableModels = pgTable(
      * 聚合渠道由子渠道各自配置，不使用此列。
      */
     upstreamModel: text('upstream_model'),
+    /**
+     * 发往上游前对推理强度的改写规则，空数组表示不改写。只改写转发的请求，价格、倍率和权限仍按 modelId。
+     * 聚合渠道由子渠道各自配置，不使用此列。
+     */
+    reasoningEffortRules: jsonb('reasoning_effort_rules').$type<ReasoningEffortRule[]>().default([]).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.channelId, table.modelId] }),
@@ -145,6 +154,10 @@ export const channelAvailableModels = pgTable(
     check(
       'channel_models_upstream_model',
       sql`${table.upstreamModel} is null or length(${table.upstreamModel}) between 1 and 128`,
+    ),
+    check(
+      'channel_models_reasoning_effort_rules',
+      sql`jsonb_typeof(${table.reasoningEffortRules}) = 'array' and jsonb_array_length(${table.reasoningEffortRules}) <= 16`,
     ),
   ],
 );

@@ -155,6 +155,10 @@ export const messagesProtocol: ApiProtocol = {
   target: (_request, body) => bodyTarget(body),
   withModel: withBodyModel,
   reasoningEffort: (body) => object(body.output_config)?.effort,
+  withReasoningEffort(body, effort) {
+    const config = object(body.output_config);
+    return typeof config?.effort === 'string' ? { ...body, output_config: { ...config, effort } } : undefined;
+  },
   session: { family: path, candidates: (_request, body) => [object(body.metadata)?.user_id] },
   errorBody: ({ type, message, id }) => ({ type: 'error', error: { type, message }, request_id: id }),
   request: {

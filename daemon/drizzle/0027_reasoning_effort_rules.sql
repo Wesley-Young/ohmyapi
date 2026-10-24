@@ -1,0 +1,2 @@
+ALTER TABLE "channel_available_models" ADD COLUMN "reasoning_effort_rules" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "channel_available_models" ADD CONSTRAINT "channel_models_reasoning_effort_rules" CHECK (jsonb_typeof("channel_available_models"."reasoning_effort_rules") = 'array' and jsonb_array_length("channel_available_models"."reasoning_effort_rules") <= 16);

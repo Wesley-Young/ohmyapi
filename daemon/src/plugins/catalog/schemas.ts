@@ -9,6 +9,14 @@ import { userIdInput } from '../users/schemas.ts';
 
 const name = z.string().trim().min(1).max(128);
 export const modelName = name.regex(/^[A-Za-z0-9][A-Za-z0-9_./:-]*$/, '模型名称格式无效');
+const reasoningEffort = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z][a-z0-9_-]{0,15}$/, '推理强度需为 1–16 个字符，仅支持小写字母、数字和 _ -');
+const reasoningEffortRule = z
+  .object({ from: reasoningEffort, to: reasoningEffort })
+  .refine((rule) => rule.from !== rule.to, '映射前后的推理强度不能相同');
 export const channelInput = z.object({
   id: z.uuid().optional(),
   name,
@@ -42,6 +50,12 @@ export const channelInput = z.object({
         multiplier: multiplierInput.nullable(),
         /** 发往上游的模型名，null 或与模型名称相同表示不改写；未提交时沿用已有配置。 */
         upstreamModel: modelName.nullable().optional(),
+        /** 转发前改写推理强度的规则，空数组表示不改写；未提交时沿用已有配置。 */
+        reasoningEffortRules: z
+          .array(reasoningEffortRule)
+          .max(16, '每个模型最多配置 16 条推理强度映射')
+          .refine((rules) => new Set(rules.map((rule) => rule.from)).size === rules.length, '映射前的推理强度不能重复')
+          .optional(),
       }),
     )
     .max(1000, '每个渠道最多添加 1000 个模型')

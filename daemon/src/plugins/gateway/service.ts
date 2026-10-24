@@ -29,7 +29,7 @@ import { type AffinitySelection, ChannelAffinity } from './affinity.ts';
 import { ForwardBillingSession } from './billing-session.ts';
 import { type ApiKeySources, identifyApiKey } from './identity.ts';
 import { availableModels } from './models.ts';
-import { mapUpstreamModel, reasoningEffort } from './protocol.ts';
+import { mapReasoningEffort, mapUpstreamModel, reasoningEffort } from './protocol.ts';
 import { UserRateLimiter } from './rate-limit.ts';
 import { resolveEntryRoute, selectExecutionChannel } from './routing.ts';
 
@@ -306,6 +306,7 @@ export class GatewayService implements Disposable {
       const {
         channel: executionChannel,
         upstreamModel,
+        reasoningEffortRules,
         affinity,
         release: reservation,
       } = await selectExecutionChannel(
@@ -325,8 +326,12 @@ export class GatewayService implements Disposable {
       if (affinity) binding = { selection: affinity, channelId: executionChannel.id, foreignHistory: foreign };
       session.executionChannelId = executionChannel.id;
       session.upstreamModel = upstreamModel ?? undefined;
-      // 价格、倍率和输出上限按请求的模型；适配器、计费估算和上游收到的是改写为上游名称的请求。
-      const outgoing = mapUpstreamModel(endpoint, { target, parsed, bytes }, upstreamModel);
+      // 价格、倍率和输出上限按请求的模型；适配器、计费估算和上游收到的是改写为上游名称和渠道推理强度的请求。
+      const outgoing = mapReasoningEffort(
+        endpoint,
+        mapUpstreamModel(endpoint, { target, parsed, bytes }, upstreamModel),
+        reasoningEffortRules,
+      );
       const attemptId = randomUUID();
       await this.db.insert(requestAttempts).values({
         id: attemptId,
@@ -369,8 +374,8 @@ export class GatewayService implements Disposable {
       const request = this.outbound.forProxy(
         executionChannel.proxyUrlEncrypted ? this.vault.decrypt(executionChannel.proxyUrlEncrypted) : null,
       );
-      // 适配器可能改写推理强度（如强制工具调用时移除），记录实际发往上游的值。
-      const effectiveEffort = prepared.billingBody ? reasoningEffort(endpoint, prepared.billingBody) : requestedEffort;
+      // 渠道规则和适配器（如强制工具调用时移除）都可能改写推理强度，记录实际发往上游的值。
+      const effectiveEffort = reasoningEffort(endpoint, prepared.billingBody ?? outgoing.parsed);
       await this.billing.reserve({
         requestId: id,
         userId: identity.user.id,
@@ -470,6 +475,7 @@ export class GatewayService implements Disposable {
     const {
       channel: executionChannel,
       upstreamModel,
+      reasoningEffortRules,
       affinity,
       release: reservation,
     } = await selectExecutionChannel(
@@ -486,7 +492,11 @@ export class GatewayService implements Disposable {
     lifecycle.releaseUpstream = reservation;
     session.executionChannelId = executionChannel.id;
     session.upstreamModel = upstreamModel ?? undefined;
-    const outgoing = mapUpstreamModel(endpoint, { target, parsed, bytes }, upstreamModel);
+    const outgoing = mapReasoningEffort(
+      endpoint,
+      mapUpstreamModel(endpoint, { target, parsed, bytes }, upstreamModel),
+      reasoningEffortRules,
+    );
     const adapter = await channelAdapter(executionChannel, this.subscriptions);
     const timeoutMs = Math.min(channel.timeoutMs, executionChannel.timeoutMs);
     session.upstreamTimeoutMs = timeoutMs;

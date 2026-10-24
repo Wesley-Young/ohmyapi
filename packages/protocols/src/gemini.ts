@@ -338,6 +338,15 @@ export const geminiProtocol: ApiProtocol = {
     historyLength: (body) => (Array.isArray(body.contents) ? body.contents.length : 0),
   },
   reasoningEffort: (body) => object(generationConfig(body)?.thinkingConfig)?.thinkingLevel,
+  withReasoningEffort(body, effort) {
+    const config = generationConfig(body);
+    const thinking = object(config?.thinkingConfig);
+    const level = thinking?.thinkingLevel;
+    if (!config || !thinking || typeof level !== 'string') return undefined;
+    // 保持客户端的大小写写法（如 HIGH）。
+    const thinkingLevel = level === level.toUpperCase() ? effort.toUpperCase() : effort;
+    return { ...body, generationConfig: { ...config, thinkingConfig: { ...thinking, thinkingLevel } } };
+  },
   errorBody: ({ status, code, message }) => ({
     error: {
       code: status,

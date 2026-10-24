@@ -124,7 +124,14 @@ export function ChannelForm({
   const [available, setAvailable] = useState<ChannelModel[]>(
     initial?.availableModels.flatMap((entry) => {
       const model = data.models.find((model) => model.id === entry.modelId);
-      return model ? [{ ...channelModel(model.name, entry.upstreamModel), multiplier: entry.multiplier }] : [];
+      return model
+        ? [
+            {
+              ...channelModel(model.name, entry.upstreamModel, entry.reasoningEffortRules),
+              multiplier: entry.multiplier,
+            },
+          ]
+        : [];
     }) ?? [],
   );
   const { commonEndpoints, commonModels } = aggregateCommon(members, data, available);
