@@ -1,4 +1,4 @@
-import { HStack, type StackProps } from '@chakra-ui/react';
+import { Box, HStack, type StackProps } from '@chakra-ui/react';
 // Deep imports keep the SVG components only: the package entry and its Avatar/Combine
 // variants pull in antd and @lobehub/ui.
 import Antigravity from '@lobehub/icons/es/Antigravity/components/Color.js';
@@ -61,6 +61,9 @@ const modelIcons = {
   longcat: LongCat,
 } satisfies Record<ModelBrand, Icon>;
 
+/** 图标主色为白色，需要黑色底才能在浅色背景中看清的厂商。 */
+const darkBackedBrands: ReadonlySet<ModelBrand> = new Set<ModelBrand>(['kimi']);
+
 const providerIcons = {
   openai: OpenAI,
   claude: Claude,
@@ -71,7 +74,25 @@ const providerIcons = {
 export function ModelIcon({ model, size = 16 }: { model: string; size?: number }) {
   const brand = modelBrand(model);
   const Icon = brand && modelIcons[brand];
-  return Icon ? <Icon size={size} aria-hidden focusable="false" style={{ flexShrink: 0 }} /> : null;
+  if (!Icon) return null;
+  if (brand && darkBackedBrands.has(brand)) {
+    // 主色为白色的图标放在黑色圆角底上，避免在白色背景中不可见。
+    const inset = Math.round(size * 0.14);
+    return (
+      <Box
+        as="span"
+        display="inline-flex"
+        alignItems="center"
+        justifyContent="center"
+        flexShrink="0"
+        bg="black"
+        style={{ width: size, height: size, padding: inset, borderRadius: Math.round(size * 0.25) }}
+      >
+        <Icon size={size - inset * 2} aria-hidden focusable="false" />
+      </Box>
+    );
+  }
+  return <Icon size={size} aria-hidden focusable="false" style={{ flexShrink: 0 }} />;
 }
 
 /** 订阅平台图标。 */
