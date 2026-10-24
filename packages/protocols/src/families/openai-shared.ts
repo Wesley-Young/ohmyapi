@@ -1,5 +1,5 @@
-import type { Data, ErrorDetails, NormalizedUsage, UsageReader } from './types.ts';
-import { count, hasUnpricedMedia, object } from './util.ts';
+import type { Data, ErrorDetails, NormalizedUsage, UsageReader } from '../types.ts';
+import { count, hasUnpricedMedia, object } from '../util.ts';
 
 /** OpenAI 格式的错误响应体。 */
 export const openAIErrorBody = ({ type, code, message }: ErrorDetails) => ({

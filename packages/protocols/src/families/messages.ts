@@ -1,5 +1,5 @@
-import { GatewayError } from './errors.ts';
-import type { ApiProtocol, Data, UsageReader } from './types.ts';
+import { GatewayError } from '../errors.ts';
+import type { ApiProtocol, Data, UsageReader } from '../types.ts';
 import {
   bodyTarget,
   count,
@@ -9,7 +9,7 @@ import {
   object,
   versionedUrl,
   withBodyModel,
-} from './util.ts';
+} from '../util.ts';
 
 const path = '/v1/messages';
 const maxUsageIterations = 1_000;

@@ -1,7 +1,7 @@
-import { GatewayError } from './errors.ts';
-import { bearerHeaders, mergeDetails, openAIErrorBody, openAIUsage } from './openai.ts';
-import type { ApiProtocol, UsageReader } from './types.ts';
-import { bodyTarget, isFunctionTool, messageObjects, object, versionedUrl, withBodyModel } from './util.ts';
+import { GatewayError } from '../errors.ts';
+import type { ApiProtocol, UsageReader } from '../types.ts';
+import { bodyTarget, isFunctionTool, messageObjects, object, versionedUrl, withBodyModel } from '../util.ts';
+import { bearerHeaders, mergeDetails, openAIErrorBody, openAIUsage } from './openai-shared.ts';
 
 const path = '/v1/chat/completions';
 const detailsKey = 'prompt_tokens_details';

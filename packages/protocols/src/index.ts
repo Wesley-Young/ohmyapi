@@ -1,9 +1,9 @@
-import { chatProtocol } from './chat.ts';
 import type { Endpoint } from './endpoints.ts';
-import { geminiProtocol } from './gemini.ts';
-import { messagesProtocol } from './messages.ts';
-import { responses, responsesCompact } from './responses.ts';
-import { systemOneProtocol } from './systemone.ts';
+import { chatProtocol } from './families/chat.ts';
+import { geminiProtocol } from './families/gemini.ts';
+import { messagesProtocol } from './families/messages.ts';
+import { responses, responsesCompact } from './families/responses.ts';
+import { systemOneProtocol } from './families/systemone.ts';
 import type { ApiProtocol } from './types.ts';
 
 export {
@@ -14,10 +14,10 @@ export {
   type ProtocolFamily,
 } from './endpoints.ts';
 export { GatewayError } from './errors.ts';
-export { isPathModel as isGeminiPathModel, repairGeminiHistory } from './gemini.ts';
+export { isPathModel as isGeminiPathModel, repairGeminiHistory } from './families/gemini.ts';
+export { openAIErrorBody } from './families/openai-shared.ts';
+export { codexRequestHeaders } from './families/responses.ts';
 export { modelListBody, modelListPath } from './models.ts';
-export { openAIErrorBody } from './openai.ts';
-export { codexRequestHeaders } from './responses.ts';
 export type * from './types.ts';
 export { valueAt } from './util.ts';
 

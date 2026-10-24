@@ -1,7 +1,7 @@
-import { GatewayError } from './errors.ts';
-import { bearerHeaders, openAIErrorBody } from './openai.ts';
-import type { ApiProtocol, UsageReader } from './types.ts';
-import { count, versionedUrl, withBodyModel } from './util.ts';
+import { GatewayError } from '../errors.ts';
+import type { ApiProtocol, UsageReader } from '../types.ts';
+import { count, versionedUrl, withBodyModel } from '../util.ts';
+import { bearerHeaders, openAIErrorBody } from './openai-shared.ts';
 
 const path = '/v1/systemone';
 

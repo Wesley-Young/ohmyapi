@@ -1,6 +1,6 @@
-import { bearerHeaders, mergeDetails, openAIErrorBody, openAIUsage } from './openai.ts';
-import type { ApiProtocol, UsageReader } from './types.ts';
-import { bodyTarget, isFunctionTool, object, versionedUrl, withBodyModel } from './util.ts';
+import type { ApiProtocol, UsageReader } from '../types.ts';
+import { bodyTarget, isFunctionTool, object, versionedUrl, withBodyModel } from '../util.ts';
+import { bearerHeaders, mergeDetails, openAIErrorBody, openAIUsage } from './openai-shared.ts';
 
 const detailsKey = 'input_tokens_details';
 const terminalStatuses = new Set(['completed', 'incomplete', 'failed', 'cancelled', 'canceled']);
