@@ -1,5 +1,6 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { and, asc, eq, inArray, isNull, notInArray } from 'drizzle-orm';
+import { isGeminiPathModel } from '@ohmyapi/protocols';
+import { and, asc, eq, inArray, isNotNull, isNull, notInArray } from 'drizzle-orm';
 
 import { AppError } from '../../core/errors.ts';
 import { type EventLogger, errorDetails, formatEvent } from '../../core/logging.ts';
@@ -30,6 +31,7 @@ import type { ChannelInput, FetchChannelModelsInput } from './schemas.ts';
 import { fetchUpstreamModels, type UpstreamModelsTrace } from './upstream-models.ts';
 
 type Channel = typeof channels.$inferSelect;
+type ConfiguredModel = { name: string; multiplier: string | null; upstreamModel: string | null };
 
 export class CatalogService {
   static readonly token = serviceToken<CatalogService>('ohmyapi/catalog');
@@ -59,7 +61,7 @@ export class CatalogService {
   }
 
   async list() {
-    const [channelRows, modelRows, channelScopes, available, activePrices, members] = await Promise.all([
+    const [channelRows, modelRows, channelScopes, available, upstreamNames, activePrices, members] = await Promise.all([
       this.db
         .select({
           id: channels.id,
@@ -90,6 +92,14 @@ export class CatalogService {
       this.db.select().from(models).where(isNull(models.deletedAt)).orderBy(asc(models.name)),
       this.db.select().from(effectiveChannelEndpoints),
       this.db.select().from(effectiveChannelModels),
+      this.db
+        .select({
+          channelId: channelAvailableModels.channelId,
+          modelId: channelAvailableModels.modelId,
+          upstreamModel: channelAvailableModels.upstreamModel,
+        })
+        .from(channelAvailableModels)
+        .where(isNotNull(channelAvailableModels.upstreamModel)),
       this.db.select({ modelId: priceRules.modelId }).from(priceRules).where(eq(priceRules.kind, 'default')),
       this.db.select().from(aggregateChannelMembers),
     ]);
@@ -124,6 +134,8 @@ export class CatalogService {
           .map((a) => ({
             modelId: a.modelId,
             multiplier: a.multiplierMicros === null ? null : formatMoney(a.multiplierMicros),
+            upstreamModel:
+              upstreamNames.find((u) => u.channelId === a.channelId && u.modelId === a.modelId)?.upstreamModel ?? null,
           })),
         endpoints: channelScopes.filter((s) => s.channelId === c.id).map((s) => s.endpoint),
       })),
@@ -210,10 +222,21 @@ export class CatalogService {
       if (input.type !== 'aggregate' && pricingMode !== 'unified')
         throw new AppError('bad_request', '仅聚合渠道支持透传倍率');
       const passthrough = pricingMode === 'passthrough';
-      // 未提交模型列表时沿用已有配置；透传倍率的聚合渠道不单独配置模型。
+      // 未提交模型列表或上游名称时沿用已有配置；透传倍率的聚合渠道不单独配置模型。
+      const previous = existing ? await this.configuredModels(tx, existing.id) : [];
       const configuredModels = passthrough
         ? []
-        : (input.availableModels ?? (existing ? await this.configuredModels(tx, existing.id) : []));
+        : (input.availableModels?.map((model) => {
+            const upstreamModel =
+              model.upstreamModel === undefined
+                ? (previous.find((entry) => entry.name === model.name)?.upstreamModel ?? null)
+                : model.upstreamModel;
+            return {
+              name: model.name,
+              multiplier: model.multiplier,
+              upstreamModel: upstreamModel === model.name ? null : upstreamModel,
+            };
+          }) ?? previous);
       const aggregateModels = await this.validateChannelType(tx, input, existing, configuredModels);
       const [duplicate] = await tx
         .select({ id: channels.id })
@@ -222,10 +245,14 @@ export class CatalogService {
       if (duplicate && duplicate.id !== input.id) throw new AppError('conflict', '渠道名称已存在');
       const names = (input.type === 'aggregate' ? aggregateModels : configuredModels).map((m) => m.name).sort();
       const resolved = await this.ensureModels(tx, actor.id, names, input.type !== 'aggregate');
-      const available = resolved.map((model) => ({
-        modelId: model.id,
-        multiplier: configuredModels.find((row) => row.name === model.name)?.multiplier ?? null,
-      }));
+      const available = resolved.map((model) => {
+        const configured = configuredModels.find((row) => row.name === model.name);
+        return {
+          modelId: model.id,
+          multiplier: configured?.multiplier ?? null,
+          upstreamModel: configured?.upstreamModel ?? null,
+        };
+      });
       const subscriptionAccountId =
         input.type === 'subscription' && input.subscription
           ? await this.subscription.saveAccount(
@@ -278,15 +305,20 @@ export class CatalogService {
     return result;
   }
 
-  private async configuredModels(tx: Transaction, channelId: string) {
+  private async configuredModels(tx: Transaction, channelId: string): Promise<ConfiguredModel[]> {
     const rows = await tx
-      .select({ name: models.name, multiplierMicros: channelAvailableModels.multiplierMicros })
+      .select({
+        name: models.name,
+        multiplierMicros: channelAvailableModels.multiplierMicros,
+        upstreamModel: channelAvailableModels.upstreamModel,
+      })
       .from(channelAvailableModels)
       .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
       .where(and(eq(channelAvailableModels.channelId, channelId), isNull(models.deletedAt)));
     return rows.map((model) => ({
       name: model.name,
       multiplier: model.multiplierMicros === null ? null : formatMoney(model.multiplierMicros),
+      upstreamModel: model.upstreamModel,
     }));
   }
 
@@ -295,8 +327,19 @@ export class CatalogService {
     tx: Transaction,
     input: ChannelInput,
     existing: Channel | undefined,
-    configuredModels: { name: string }[],
+    configuredModels: ConfiguredModel[],
   ) {
+    if (input.type === 'aggregate' && configuredModels.some((model) => model.upstreamModel !== null))
+      throw new AppError('bad_request', '聚合渠道的上游模型名由子渠道配置');
+    // Gemini 端点的模型名位于上游路径中。
+    const pathless = input.endpoints.includes('/v1beta/generateContent')
+      ? configuredModels.find((model) => model.upstreamModel !== null && !isGeminiPathModel(model.upstreamModel))
+      : undefined;
+    if (pathless)
+      throw new AppError(
+        'bad_request',
+        `支持 Gemini 端点的渠道，上游模型名只能包含字母、数字、_、- 和 .：${pathless.upstreamModel}`,
+      );
     if (existing && existing.type !== input.type)
       throw new AppError('bad_request', '渠道类型创建后不可更改，请新建渠道');
     if (input.type !== 'aggregate' && (!input.endpoints.length || input.members.length))
@@ -452,7 +495,7 @@ export class CatalogService {
     existing: Channel | undefined,
     values: ReturnType<CatalogService['channelValues']>,
     input: ChannelInput,
-    available: { modelId: string; multiplier: string | null }[],
+    available: { modelId: string; multiplier: string | null; upstreamModel: string | null }[],
     passthrough: boolean,
   ) {
     const [row] = existing
@@ -483,6 +526,7 @@ export class CatalogService {
           channelId: row.id,
           modelId: m.modelId,
           multiplierMicros: m.multiplier === null ? null : parseMoney(m.multiplier),
+          upstreamModel: m.upstreamModel,
         })),
       );
     return row;

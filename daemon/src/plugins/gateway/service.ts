@@ -29,7 +29,7 @@ import { type AffinitySelection, ChannelAffinity } from './affinity.ts';
 import { ForwardBillingSession } from './billing-session.ts';
 import { type ApiKeySources, identifyApiKey } from './identity.ts';
 import { availableModels } from './models.ts';
-import { reasoningEffort } from './protocol.ts';
+import { mapUpstreamModel, reasoningEffort } from './protocol.ts';
 import { UserRateLimiter } from './rate-limit.ts';
 import { resolveEntryRoute, selectExecutionChannel } from './routing.ts';
 
@@ -301,18 +301,19 @@ export class GatewayService implements Disposable {
         reasoningEffort: requestedEffort,
       });
       session.recorded = true;
-      const { model, channel } = await resolveEntryRoute(this.db, identity, target.model, endpoint, session);
+      const route = await resolveEntryRoute(this.db, identity, target.model, endpoint, session);
+      const { model, channel } = route;
       const {
         channel: executionChannel,
+        upstreamModel,
         affinity,
         release: reservation,
       } = await selectExecutionChannel(
         this.db,
         this.subscriptions,
         this.concurrency,
-        channel,
+        route,
         parsed,
-        target.model,
         endpoint,
         req,
         this.affinity,
@@ -323,6 +324,9 @@ export class GatewayService implements Disposable {
       const foreign = foreignHistory(affinity, executionChannel.id, endpoint, parsed);
       if (affinity) binding = { selection: affinity, channelId: executionChannel.id, foreignHistory: foreign };
       session.executionChannelId = executionChannel.id;
+      session.upstreamModel = upstreamModel ?? undefined;
+      // 价格、倍率和输出上限按请求的模型；适配器、计费估算和上游收到的是改写为上游名称的请求。
+      const outgoing = mapUpstreamModel(endpoint, { target, parsed, bytes }, upstreamModel);
       const attemptId = randomUUID();
       await this.db.insert(requestAttempts).values({
         id: attemptId,
@@ -332,14 +336,15 @@ export class GatewayService implements Disposable {
         channelName: executionChannel.name,
         channelType: executionChannel.type,
         subscriptionAccountId: executionChannel.subscriptionAccountId,
+        upstreamModel,
       });
       session.attemptId = attemptId;
       const adapter = await channelAdapter(executionChannel, this.subscriptions);
       const lockedPrice = await this.pricing.lockRoute(model.id, receivedAt, channel.id, executionChannel.id);
       if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
-      const requestedOutputLimit = validateBillableRequest(parsed, endpoint, model.outputTokenLimit);
-      session.collector.configureSearch(searchRequest(parsed, endpoint));
-      session.collector.configureRequest(parsed);
+      const requestedOutputLimit = validateBillableRequest(outgoing.parsed, endpoint, model.outputTokenLimit);
+      session.collector.configureSearch(searchRequest(outgoing.parsed, endpoint));
+      session.collector.configureRequest(outgoing.parsed);
       const timeoutMs = Math.min(channel.timeoutMs, executionChannel.timeoutMs);
       session.upstreamTimeoutMs = timeoutMs;
       lifecycle.setTimeout('upstream_timeout', timeoutMs);
@@ -349,10 +354,10 @@ export class GatewayService implements Disposable {
         channel: executionChannel,
         request: req,
         endpoint,
-        target,
+        target: outgoing.target,
         foreignHistory: foreign,
-        parsed,
-        bytes,
+        parsed: outgoing.parsed,
+        bytes: outgoing.bytes,
         vault: this.vault,
         signal: abort.signal,
         reservation,
@@ -375,7 +380,7 @@ export class GatewayService implements Disposable {
         reasoningEffort: effectiveEffort,
         price: lockedPrice,
         outputLimit,
-        body: prepared.billingBody ?? parsed,
+        body: prepared.billingBody ?? outgoing.parsed,
         endpoint,
       });
       lifecycle.syncClientAbort();
@@ -460,18 +465,19 @@ export class GatewayService implements Disposable {
   }): Promise<Response> {
     const { req, endpoint, target, parsed, bytes, identity, lifecycle, session, finish } = options;
     const { id, abort } = lifecycle;
-    const { channel } = await resolveEntryRoute(this.db, identity, target.model, endpoint, session);
+    const route = await resolveEntryRoute(this.db, identity, target.model, endpoint, session);
+    const { channel } = route;
     const {
       channel: executionChannel,
+      upstreamModel,
       affinity,
       release: reservation,
     } = await selectExecutionChannel(
       this.db,
       this.subscriptions,
       this.concurrency,
-      channel,
+      route,
       parsed,
-      target.model,
       endpoint,
       req,
       this.affinity,
@@ -479,6 +485,8 @@ export class GatewayService implements Disposable {
     );
     lifecycle.releaseUpstream = reservation;
     session.executionChannelId = executionChannel.id;
+    session.upstreamModel = upstreamModel ?? undefined;
+    const outgoing = mapUpstreamModel(endpoint, { target, parsed, bytes }, upstreamModel);
     const adapter = await channelAdapter(executionChannel, this.subscriptions);
     const timeoutMs = Math.min(channel.timeoutMs, executionChannel.timeoutMs);
     session.upstreamTimeoutMs = timeoutMs;
@@ -489,10 +497,10 @@ export class GatewayService implements Disposable {
       channel: executionChannel,
       request: req,
       endpoint,
-      target,
+      target: outgoing.target,
       foreignHistory: foreignHistory(affinity, executionChannel.id, endpoint, parsed),
-      parsed,
-      bytes,
+      parsed: outgoing.parsed,
+      bytes: outgoing.bytes,
       vault: this.vault,
       signal: abort.signal,
       reservation,

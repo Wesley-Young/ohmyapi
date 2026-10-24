@@ -110,6 +110,11 @@ export interface ApiProtocol {
   /** 不接受的 API Key 查询参数；出现时直接拒绝，提示改用支持的方式。 */
   readonly rejectedApiKeyQuery?: readonly string[];
   target(request: Request, body: Data, params: Readonly<Record<string, string>>): RequestTarget;
+  /**
+   * 把请求改为调用另一个模型名，用于渠道把模型映射为上游名称；不修改传入的对象。
+   * 返回新的请求目标；请求体中有模型名时同时返回改写后的请求体，否则 body 为 undefined，表示请求体不变。
+   */
+  withModel(target: RequestTarget, body: Data, model: string): { target: RequestTarget; body?: Data };
   /** 统一请求体的字段写法，供计费和路由读取；上游不需要改写时仍转发原始字节。字段重复时抛出错误。 */
   canonicalBody?(body: Data): Data;
   /** 请求中的推理强度原值，由调用方校验格式。 */

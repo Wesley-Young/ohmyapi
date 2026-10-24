@@ -1,7 +1,7 @@
 import { GatewayError } from './errors.ts';
 import { bearerHeaders, mergeDetails, openAIErrorBody, openAIUsage } from './openai.ts';
 import type { ApiProtocol, UsageReader } from './types.ts';
-import { bodyTarget, isFunctionTool, messageObjects, object, versionedUrl } from './util.ts';
+import { bodyTarget, isFunctionTool, messageObjects, object, versionedUrl, withBodyModel } from './util.ts';
 
 const path = '/v1/chat/completions';
 const detailsKey = 'prompt_tokens_details';
@@ -26,6 +26,7 @@ export const chatProtocol: ApiProtocol = {
   routes: [path],
   apiKeyHeaders: [],
   target: (_request, body) => bodyTarget(body),
+  withModel: withBodyModel,
   reasoningEffort: (body) => body.reasoning_effort ?? object(body.reasoning)?.effort,
   errorBody: openAIErrorBody,
   request: {

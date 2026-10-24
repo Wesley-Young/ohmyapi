@@ -1,6 +1,6 @@
 import { bearerHeaders, mergeDetails, openAIErrorBody, openAIUsage } from './openai.ts';
 import type { ApiProtocol, UsageReader } from './types.ts';
-import { bodyTarget, isFunctionTool, object, versionedUrl } from './util.ts';
+import { bodyTarget, isFunctionTool, object, versionedUrl, withBodyModel } from './util.ts';
 
 const detailsKey = 'input_tokens_details';
 const terminalStatuses = new Set(['completed', 'incomplete', 'failed', 'cancelled', 'canceled']);
@@ -77,6 +77,7 @@ function responsesProtocol(compact: boolean): ApiProtocol {
     routes: [path],
     apiKeyHeaders: [],
     target: (_request, body) => bodyTarget(body),
+    withModel: withBodyModel,
     reasoningEffort: (body) => object(body.reasoning)?.effort,
     session: {
       family: 'responses',

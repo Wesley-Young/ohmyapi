@@ -138,6 +138,8 @@ export const requestAttempts = pgTable(
     channelName: text('channel_name').notNull(),
     channelType: channelType('channel_type').notNull(),
     subscriptionAccountId: uuid('subscription_account_id').references(() => subscriptionAccounts.id),
+    /** 渠道映射后发往上游的模型名；渠道未映射该模型时为 null。 */
+    upstreamModel: text('upstream_model'),
     status: requestAttemptStatus('status').default('prepared').notNull(),
     startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
     dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),

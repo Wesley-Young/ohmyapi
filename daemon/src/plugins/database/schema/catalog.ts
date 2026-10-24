@@ -130,12 +130,21 @@ export const channelAvailableModels = pgTable(
       .notNull()
       .references(() => models.id),
     multiplierMicros: bigint('multiplier_micros', { mode: 'bigint' }),
+    /**
+     * 发往上游的模型名，null 表示与模型名称相同。只改写转发的请求，价格、倍率和权限仍按 modelId。
+     * 聚合渠道由子渠道各自配置，不使用此列。
+     */
+    upstreamModel: text('upstream_model'),
   },
   (table) => [
     primaryKey({ columns: [table.channelId, table.modelId] }),
     check(
       'channel_models_multiplier_range',
       sql`${table.multiplierMicros} is null or ${table.multiplierMicros} between 0 and 1000000000`,
+    ),
+    check(
+      'channel_models_upstream_model',
+      sql`${table.upstreamModel} is null or length(${table.upstreamModel}) between 1 and 128`,
     ),
   ],
 );

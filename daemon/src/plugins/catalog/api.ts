@@ -50,9 +50,9 @@ const subscriptionChannel = z
       }),
       errorCode: z.string().nullable().meta({ description: '凭据失效的原因代码', example: null }),
       cooldownUntil: z.iso.datetime().nullable().meta({ description: '账号级冷却的结束时间' }),
-      modelCooldowns: z
-        .array(z.object({ model: z.string(), until: z.iso.datetime() }))
-        .meta({ description: '正在冷却的模型及冷却结束时间' }),
+      modelCooldowns: z.array(z.object({ model: z.string(), until: z.iso.datetime() })).meta({
+        description: '正在冷却的模型及冷却结束时间；model 是发往上游的模型名，渠道配置了上游模型名时与模型名称不同',
+      }),
       maxConcurrent: z.number().int().meta({ description: '并发上限' }),
       activeRequests: z.number().int().meta({ description: '进行中的请求数' }),
     }),

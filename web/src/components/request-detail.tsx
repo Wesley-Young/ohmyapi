@@ -99,6 +99,7 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                         {attempt.channelName}
                       </Text>
                       <Badge>{attempt.channelType === 'api' ? 'API 渠道' : '订阅渠道'}</Badge>
+                      {attempt.upstreamModel && <Badge colorPalette="gray">上游模型：{attempt.upstreamModel}</Badge>}
                       <Badge>
                         {
                           {

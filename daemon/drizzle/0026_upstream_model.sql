@@ -1,0 +1,3 @@
+ALTER TABLE "channel_available_models" ADD COLUMN "upstream_model" text;--> statement-breakpoint
+ALTER TABLE "request_attempts" ADD COLUMN "upstream_model" text;--> statement-breakpoint
+ALTER TABLE "channel_available_models" ADD CONSTRAINT "channel_models_upstream_model" CHECK ("channel_available_models"."upstream_model" is null or length("channel_available_models"."upstream_model") between 1 and 128);

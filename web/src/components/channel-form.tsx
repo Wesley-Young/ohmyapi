@@ -14,10 +14,17 @@ import {
 } from '../lib/subscription';
 import { trpc } from '../lib/trpc';
 import { AggregateMembers, AggregateSummary, aggregateCommon } from './aggregate-members';
-import { type ChannelModel, ChannelModels } from './channel-models';
+import {
+  type ChannelModel,
+  ChannelModels,
+  channelModel,
+  channelModelErrors,
+  channelModelsInput,
+} from './channel-models';
 import { EnabledField, SelectField } from './fields';
 import { SubscriptionAccess, type SubscriptionAccessMode, SubscriptionAccount } from './subscription-access';
 import { ErrorText, FormDialog, FormInput, PrimaryButton } from './ui';
+import { type FetchedModels, UpstreamImport } from './upstream-import';
 
 type CatalogData = RouterOutputs['admin']['catalog']['list'];
 
@@ -117,28 +124,26 @@ export function ChannelForm({
   const [available, setAvailable] = useState<ChannelModel[]>(
     initial?.availableModels.flatMap((entry) => {
       const model = data.models.find((model) => model.id === entry.modelId);
-      return model ? [{ name: model.name, multiplier: entry.multiplier }] : [];
+      return model ? [{ ...channelModel(model.name, entry.upstreamModel), multiplier: entry.multiplier }] : [];
     }) ?? [],
   );
   const { commonEndpoints, commonModels } = aggregateCommon(members, data, available);
+  const modelErrors = channelModelErrors(available);
   const [fetchNotice, setFetchNotice] = useState<string>();
   const [fetchError, setFetchError] = useState<string>();
+  // 最近一次拉取的结果：导入列表关闭后仍用于标记上游未返回的模型。
+  const [fetched, setFetched] = useState<{ id: number; result: FetchedModels; open: boolean }>();
+  const resetModels = () => {
+    setAvailable([]);
+    setFetched(undefined);
+    setFetchNotice(undefined);
+  };
   const fetchOptions = {
     onMutate: () => {
       setFetchNotice(undefined);
       setFetchError(undefined);
     },
-    onSuccess: (result: { names: string[]; ignored: number; unavailable?: number }) => {
-      const additions = result.names.filter((name) => !available.some((model) => model.name === name));
-      if (available.length + additions.length > 1000) {
-        setFetchError('合并后超过 1000 个模型，请先移除部分模型');
-        return;
-      }
-      setAvailable([...available, ...additions.map((name) => ({ name, multiplier: null }))]);
-      setFetchNotice(
-        `已拉取 ${result.names.length} 个模型，新增 ${additions.length} 个${result.ignored ? `，忽略 ${result.ignored} 个无效条目` : ''}${result.unavailable ? `，跳过 ${result.unavailable} 个不可选模型` : ''}`,
-      );
-    },
+    onSuccess: (result: FetchedModels) => setFetched({ id: Date.now(), result, open: true }),
   };
   const fetchModels = useMutation(trpc.admin.catalog.fetchChannelModels.mutationOptions(fetchOptions));
   const fetchSubscriptionModels = useMutation(trpc.admin.catalog.fetchSubscriptionModels.mutationOptions(fetchOptions));
@@ -186,7 +191,11 @@ export function ChannelForm({
               endpoints: type === 'aggregate' ? [] : scopes,
               members: type === 'aggregate' ? members : [],
               multiplier: passthrough ? undefined : multiplier,
-              availableModels: passthrough ? undefined : type === 'aggregate' ? commonModels : available,
+              availableModels: passthrough
+                ? undefined
+                : type === 'aggregate'
+                  ? commonModels.map(({ name, multiplier }) => ({ name, multiplier }))
+                  : channelModelsInput(available),
             });
         }}
       >
@@ -202,8 +211,7 @@ export function ChannelForm({
                   onChange={(e) => {
                     setType(e.target.value as typeof type);
                     setScopes(e.target.value === 'subscription' ? [...subscriptionEndpoints[provider]] : []);
-                    setAvailable([]);
-                    setFetchNotice(undefined);
+                    resetModels();
                   }}
                 >
                   <option value="api">API 渠道</option>
@@ -230,7 +238,7 @@ export function ChannelForm({
                         startOAuth.reset();
                         setCredentials('');
                         setCallback('');
-                        setAvailable([]);
+                        resetModels();
                         setScopes([...subscriptionEndpoints[next]]);
                       }}
                     >
@@ -400,6 +408,24 @@ export function ChannelForm({
               }
               fetchError={fetchError ?? formError(fetchModels.error ?? fetchSubscriptionModels.error)?.message}
               fetchNotice={fetchNotice}
+              upstreamNames={fetched ? new Set(fetched.result.names) : undefined}
+              importPanel={
+                fetched?.open && (
+                  <UpstreamImport
+                    key={fetched.id}
+                    result={fetched.result}
+                    rows={available}
+                    models={data.models}
+                    disabled={busy}
+                    onAdd={(rows) => {
+                      setAvailable([...available, ...rows]);
+                      setFetched({ ...fetched, open: false });
+                      setFetchNotice(`已加入 ${rows.length} 个模型`);
+                    }}
+                    onCancel={() => setFetched({ ...fetched, open: false })}
+                  />
+                )
+              }
             />
             <Stack gap="2">
               <Checkbox.Root checked={!isPublic} onCheckedChange={(e) => setIsPublic(!e.checked)}>
@@ -423,6 +449,7 @@ export function ChannelForm({
               fetching ||
               startOAuth.isPending ||
               renew.isPending ||
+              (type !== 'aggregate' && modelErrors.size > 0) ||
               (type === 'aggregate' &&
                 (!members.length || (enabled && (!commonModels.length || !commonEndpoints.length))))
             }

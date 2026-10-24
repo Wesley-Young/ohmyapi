@@ -1,6 +1,15 @@
 import { GatewayError } from './errors.ts';
 import type { ApiProtocol, Data, UsageReader } from './types.ts';
-import { bodyTarget, count, hasUnpricedMedia, isFunctionTool, messageObjects, object, versionedUrl } from './util.ts';
+import {
+  bodyTarget,
+  count,
+  hasUnpricedMedia,
+  isFunctionTool,
+  messageObjects,
+  object,
+  versionedUrl,
+  withBodyModel,
+} from './util.ts';
 
 const path = '/v1/messages';
 const maxUsageIterations = 1_000;
@@ -144,6 +153,7 @@ export const messagesProtocol: ApiProtocol = {
   routes: [path],
   apiKeyHeaders: ['x-api-key'],
   target: (_request, body) => bodyTarget(body),
+  withModel: withBodyModel,
   reasoningEffort: (body) => object(body.output_config)?.effort,
   session: { family: path, candidates: (_request, body) => [object(body.metadata)?.user_id] },
   errorBody: ({ type, message, id }) => ({ type: 'error', error: { type, message }, request_id: id }),

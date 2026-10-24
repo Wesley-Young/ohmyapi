@@ -33,6 +33,12 @@ export function bodyTarget(body: Data): RequestTarget {
   return { model: body.model, streaming: body.stream === true };
 }
 
+/** 模型名位于请求体 model 字段的协议改用另一个模型名。 */
+export const withBodyModel = (target: RequestTarget, body: Data, model: string) => ({
+  target: { ...target, model },
+  body: { ...body, model },
+});
+
 /** 函数和自定义工具在各协议中写法一致。 */
 export const isFunctionTool = (tool: Data) => tool.type === 'function' || tool.type === 'custom';
 

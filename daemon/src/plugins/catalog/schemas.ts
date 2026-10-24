@@ -36,7 +36,14 @@ export const channelInput = z.object({
   maxConcurrent: z.number().int().min(1).max(1000).nullable().optional(),
   multiplier: multiplierInput.optional(),
   availableModels: z
-    .array(z.object({ name: modelName, multiplier: multiplierInput.nullable() }))
+    .array(
+      z.object({
+        name: modelName,
+        multiplier: multiplierInput.nullable(),
+        /** 发往上游的模型名，null 或与模型名称相同表示不改写；未提交时沿用已有配置。 */
+        upstreamModel: modelName.nullable().optional(),
+      }),
+    )
     .max(1000, '每个渠道最多添加 1000 个模型')
     .refine((items) => new Set(items.map((item) => item.name)).size === items.length, '模型不能重复')
     .optional(),

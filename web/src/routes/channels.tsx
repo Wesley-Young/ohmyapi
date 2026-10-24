@@ -148,6 +148,7 @@ function ChannelCard({
   onGrant: () => void;
 }) {
   const specialModels = c.availableModels.filter((model) => model.multiplier !== null);
+  const mappedModels = c.availableModels.filter((model) => model.upstreamModel !== null);
   const multiplier = Number(c.multiplier);
   const notices = channelNotices(c);
   return (
@@ -220,6 +221,15 @@ function ChannelCard({
                   .join('、')}
               >
                 <Badge tabIndex={0}>{specialModels.length} 个模型专属倍率</Badge>
+              </Tooltip>
+            )}
+            {mappedModels.length > 0 && (
+              <Tooltip
+                content={mappedModels
+                  .map((model) => `${modelNames.get(model.modelId) ?? model.modelId} → ${model.upstreamModel}`)
+                  .join('、')}
+              >
+                <Badge tabIndex={0}>{mappedModels.length} 个上游模型名</Badge>
               </Tooltip>
             )}
             {c.type === 'api' && (c.maxConcurrent !== null || c.active > 0) && (

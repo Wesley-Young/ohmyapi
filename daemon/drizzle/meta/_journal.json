@@ -183,6 +183,13 @@
       "when": 1792562564135,
       "tag": "0025_user_concurrency",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792816799699,
+      "tag": "0026_upstream_model",
+      "breakpoints": true
     }
   ]
 }

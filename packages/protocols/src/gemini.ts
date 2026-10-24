@@ -320,6 +320,17 @@ export const geminiProtocol: ApiProtocol = {
       throw new GatewayError(400, 'invalid_request', 'streamGenerateContent requires alt=sse');
     return { model, streaming, operation: method };
   },
+  // 模型名位于路径中；countTokens 携带的完整生成请求中的 model 一并改写。
+  withModel(target, body, model) {
+    const inner = object(body.generateContentRequest);
+    return {
+      target: { ...target, model },
+      body:
+        inner && typeof inner.model === 'string'
+          ? { ...body, generateContentRequest: { ...inner, model: `models/${model}` } }
+          : undefined,
+    };
+  },
   canonicalBody: (body) => canonical(body, requestSpec) as Data,
   session: {
     family: endpoint,

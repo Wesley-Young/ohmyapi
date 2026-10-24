@@ -30,6 +30,8 @@ export class ForwardBillingSession {
   executionChannelId?: string;
   attemptId?: string;
   modelName?: string;
+  /** 执行渠道映射后的上游模型名，未映射时为 undefined。 */
+  upstreamModel?: string;
   streaming?: boolean;
   httpStatus?: number;
   upstreamStatus?: number;
@@ -213,6 +215,7 @@ export class ForwardBillingSession {
           executionChannelId: this.executionChannelId,
           attemptId: this.attemptId,
           model: modelName,
+          upstreamModel: this.upstreamModel,
           streaming,
           dispatched,
           recorded,

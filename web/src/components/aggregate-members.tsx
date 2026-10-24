@@ -121,6 +121,7 @@ export function aggregateCommon(members: Member[], data: CatalogData, available:
           selectedChannels.every((channel) => channel.availableModels.some((entry) => entry.modelId === model.id)),
         )
         .map((model) => ({
+          key: model.id,
           name: model.name,
           multiplier: available.find((entry) => entry.name === model.name)?.multiplier ?? null,
         }))
