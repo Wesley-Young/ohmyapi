@@ -87,6 +87,8 @@ export function ModelIcon({ model, size = 16 }: { model: string; size?: number }
         flexShrink="0"
         bg="black"
         style={{ width: size, height: size, padding: inset, borderRadius: Math.round(size * 0.25) }}
+        // 按钮等组件会按自己的尺寸缩放内部 svg，这里固定图标尺寸，避免撑出黑色底。
+        css={{ '& > svg': { width: `${size - inset * 2}px`, height: `${size - inset * 2}px` } }}
       >
         <Icon size={size - inset * 2} aria-hidden focusable="false" />
       </Box>
