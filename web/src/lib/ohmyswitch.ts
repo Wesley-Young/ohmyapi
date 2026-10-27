@@ -1,4 +1,5 @@
 import type { Endpoint } from './endpoints';
+import { type ModelBrand, modelBrand } from './model-brands';
 
 /**
  * ohmyswitch 能导入的端点，按推荐顺序排列。ohmyswitch 把供应商应用到开源 Harness，不涉及 Claude Code，
@@ -17,6 +18,107 @@ export type OhmyswitchEndpoint = (typeof ohmyswitchEndpoints)[number];
 export const ohmyswitchEndpointsOf = (endpoints: readonly Endpoint[]) =>
   ohmyswitchEndpoints.filter((endpoint) => endpoints.includes(endpoint));
 
+/**
+ * ohmyswitch 的模型厂商，顺序与它的展示顺序一致。链接里不认识的取值会被忽略。
+ */
+export const ohmyswitchVendors = [
+  'openai',
+  'anthropic',
+  'google',
+  'deepseek',
+  'qwen',
+  'moonshot',
+  'zhipu',
+  'xai',
+  'mistral',
+  'meta',
+  'groq',
+  'minimax',
+  'doubao',
+  'hunyuan',
+  'baidu',
+  'openrouter',
+  'siliconcloud',
+  'stepfun',
+  'cohere',
+  'yi',
+  'baichuan',
+] as const;
+
+export type OhmyswitchVendor = (typeof ohmyswitchVendors)[number];
+
+/** 厂商名称，与 ohmyswitch 导入页一致。 */
+export const ohmyswitchVendorLabels = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  google: 'Google',
+  deepseek: 'DeepSeek',
+  qwen: 'Qwen',
+  moonshot: 'Moonshot',
+  zhipu: 'Zhipu',
+  xai: 'xAI',
+  mistral: 'Mistral',
+  meta: 'Meta',
+  groq: 'Groq',
+  minimax: 'MiniMax',
+  doubao: 'Doubao',
+  hunyuan: 'Hunyuan',
+  baidu: 'Baidu',
+  openrouter: 'OpenRouter',
+  siliconcloud: 'SiliconCloud',
+  stepfun: 'StepFun',
+  cohere: 'Cohere',
+  yi: 'Yi',
+  baichuan: 'Baichuan',
+} satisfies Record<OhmyswitchVendor, string>;
+
+/**
+ * 列表图标用的品牌对应的 ohmyswitch 厂商。没有对应项的品牌保持未设置，
+ * 例如 Seed 不标成豆包。
+ */
+const brandVendors = {
+  deepseek: 'deepseek',
+  openai: 'openai',
+  claude: 'anthropic',
+  gemma: 'google',
+  gemini: 'google',
+  qwen: 'qwen',
+  kimi: 'moonshot',
+  zhipu: 'zhipu',
+  minimax: 'minimax',
+  mistral: 'mistral',
+  meta: 'meta',
+  grok: 'xai',
+  doubao: 'doubao',
+  bytedance: undefined,
+  hunyuan: 'hunyuan',
+  wenxin: 'baidu',
+  cohere: 'cohere',
+  perplexity: undefined,
+  yi: 'yi',
+  stepfun: 'stepfun',
+  baichuan: 'baichuan',
+  microsoft: undefined,
+  nvidia: undefined,
+  mimo: undefined,
+  longcat: undefined,
+} satisfies Record<ModelBrand, OhmyswitchVendor | undefined>;
+
+/**
+ * 这批模型在 ohmyswitch 中的厂商。每个模型都能对应到同一家时返回它；
+ * 有一个认不出或对应到另一家时不猜。
+ */
+export function ohmyswitchVendorOf(models: readonly string[]): OhmyswitchVendor | undefined {
+  let vendor: OhmyswitchVendor | undefined;
+  for (const name of models) {
+    const brand = modelBrand(name);
+    const next = brand && brandVendors[brand];
+    if (!next || (vendor && next !== vendor)) return;
+    vendor = next;
+  }
+  return vendor;
+}
+
 export interface OhmyswitchProvider {
   name: string;
   /** 接入点的根地址，不带末尾斜杠。 */
@@ -28,6 +130,10 @@ export interface OhmyswitchProvider {
   apiKey: string;
   /** 取图标的网页地址。 */
   iconUrl: string;
+  /**
+   * 模型厂商。不设置时 ohmyswitch 按端点显示角标，并且不会用这条链接更新已有供应商。
+   */
+  vendor?: OhmyswitchVendor;
   models: readonly string[];
 }
 
@@ -42,6 +148,7 @@ export function buildOhmyswitchUrl(provider: OhmyswitchProvider) {
   const params = new URLSearchParams({ name: provider.name.trim(), baseUrl: provider.baseUrl });
   for (const endpoint of [provider.endpoint, ...provider.endpoints.filter((item) => item !== provider.endpoint)])
     params.append('endpoint', endpoint);
+  if (provider.vendor) params.set('vendor', provider.vendor);
   params.set('apiKey', provider.apiKey);
   params.set('iconUrl', provider.iconUrl);
   for (const model of provider.models) params.append('model', model);
@@ -100,10 +207,13 @@ export function buildOmsCommand(provider: OhmyswitchProvider, shell: OmsShell): 
     ['--name', name],
     ['--base-url', provider.baseUrl],
     ['--endpoint', cliEndpointNames[provider.endpoint]],
+  ];
+  if (provider.vendor) options.push(['--vendor', provider.vendor]);
+  options.push(
     ['--api-key-stdin'],
     ['--icon-url', provider.iconUrl],
     ...provider.models.map((model): [string, string] => ['--model', model]),
-  ];
+  );
   if (shell === 'posix') {
     const words = options.map(([flag, value]) => (value === undefined ? flag : `${flag}=${posixWord(value)}`));
     return { command: `printf '%s' ${posixWord(provider.apiKey)} | oms provider add ${words.join(' ')}` };

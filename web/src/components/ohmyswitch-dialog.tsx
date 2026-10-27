@@ -1,6 +1,8 @@
 import {
   Badge,
+  Box,
   Button,
+  createListCollection,
   Field,
   Group,
   HStack,
@@ -9,6 +11,7 @@ import {
   Menu,
   NativeSelect,
   Portal,
+  Select,
   Stack,
   Text,
 } from '@chakra-ui/react';
@@ -21,15 +24,32 @@ import {
   buildOmsCommand,
   defaultOmsShell,
   type OhmyswitchProvider,
+  type OhmyswitchVendor,
   type OmsCommand,
   type OmsShell,
   ohmyswitchEndpointsOf,
+  ohmyswitchVendorLabels,
+  ohmyswitchVendorOf,
+  ohmyswitchVendors,
   omsShells,
 } from '../lib/ohmyswitch';
 import { brandColor } from '../lib/theme';
 import { AccessEndpointField } from './access-endpoint-field';
 import { type ExportKey, KeyExportDialog, keyExpired } from './key-export-dialog';
 import { ErrorText, FormInput, PrimaryButton } from './ui';
+import { VendorIcon } from './vendor-icon';
+
+/** 下拉中的「跟随端点」。不是 ohmyswitch 的厂商，选中后不写入 vendor。 */
+const followVendor = 'follow';
+
+const vendorCollection = createListCollection({
+  items: [
+    { id: followVendor, name: '跟随端点' },
+    ...ohmyswitchVendors.map((id) => ({ id, name: ohmyswitchVendorLabels[id] })),
+  ],
+  itemToValue: (item) => item.id,
+  itemToString: (item) => item.name,
+});
 
 const commandErrors = {
   'unpassable-name': '供应商名称含有双引号或以反斜杠结尾，无法用于 PowerShell 命令，请修改名称',
@@ -66,6 +86,9 @@ function ExportForm({
   const endpoints = ohmyswitchEndpointsOf(apiKey.endpoints);
   const [selectedEndpoint, setSelectedEndpoint] = useState(endpoints[0]);
   const endpoint = endpoints.find((item) => item === selectedEndpoint) ?? endpoints[0];
+  const [vendor, setVendor] = useState<OhmyswitchVendor | ''>(
+    ohmyswitchVendorOf(apiKey.models.map((model) => model.name)) ?? '',
+  );
   const [submitted, setSubmitted] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [copied, setCopied] = useState(false);
@@ -89,6 +112,7 @@ function ExportForm({
       endpoints,
       apiKey: apiKey.token,
       iconUrl: window.location.origin,
+      ...(vendor ? { vendor } : {}),
       models: apiKey.models.map((model) => model.name),
     };
   };
@@ -182,6 +206,50 @@ function ExportForm({
             </Text>
           </Stack>
         )}
+        <Field.Root>
+          <Select.Root
+            collection={vendorCollection}
+            value={[vendor || followVendor]}
+            positioning={{ sameWidth: true, strategy: 'fixed' }}
+            onValueChange={(details) => {
+              setVendor(ohmyswitchVendors.find((item) => item === details.value[0]) ?? '');
+              edited();
+            }}
+          >
+            <Select.HiddenSelect />
+            <Select.Label>模型厂商</Select.Label>
+            <Select.Control>
+              <Select.Trigger>
+                <Select.ValueText>
+                  <HStack gap="2" minW="0">
+                    {vendor && <VendorIcon vendor={vendor} />}
+                    <Text truncate>{vendor ? ohmyswitchVendorLabels[vendor] : '跟随端点'}</Text>
+                  </HStack>
+                </Select.ValueText>
+              </Select.Trigger>
+              <Select.IndicatorGroup>
+                <Select.Indicator />
+              </Select.IndicatorGroup>
+            </Select.Control>
+            <Select.Positioner>
+              <Select.Content maxH="min(320px, var(--available-height))" overflowY="auto">
+                {vendorCollection.items.map((item) => {
+                  const itemVendor = ohmyswitchVendors.find((vendor) => vendor === item.id);
+                  return (
+                    <Select.Item key={item.id} item={item}>
+                      <HStack gap="2" minW="0" flex="1">
+                        {itemVendor ? <VendorIcon vendor={itemVendor} /> : <Box boxSize="4" flexShrink="0" />}
+                        <Text truncate>{item.name}</Text>
+                      </HStack>
+                      <Select.ItemIndicator />
+                    </Select.Item>
+                  );
+                })}
+              </Select.Content>
+            </Select.Positioner>
+          </Select.Root>
+          <Field.HelperText color="gray.600">选定后，同一站点上厂商相同且端点有交集的供应商会被更新</Field.HelperText>
+        </Field.Root>
         <Stack gap="1.5" fontSize="sm">
           <Text fontWeight="500">模型</Text>
           <HStack gap="2" flexWrap="wrap" maxH="40" overflowY="auto">
