@@ -29,6 +29,8 @@ export class ForwardBillingSession {
   channelId?: string;
   executionChannelId?: string;
   attemptId?: string;
+  /** 已开始的尝试数，换成员时递增。 */
+  attempts = 0;
   modelName?: string;
   /** 执行渠道映射后的上游模型名，未映射时为 undefined。 */
   upstreamModel?: string;
@@ -145,6 +147,41 @@ export class ForwardBillingSession {
     }
   }
 
+  /**
+   * 结束一次确认上游未执行的尝试，换下一个成员前调用：保存这次尝试的结果，清空尝试级的状态，
+   * 请求的结果以最后一次尝试为准。
+   */
+  async abandonAttempt(failure: { errorCode: string; errorMessage: string }) {
+    const { id, db, logger } = this.options;
+    if (this.attemptId) {
+      try {
+        await db
+          .update(requestAttempts)
+          .set({
+            status: 'failed',
+            noExecution: true,
+            finishedAt: new Date(),
+            httpStatus: this.upstreamStatus,
+            errorCode: failure.errorCode,
+            errorMessage: failure.errorMessage.slice(0, 4096),
+          })
+          .where(eq(requestAttempts.id, this.attemptId));
+      } catch (error) {
+        logger.error(
+          formatEvent('上游尝试记录保存失败', { requestId: id, attemptId: this.attemptId, ...errorDetails(error) }),
+        );
+      }
+    }
+    this.attemptId = undefined;
+    this.executionChannelId = undefined;
+    this.upstreamModel = undefined;
+    this.httpStatus = undefined;
+    this.upstreamStatus = undefined;
+    this.dispatched = false;
+    this.notSent = false;
+    this.failureDetails = {};
+  }
+
   async finish(result: BillingSummary) {
     const { id, billing, logger } = this.options;
     if (this.attemptId) {
@@ -214,6 +251,7 @@ export class ForwardBillingSession {
           channelId,
           executionChannelId: this.executionChannelId,
           attemptId: this.attemptId,
+          attempts: this.attempts > 1 ? this.attempts : undefined,
           model: modelName,
           upstreamModel: this.upstreamModel,
           streaming,

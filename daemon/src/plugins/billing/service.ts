@@ -135,13 +135,7 @@ export class BillingService implements Disposable {
           channelId: input.channelId,
           subscriptionAccountId: input.subscriptionAccountId,
           reasoningEffort: input.reasoningEffort,
-          // 价格快照只在这里保存一份；结算时写入 pricingSnapshot 的报价。
-          reservationSnapshot: {
-            pricing: this.pricing.snapshot(input.price),
-            outputTokenLimit: input.outputLimit,
-            search,
-            strategy: 'no_hold_v1',
-          },
+          reservationSnapshot: this.reservationSnapshot(input, search),
         })
         .where(
           and(eq(requests.id, input.requestId), eq(requests.userId, input.userId), eq(requests.status, 'received')),
@@ -152,6 +146,16 @@ export class BillingService implements Disposable {
       this.active.delete(input.requestId);
       throw error;
     }
+  }
+
+  // 价格快照只在准入和切换执行渠道时保存一份；结算时写入 pricingSnapshot 的报价。
+  private reservationSnapshot(input: ReservationInput, search: ReturnType<typeof searchRequest>) {
+    return {
+      pricing: this.pricing.snapshot(input.price),
+      outputTokenLimit: input.outputLimit,
+      search,
+      strategy: 'no_hold_v1' as const,
+    };
   }
 
   /**
@@ -165,6 +169,33 @@ export class BillingService implements Disposable {
       .where(and(eq(requests.id, id), eq(requests.ownerId, this.ownerId), eq(requests.status, 'reserved')))
       .returning({ id: requests.id });
     if (!r) throw new Error('Request reservation lost');
+    await this.markAttemptForwarding(id, attemptId);
+  }
+
+  /**
+   * 切换执行渠道：上一次尝试确认上游未执行后，按新的执行渠道更新价格快照、订阅账号和推理强度，
+   * 请求保持转发状态，再标记新的尝试。准入不重新确认余额。
+   */
+  async reroute(input: ReservationInput, attemptId: string) {
+    const search = searchRequest(input.body, input.endpoint);
+    assertSearchPriced(input.price, search);
+    const [r] = await this.db
+      .update(requests)
+      .set({
+        heartbeatAt: new Date(),
+        subscriptionAccountId: input.subscriptionAccountId,
+        reasoningEffort: input.reasoningEffort,
+        reservationSnapshot: this.reservationSnapshot(input, search),
+      })
+      .where(
+        and(eq(requests.id, input.requestId), eq(requests.ownerId, this.ownerId), eq(requests.status, 'forwarding')),
+      )
+      .returning({ id: requests.id });
+    if (!r) throw new Error('Request reservation lost');
+    await this.markAttemptForwarding(input.requestId, attemptId);
+  }
+
+  private async markAttemptForwarding(id: string, attemptId: string) {
     await this.db
       .update(requestAttempts)
       .set({ status: 'forwarding', dispatchedAt: new Date() })

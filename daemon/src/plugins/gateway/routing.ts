@@ -17,6 +17,7 @@ import {
 import { channelAccessible, type KeyIdentity, keyAllowsModel } from '../keys/access.ts';
 import type { SubscriptionChannels } from './adapters.ts';
 import type { AffinitySelection, ChannelAffinity } from './affinity.ts';
+import type { ChannelHealth } from './health.ts';
 import { requestSession } from './session.ts';
 
 type Channel = typeof channels.$inferSelect;
@@ -30,12 +31,22 @@ export type EntryRoute = {
 };
 
 /** 执行渠道为模型配置的转发改写：上游名称（null 表示使用模型名称）和推理强度规则。 */
-export type ExecutionRoute = {
+export type ExecutionCandidate = {
   channel: Channel;
   upstreamModel: string | null;
   reasoningEffortRules: ReasoningEffortRule[];
+  /** 聚合渠道的订阅成员绑定的账号，按账号占用并发名额。 */
+  account?: typeof subscriptionAccounts.$inferSelect;
+};
+
+/** 取出的执行渠道；release 释放这里占用的并发名额，可重复调用，直接使用的订阅渠道没有。 */
+export type ExecutionRoute = ExecutionCandidate & { release?: () => void };
+
+/** 执行请求的候选渠道，按尝试顺序排列；takeCandidate 每次取出一个。 */
+export type ExecutionPlan = {
+  entry: Channel;
+  candidates: ExecutionCandidate[];
   affinity?: AffinitySelection;
-  release?: () => void;
 };
 
 /** API 渠道按渠道计数；未设置上限时只计数不限制。 */
@@ -44,29 +55,23 @@ function reserveApiChannel(concurrency: ChannelConcurrency, channel: Channel) {
 }
 
 /**
- * 选择执行请求的渠道，并为它占用并发名额：API 渠道按渠道计数，聚合渠道的订阅成员按账号计数。
- * 直接使用的订阅渠道由适配器按账号占用。release 释放这里占用的名额，可重复调用。
- * upstreamModel 和 reasoningEffortRules 是执行渠道为该模型配置的上游名称和推理强度规则。
+ * 列出执行请求的候选渠道。非聚合渠道只有入口渠道自己；聚合渠道的成员中，会话上次使用的成员排在最前，
+ * 其余按优先级从高到低，同一优先级按权重随机排列。
  */
-export async function selectExecutionChannel(
+export async function planExecution(
   db: Database,
   subscriptions: SubscriptionChannels,
-  concurrency: ChannelConcurrency,
   route: EntryRoute,
   parsed: Record<string, unknown>,
   endpoint: Endpoint,
   request: Request,
   cache: ChannelAffinity,
   userId: string,
-): Promise<ExecutionRoute> {
+): Promise<ExecutionPlan> {
   const { channel: entry, model } = route;
   if (entry.type !== 'aggregate') {
     const { upstreamModel, reasoningEffortRules } = route;
-    if (entry.type !== 'api') return { channel: entry, upstreamModel, reasoningEffortRules };
-    const release = reserveApiChannel(concurrency, entry);
-    if (!release)
-      throw new GatewayError(429, 'channel_concurrency_exceeded', 'The channel concurrency limit was reached');
-    return { channel: entry, upstreamModel, reasoningEffortRules, release };
+    return { entry, candidates: [{ channel: entry, upstreamModel, reasoningEffortRules }] };
   }
   const session = requestSession(request, parsed, endpoint);
   const affinity = session
@@ -92,7 +97,6 @@ export async function selectExecutionChannel(
     )
     .where(and(eq(aggregateChannelMembers.aggregateChannelId, entry.id), activeChannel(), availableSubscription()))
     .orderBy(desc(aggregateChannelMembers.priority), channels.id);
-  // 以下到占用名额之间没有异步操作，其他请求不会在筛选后抢先占满选中的成员。
   // 只按端点筛选成员；订阅不支持的参数由适配器删除或改写，不影响路由。
   const compatible = rows.filter(
     ({ channel, account }) =>
@@ -103,42 +107,86 @@ export async function selectExecutionChannel(
   );
   if (rows.length && !compatible.length)
     throw new GatewayError(400, 'aggregate_request_unsupported', 'No member supports the requested endpoint');
-  // 订阅账号的模型冷却按发往上游的模型名记录。
-  const available = compatible.filter(({ channel, account, upstreamModel }) =>
-    channel.type === 'api'
-      ? channel.maxConcurrent === null || concurrency.active(channel.id) < channel.maxConcurrent
-      : account &&
+  // 订阅账号的模型冷却按发往上游的模型名记录；并发名额在取出候选时占用。
+  const available = compatible.filter(
+    ({ channel, account, upstreamModel }) =>
+      channel.type === 'api' ||
+      (account &&
         (!account.cooldownUntil || account.cooldownUntil.getTime() <= Date.now()) &&
-        !(Date.parse(account.modelCooldowns[upstreamModel ?? model.name] ?? '') > Date.now()) &&
-        subscriptions.activeRequests(account.id) < account.maxConcurrent,
+        !(Date.parse(account.modelCooldowns[upstreamModel ?? model.name] ?? '') > Date.now())),
   );
-  if (!available.length)
-    throw new GatewayError(503, 'aggregate_unavailable', 'No aggregate member is currently available');
+  const ordered: typeof available = [];
+  for (let start = 0; start < available.length; ) {
+    let end = start;
+    while (end < available.length && available[end].member.priority === available[start].member.priority) end++;
+    ordered.push(...weightedOrder(available.slice(start, end)));
+    start = end;
+  }
   const previous = affinity?.previous?.channelId;
-  const bound = previous ? available.find((row) => row.channel.id === previous) : undefined;
-  const selected =
-    bound ?? weightedPick(available.filter((row) => row.member.priority === available[0].member.priority));
-  const release =
-    selected.channel.type === 'api'
-      ? reserveApiChannel(concurrency, selected.channel)
-      : selected.account && subscriptions.reserve(selected.account.id, selected.account.maxConcurrent);
-  if (!release) throw new GatewayError(503, 'aggregate_unavailable', 'No aggregate member is currently available');
+  const bound = ordered.findIndex((row) => row.channel.id === previous);
+  if (bound > 0) ordered.unshift(...ordered.splice(bound, 1));
   return {
-    channel: selected.channel,
-    upstreamModel: selected.upstreamModel,
-    reasoningEffortRules: selected.reasoningEffortRules ?? [],
+    entry,
     affinity,
-    release,
+    candidates: ordered.map((row) => ({
+      channel: row.channel,
+      upstreamModel: row.upstreamModel,
+      reasoningEffortRules: row.reasoningEffortRules ?? [],
+      account: row.account ?? undefined,
+    })),
   };
 }
 
-function weightedPick<T extends { member: { weight: number } }>(rows: T[]) {
-  let weight = Math.random() * rows.reduce((sum, row) => sum + row.member.weight, 0);
-  for (const row of rows) {
-    weight -= row.member.weight;
-    if (weight < 0) return row;
+/** 按权重的随机顺序：权重越大越可能排在前面。 */
+function weightedOrder<T extends { member: { weight: number } }>(rows: T[]) {
+  const rest = [...rows];
+  const result: T[] = [];
+  while (rest.length) {
+    let weight = Math.random() * rest.reduce((sum, row) => sum + row.member.weight, 0);
+    let index = rest.findIndex((row) => {
+      weight -= row.member.weight;
+      return weight < 0;
+    });
+    if (index < 0) index = rest.length - 1;
+    result.push(...rest.splice(index, 1));
   }
-  return rows[rows.length - 1];
+  return result;
+}
+
+/**
+ * 取出下一个执行渠道并占用并发名额：API 渠道按渠道计数，聚合渠道的订阅成员按账号计数；
+ * 直接使用的订阅渠道由适配器按账号占用。优先取未熔断的候选，都在熔断时按原顺序取。
+ * 占不到名额的候选直接移除；没有可用候选时返回 undefined。
+ */
+export function takeCandidate(
+  plan: ExecutionPlan,
+  subscriptions: SubscriptionChannels,
+  concurrency: ChannelConcurrency,
+  health: ChannelHealth,
+): ExecutionRoute | undefined {
+  const { candidates } = plan;
+  while (candidates.length) {
+    const index = Math.max(
+      0,
+      candidates.findIndex((candidate) => health.ready(candidate.channel.id)),
+    );
+    const [candidate] = candidates.splice(index, 1);
+    const { channel, account } = candidate;
+    if (channel.type !== 'api' && !account) return candidate;
+    const release =
+      channel.type === 'api'
+        ? reserveApiChannel(concurrency, channel)
+        : account && subscriptions.reserve(account.id, account.maxConcurrent);
+    if (release) return { ...candidate, release };
+  }
+  return undefined;
+}
+
+/** 第一次取候选就没有可用渠道时的错误。 */
+export function noCandidate(plan: ExecutionPlan) {
+  return plan.entry.type === 'aggregate'
+    ? new GatewayError(503, 'aggregate_unavailable', 'No aggregate member is currently available')
+    : new GatewayError(429, 'channel_concurrency_exceeded', 'The channel concurrency limit was reached');
 }
 
 /** 解析模型并确认 Key 绑定的入口渠道提供该模型和端点，且用户与 Key 均有权使用。 */

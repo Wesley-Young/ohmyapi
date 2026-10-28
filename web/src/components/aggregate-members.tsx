@@ -25,7 +25,7 @@ export function AggregateMembers({
       </Text>
       <Stack gap="3">
         <Text fontSize="sm" color="gray.500">
-          模型和端点取全部子渠道的交集；优先级越大越优先调用该渠道，同优先级内按权重分流。
+          模型和端点取全部子渠道的交集；优先级越大越优先调用该渠道，同优先级内按权重分流；上游未执行请求时依次换用其他子渠道。
         </Text>
         {candidates.map((channel) => {
           const member = value.find((entry) => entry.channelId === channel.id);

@@ -11,7 +11,7 @@ import { errorResponse, RequestLifecycle, readJsonBody, requestNotSent, response
 import { and, eq } from 'drizzle-orm';
 
 import type { GatewayConfig } from '../../config.ts';
-import { createLogSampler, type EventLogger, errorDetails, formatEvent } from '../../core/logging.ts';
+import { createLogSampler, type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '../../core/logging.ts';
 import type { CredentialVault } from '../../core/vault.ts';
 import { validateBillableRequest } from '../billing/admission.ts';
 import { searchRequest } from '../billing/search.ts';
@@ -24,14 +24,16 @@ import { channels, requestAttempts, requests } from '../database/schema/index.ts
 import type { KeyIdentity } from '../keys/access.ts';
 import type { OutboundHttp } from '../outbound/index.ts';
 import type { PricingService } from '../pricing/service.ts';
-import { channelAdapter, type SubscriptionChannels } from './adapters.ts';
+import { type ChannelAdapter, channelAdapter, type SubscriptionChannels } from './adapters.ts';
 import { type AffinitySelection, ChannelAffinity } from './affinity.ts';
 import { ForwardBillingSession } from './billing-session.ts';
+import { channelFaultStatus, errorSnippet, failoverError, failoverStatus, retryAfterMs } from './failover.ts';
+import { ChannelHealth, type HealthReport } from './health.ts';
 import { type ApiKeySources, identifyApiKey } from './identity.ts';
 import { availableModels } from './models.ts';
 import { mapReasoningEffort, mapUpstreamModel, reasoningEffort } from './protocol.ts';
 import { UserRateLimiter } from './rate-limit.ts';
-import { resolveEntryRoute, selectExecutionChannel } from './routing.ts';
+import { type ExecutionRoute, noCandidate, planExecution, resolveEntryRoute, takeCandidate } from './routing.ts';
 
 import { randomUUID } from 'node:crypto';
 
@@ -76,6 +78,7 @@ export class GatewayService implements Disposable {
   private readonly logger: EventLogger;
   private readonly sampleLog = createLogSampler();
   private readonly rateLimiter: UserRateLimiter;
+  private readonly health: ChannelHealth;
   private stopping = false;
   private disposal?: Promise<void>;
   private readonly running = new Map<string, { abort: AbortController; done: Promise<void> }>();
@@ -100,6 +103,7 @@ export class GatewayService implements Disposable {
     this.config = deps.config;
     this.logger = deps.logger;
     this.rateLimiter = new UserRateLimiter(deps.config);
+    this.health = new ChannelHealth(deps.config, deps.logger);
   }
 
   get activeRequests() {
@@ -231,6 +235,7 @@ export class GatewayService implements Disposable {
       sampleLog: this.sampleLog,
     });
     let binding: { selection: AffinitySelection; channelId: string; foreignHistory: number } | undefined;
+    let report: HealthReport | undefined;
     const finish = (errorCode?: string) => {
       const result = session.summary(errorCode);
       return lifecycle.finish(
@@ -303,16 +308,9 @@ export class GatewayService implements Disposable {
       session.recorded = true;
       const route = await resolveEntryRoute(this.db, identity, target.model, endpoint, session);
       const { model, channel } = route;
-      const {
-        channel: executionChannel,
-        upstreamModel,
-        reasoningEffortRules,
-        affinity,
-        release: reservation,
-      } = await selectExecutionChannel(
+      const plan = await planExecution(
         this.db,
         this.subscriptions,
-        this.concurrency,
         route,
         parsed,
         endpoint,
@@ -320,124 +318,203 @@ export class GatewayService implements Disposable {
         this.affinity,
         identity.user.id,
       );
-      // 选择时占用的并发名额在请求收尾时释放，失败时同样释放。
-      lifecycle.releaseUpstream = reservation;
-      const foreign = foreignHistory(affinity, executionChannel.id, endpoint, parsed);
-      if (affinity) binding = { selection: affinity, channelId: executionChannel.id, foreignHistory: foreign };
-      session.executionChannelId = executionChannel.id;
-      session.upstreamModel = upstreamModel ?? undefined;
-      // 价格、倍率和输出上限按请求的模型；适配器、计费估算和上游收到的是改写为上游名称和渠道推理强度的请求。
-      const outgoing = mapReasoningEffort(
-        endpoint,
-        mapUpstreamModel(endpoint, { target, parsed, bytes }, upstreamModel),
-        reasoningEffortRules,
-      );
-      const attemptId = randomUUID();
-      await this.db.insert(requestAttempts).values({
-        id: attemptId,
-        requestId: id,
-        sequence: 1,
-        channelId: executionChannel.id,
-        channelName: executionChannel.name,
-        channelType: executionChannel.type,
-        subscriptionAccountId: executionChannel.subscriptionAccountId,
-        upstreamModel,
-      });
-      session.attemptId = attemptId;
-      const adapter = await channelAdapter(executionChannel, this.subscriptions);
-      const lockedPrice = await this.pricing.lockRoute(model.id, receivedAt, channel.id, executionChannel.id);
-      if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
-      const requestedOutputLimit = validateBillableRequest(outgoing.parsed, endpoint, model.outputTokenLimit);
-      session.collector.configureSearch(searchRequest(outgoing.parsed, endpoint));
-      session.collector.configureRequest(outgoing.parsed);
-      const timeoutMs = Math.min(channel.timeoutMs, executionChannel.timeoutMs);
-      session.upstreamTimeoutMs = timeoutMs;
-      lifecycle.setTimeout('upstream_timeout', timeoutMs);
-      lifecycle.syncClientAbort();
-      const prepared = await adapter.prepareRequest({
-        userId: identity.user.id,
-        channel: executionChannel,
-        request: req,
-        endpoint,
-        target: outgoing.target,
-        foreignHistory: foreign,
-        parsed: outgoing.parsed,
-        bytes: outgoing.bytes,
-        vault: this.vault,
-        signal: abort.signal,
-        reservation,
-      });
+      const take = () => takeCandidate(plan, this.subscriptions, this.concurrency, this.health);
+      let execution = take();
+      if (!execution) throw noCandidate(plan);
+      // 入口渠道的超时是全部尝试的总时限，每次尝试另受执行渠道的超时限制。
+      const deadline = Date.now() + channel.timeoutMs;
+      let billingStarted = false;
+      for (;;) {
+        const current = execution;
+        const { channel: executionChannel, upstreamModel, reasoningEffortRules, release: reservation } = current;
+        // 选择时占用的并发名额在请求收尾时释放，失败时同样释放。
+        lifecycle.releaseUpstream = reservation;
+        report = this.health.begin(executionChannel.id);
+        session.attempts++;
+        let prepared: Awaited<ReturnType<ChannelAdapter['prepareRequest']>> | undefined;
+        // 这次尝试确认上游未执行时取出下一个候选；新候选的名额随请求收尾一起释放。
+        const failover = () => {
+          if (session.attempts >= this.config.maxAttempts || Date.now() >= deadline || abort.signal.aborted) return;
+          const next = take();
+          if (next) lifecycle.releaseUpstream = releaseBoth(lifecycle.releaseUpstream, next.release);
+          return next;
+        };
+        const switchTo = async (next: ExecutionRoute, errorCode: string, errorMessage: string) => {
+          releaseBoth(reservation, prepared?.release)();
+          this.logger.warn(
+            formatEvent('网关切换执行渠道', {
+              requestId: id,
+              channelId: channel.id,
+              executionChannelId: executionChannel.id,
+              nextChannelId: next.channel.id,
+              attempt: session.attempts,
+              upstreamStatus: session.upstreamStatus,
+              errorCode,
+            }),
+          );
+          await session.abandonAttempt({ errorCode, errorMessage });
+          execution = next;
+        };
+        const attemptTimeout = () => Math.max(1, Math.min(executionChannel.timeoutMs, deadline - Date.now()));
 
-      lifecycle.releaseUpstream = releaseBoth(reservation, prepared.release);
-      const outputLimit = prepared.usesModelOutputLimit ? model.outputTokenLimit : requestedOutputLimit;
-      const { url, body, headers } = prepared;
-      const request = this.outbound.forProxy(
-        executionChannel.proxyUrlEncrypted ? this.vault.decrypt(executionChannel.proxyUrlEncrypted) : null,
-      );
-      // 渠道规则和适配器（如强制工具调用时移除）都可能改写推理强度，记录实际发往上游的值。
-      const effectiveEffort = reasoningEffort(endpoint, prepared.billingBody ?? outgoing.parsed);
-      await this.billing.reserve({
-        requestId: id,
-        userId: identity.user.id,
-        modelId: model.id,
-        channelId: channel.id,
-        subscriptionAccountId: executionChannel.subscriptionAccountId,
-        reasoningEffort: effectiveEffort,
-        price: lockedPrice,
-        outputLimit,
-        body: prepared.billingBody ?? outgoing.parsed,
-        endpoint,
-      });
-      lifecycle.syncClientAbort();
-      if (abort.signal.aborted)
-        throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
-      await this.billing.forwarding(id, attemptId);
+        const foreign = foreignHistory(plan.affinity, executionChannel.id, endpoint, parsed);
+        binding = plan.affinity
+          ? { selection: plan.affinity, channelId: executionChannel.id, foreignHistory: foreign }
+          : undefined;
+        session.executionChannelId = executionChannel.id;
+        session.upstreamModel = upstreamModel ?? undefined;
+        let adapter: ChannelAdapter;
+        let outputLimit: number;
+        let timeoutMs: number;
+        try {
+          // 价格、倍率和输出上限按请求的模型；适配器、计费估算和上游收到的是改写为上游名称和渠道推理强度的请求。
+          const outgoing = mapReasoningEffort(
+            endpoint,
+            mapUpstreamModel(endpoint, { target, parsed, bytes }, upstreamModel),
+            reasoningEffortRules,
+          );
+          const attemptId = randomUUID();
+          await this.db.insert(requestAttempts).values({
+            id: attemptId,
+            requestId: id,
+            sequence: session.attempts,
+            channelId: executionChannel.id,
+            channelName: executionChannel.name,
+            channelType: executionChannel.type,
+            subscriptionAccountId: executionChannel.subscriptionAccountId,
+            upstreamModel,
+          });
+          session.attemptId = attemptId;
+          adapter = await channelAdapter(executionChannel, this.subscriptions);
+          const lockedPrice = await this.pricing.lockRoute(model.id, receivedAt, channel.id, executionChannel.id);
+          if (!lockedPrice) throw new GatewayError(503, 'price_missing', 'No price is configured for this model');
+          const requestedOutputLimit = validateBillableRequest(outgoing.parsed, endpoint, model.outputTokenLimit);
+          session.collector.configureSearch(searchRequest(outgoing.parsed, endpoint));
+          session.collector.configureRequest(outgoing.parsed);
+          timeoutMs = attemptTimeout();
+          session.upstreamTimeoutMs = timeoutMs;
+          lifecycle.setTimeout('upstream_timeout', timeoutMs);
+          lifecycle.syncClientAbort();
+          prepared = await adapter.prepareRequest({
+            userId: identity.user.id,
+            channel: executionChannel,
+            request: req,
+            endpoint,
+            target: outgoing.target,
+            foreignHistory: foreign,
+            parsed: outgoing.parsed,
+            bytes: outgoing.bytes,
+            vault: this.vault,
+            signal: abort.signal,
+            reservation,
+          });
+          lifecycle.releaseUpstream = releaseBoth(lifecycle.releaseUpstream, prepared.release);
+          outputLimit = prepared.usesModelOutputLimit ? model.outputTokenLimit : requestedOutputLimit;
+          // 渠道规则和适配器（如强制工具调用时移除）都可能改写推理强度，记录实际发往上游的值。
+          const reservationInput = {
+            requestId: id,
+            userId: identity.user.id,
+            modelId: model.id,
+            channelId: channel.id,
+            subscriptionAccountId: executionChannel.subscriptionAccountId,
+            reasoningEffort: reasoningEffort(endpoint, prepared.billingBody ?? outgoing.parsed),
+            price: lockedPrice,
+            outputLimit,
+            body: prepared.billingBody ?? outgoing.parsed,
+            endpoint,
+          };
+          if (billingStarted) {
+            await this.billing.reroute(reservationInput, attemptId);
+          } else {
+            await this.billing.reserve(reservationInput);
+            lifecycle.syncClientAbort();
+            if (abort.signal.aborted)
+              throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
+            await this.billing.forwarding(id, attemptId);
+            billingStarted = true;
+          }
+        } catch (error) {
+          const next = failoverError(error) ? failover() : undefined;
+          if (!next || !(error instanceof GatewayError)) throw error;
+          report.neutral();
+          await switchTo(next, error.code, error.message);
+          continue;
+        }
 
-      lifecycle.setTimeout('upstream_timeout', timeoutMs);
-      lifecycle.syncClientAbort();
-      if (abort.signal.aborted)
-        throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
-      // 客户端断开后继续读取上游以取得最终用量。
-      lifecycle.retainUpstreamOnDisconnect(
-        executionChannel.type === 'subscription' ? 60_000 : this.config.disconnectDrainTimeoutMs,
-      );
-      session.dispatched = true;
-      let upstream: Response;
-      try {
-        upstream = await request(url, {
-          method: 'POST',
-          headers,
-          body,
-          signal: abort.signal,
-          redirect: 'manual',
+        const { url, body, headers } = prepared;
+        const request = this.outbound.forProxy(
+          executionChannel.proxyUrlEncrypted ? this.vault.decrypt(executionChannel.proxyUrlEncrypted) : null,
+        );
+        lifecycle.setTimeout('upstream_timeout', timeoutMs);
+        lifecycle.syncClientAbort();
+        if (abort.signal.aborted)
+          throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
+        // 客户端断开后继续读取上游以取得最终用量。
+        lifecycle.retainUpstreamOnDisconnect(
+          executionChannel.type === 'subscription' ? 60_000 : this.config.disconnectDrainTimeoutMs,
+        );
+        session.dispatched = true;
+        let upstream: Response;
+        try {
+          upstream = await request(url, {
+            method: 'POST',
+            headers,
+            body,
+            signal: abort.signal,
+            redirect: 'manual',
+          });
+        } catch (error) {
+          if (!requestNotSent(error)) throw error;
+          session.notSent = true;
+          const next = failover();
+          if (!next) throw error;
+          report.failure('upstream_unreachable');
+          await switchTo(next, 'upstream_unreachable', safeErrorMessage(error) ?? 'Unable to connect');
+          continue;
+        }
+        if (prepared.onResponse) await prepared.onResponse(upstream).catch(() => {});
+        session.httpStatus = upstream.status;
+        session.upstreamStatus = upstream.status;
+        const upstreamFailed = !upstream.ok;
+        if (upstream.ok) report.success();
+        else if (channelFaultStatus(upstream.status))
+          report.failure('upstream_http_error', retryAfterMs(upstream.headers));
+        else report.neutral();
+        if (upstreamFailed && failoverStatus(upstream.status)) {
+          const next = failover();
+          if (next) {
+            // 订阅渠道的错误响应可能包含账号信息，只记录状态。
+            let detail = '';
+            if (executionChannel.type === 'api') detail = await errorSnippet(upstream);
+            else await upstream.body?.cancel();
+            await switchTo(
+              next,
+              'upstream_http_error',
+              [`Upstream returned HTTP ${upstream.status}`, detail].filter(Boolean).join('\n'),
+            );
+            continue;
+          }
+        }
+        return await (prepared.forwardResponse ?? adapter.forwardResponse)({
+          upstream,
+          endpoint,
+          streaming,
+          lifecycle,
+          collector: session.collector,
+          config: this.config,
+          onCheckpoint: () => session.checkpoint(),
+          onFinish: (noExecution, errorCode) => {
+            // 适配器可能把上游的成功响应改写为失败状态（如合并后的错误事件），按状态判断时只采用上游的真实状态。
+            session.safeRejection =
+              noExecution !== undefined &&
+              (upstreamFailed || (noExecution !== 'http_error' && noExecution !== 'redirect'));
+            return finish(errorCode);
+          },
+          onError: (error) => {
+            session.failureDetails = errorDetails(error);
+          },
         });
-      } catch (error) {
-        if (requestNotSent(error)) session.notSent = true;
-        throw error;
       }
-      if (prepared.onResponse) await prepared.onResponse(upstream).catch(() => {});
-      session.httpStatus = upstream.status;
-      session.upstreamStatus = upstream.status;
-      const upstreamFailed = !upstream.ok;
-      return await (prepared.forwardResponse ?? adapter.forwardResponse)({
-        upstream,
-        endpoint,
-        streaming,
-        lifecycle,
-        collector: session.collector,
-        config: this.config,
-        onCheckpoint: () => session.checkpoint(),
-        onFinish: (noExecution, errorCode) => {
-          // 适配器可能把上游的成功响应改写为失败状态（如合并后的错误事件），按状态判断时只采用上游的真实状态。
-          session.safeRejection =
-            noExecution !== undefined &&
-            (upstreamFailed || (noExecution !== 'http_error' && noExecution !== 'redirect'));
-          return finish(errorCode);
-        },
-        onError: (error) => {
-          session.failureDetails = errorDetails(error);
-        },
-      });
     } catch (error) {
       session.failureDetails = errorDetails(error);
       const failure =
@@ -450,6 +527,17 @@ export class GatewayService implements Disposable {
                 abort.signal.reason === 'upstream_timeout' ? 'upstream_timeout' : 'gateway_error',
                 'Unable to complete the upstream request',
               );
+      // 已发出但没有收到响应（连接失败、超时、连接重置）计入熔断；客户端断开和停止服务与渠道无关。
+      const reason = abort.signal.reason;
+      if (
+        session.dispatched &&
+        session.upstreamStatus === undefined &&
+        !(error instanceof GatewayError) &&
+        reason !== 'client_disconnected' &&
+        reason !== 'server_shutdown'
+      )
+        report?.failure(failure.code);
+      else report?.neutral();
       session.httpStatus = failure.status;
       await finish(failure.code);
       return this.error(endpoint, failure.status, failure.code, failure.message, id);
@@ -472,16 +560,9 @@ export class GatewayService implements Disposable {
     const { id, abort } = lifecycle;
     const route = await resolveEntryRoute(this.db, identity, target.model, endpoint, session);
     const { channel } = route;
-    const {
-      channel: executionChannel,
-      upstreamModel,
-      reasoningEffortRules,
-      affinity,
-      release: reservation,
-    } = await selectExecutionChannel(
+    const plan = await planExecution(
       this.db,
       this.subscriptions,
-      this.concurrency,
       route,
       parsed,
       endpoint,
@@ -489,6 +570,9 @@ export class GatewayService implements Disposable {
       this.affinity,
       identity.user.id,
     );
+    const execution = takeCandidate(plan, this.subscriptions, this.concurrency, this.health);
+    if (!execution) throw noCandidate(plan);
+    const { channel: executionChannel, upstreamModel, reasoningEffortRules, release: reservation } = execution;
     lifecycle.releaseUpstream = reservation;
     session.executionChannelId = executionChannel.id;
     session.upstreamModel = upstreamModel ?? undefined;
@@ -508,7 +592,7 @@ export class GatewayService implements Disposable {
       request: req,
       endpoint,
       target: outgoing.target,
-      foreignHistory: foreignHistory(affinity, executionChannel.id, endpoint, parsed),
+      foreignHistory: foreignHistory(plan.affinity, executionChannel.id, endpoint, parsed),
       parsed: outgoing.parsed,
       bytes: outgoing.bytes,
       vault: this.vault,

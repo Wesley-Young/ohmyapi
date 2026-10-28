@@ -85,6 +85,10 @@ function readEncryptionKey(env: Environment) {
 }
 
 function readGatewayConfig(env: Environment) {
+  const breakerCooldownMs = integerSetting(env, 'GATEWAY_BREAKER_COOLDOWN_MS', 30_000, 3_600_000);
+  const breakerMaxCooldownMs = integerSetting(env, 'GATEWAY_BREAKER_MAX_COOLDOWN_MS', 300_000, 86_400_000);
+  if (breakerMaxCooldownMs < breakerCooldownMs)
+    throw new Error('GATEWAY_BREAKER_MAX_COOLDOWN_MS must not be less than GATEWAY_BREAKER_COOLDOWN_MS');
   return {
     maxBodyBytes: integerSetting(env, 'GATEWAY_MAX_BODY_BYTES', 32 * 1024 * 1024, 32 * 1024 * 1024),
     bodyTimeoutMs: integerSetting(env, 'GATEWAY_BODY_TIMEOUT_MS', 120_000, 600_000),
@@ -96,6 +100,11 @@ function readGatewayConfig(env: Environment) {
     maxUsageBodyBytes: integerSetting(env, 'GATEWAY_MAX_USAGE_BODY_BYTES', 16 * 1024 * 1024, 64 * 1024 * 1024),
     maxConcurrent: integerSetting(env, 'GATEWAY_USER_CONCURRENCY', 4, 100),
     requestsPerMinute: integerSetting(env, 'GATEWAY_USER_RPM', 60, 10_000),
+    // 聚合渠道每个请求最多尝试的成员数，1 表示不切换。
+    maxAttempts: integerSetting(env, 'GATEWAY_MAX_ATTEMPTS', 3, 10),
+    breakerFailures: integerSetting(env, 'GATEWAY_BREAKER_FAILURES', 3, 100),
+    breakerCooldownMs,
+    breakerMaxCooldownMs,
   };
 }
 
