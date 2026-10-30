@@ -8,6 +8,13 @@ export function useReviewCount(enabled: boolean) {
   return useQuery(trpc.admin.reviewCount.queryOptions(undefined, { enabled, refetchInterval: 30_000 })).data ?? 0;
 }
 
+/** 待确认的内容审计预警数量，轮询方式与待核对数量相同。 */
+export function useModerationAlertCount(enabled: boolean) {
+  return (
+    useQuery(trpc.admin.moderation.alertCount.queryOptions(undefined, { enabled, refetchInterval: 30_000 })).data ?? 0
+  );
+}
+
 const display = (count: number) => (count > 99 ? '99+' : String(count));
 
 /** 数量为 0 时不显示；读屏信息由调用方写入可访问名称。 */

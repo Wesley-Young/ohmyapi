@@ -16,6 +16,8 @@ import { groupAdminRoutes } from '../plugins/groups/router.ts';
 import type { GroupService } from '../plugins/groups/service.ts';
 import { keyRoutes } from '../plugins/keys/router.ts';
 import type { KeyService } from '../plugins/keys/service.ts';
+import { moderationAdminRoutes } from '../plugins/moderation/router.ts';
+import type { ModerationService } from '../plugins/moderation/service.ts';
 import { pricingRoutes } from '../plugins/pricing/router.ts';
 import type { PricingService } from '../plugins/pricing/service.ts';
 import { subscriptionAdminRoutes } from '../plugins/subscription/router.ts';
@@ -42,6 +44,7 @@ export interface RouterServices {
   channelGrants: ChannelGrants;
   subscription: SubscriptionService;
   requestHistory: RequestHistory;
+  moderation: ModerationService;
 }
 
 /** 汇总各模块的路由；这里即是完整的 RPC 接口清单。 */
@@ -73,6 +76,7 @@ export function createAppRouter(services: RouterServices) {
       groups: groupAdminRoutes(services.groups),
       wallet: wallet.admin,
       tokens: adminTokenRoutes(services.adminTokens),
+      moderation: moderationAdminRoutes(services.moderation),
     },
   });
 }

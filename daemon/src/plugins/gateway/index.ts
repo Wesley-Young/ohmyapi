@@ -3,6 +3,7 @@ import { definePlugin } from '../../kernel.ts';
 import { BillingService } from '../billing/service.ts';
 import { ChannelConcurrency } from '../catalog/concurrency.ts';
 import { DatabaseService } from '../database/index.ts';
+import { ModerationSampler } from '../moderation/sampler.ts';
 import { OutboundHttp } from '../outbound/index.ts';
 import { PricingService } from '../pricing/service.ts';
 import { SubscriptionRuntime } from '../subscription/runtime.ts';
@@ -19,6 +20,7 @@ export const GatewayPlugin = definePlugin({
     subscriptions: SubscriptionRuntime,
     concurrency: ChannelConcurrency,
     outbound: OutboundHttp,
+    moderation: ModerationSampler,
   },
   provides: [GatewayService, RequestHistory],
   apply(ctx) {
@@ -30,6 +32,7 @@ export const GatewayPlugin = definePlugin({
       subscriptions: ctx.subscriptions,
       concurrency: ctx.concurrency,
       outbound: ctx.outbound,
+      moderation: ctx.moderation,
       config: ctx.config.gateway,
       logger: ctx.logger,
     });

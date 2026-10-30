@@ -1,7 +1,7 @@
 import { Badge, Box, Grid, Heading, HStack, Link, Stack, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
-import { CircleAlert, Layers, Lock, Pencil, Plug, Trash2, UserRoundKey } from 'lucide-react';
+import { CircleAlert, Layers, Lock, Pencil, Plug, ShieldCheck, Trash2, UserRoundKey } from 'lucide-react';
 import { Fragment, type ReactNode, useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
@@ -237,6 +237,12 @@ function ChannelCard({
             )}
             {c.subscription && (
               <ConcurrencyBadge active={c.subscription.active} maximum={c.subscription.maxConcurrent} />
+            )}
+            {(c.moderation.samplePpm > 0 || c.moderation.dailyFloor > 0) && (
+              <Badge title="内容审计">
+                <ShieldCheck size={12} aria-hidden="true" />
+                审计
+              </Badge>
             )}
           </HStack>
         </Stack>

@@ -53,3 +53,6 @@ export const refreshRequestBilling = (userId: string, requestId: string) =>
     queryClient.invalidateQueries(trpc.admin.billing.reconcile.queryFilter({ userId })),
     queryClient.invalidateQueries(trpc.admin.reviewCount.queryFilter()),
   ]);
+
+/** 确认预警或修改审核设置后，刷新审计列表、预警计数和设置。 */
+export const refreshModeration = () => queryClient.invalidateQueries(trpc.admin.moderation.pathFilter());

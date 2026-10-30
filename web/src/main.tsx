@@ -18,6 +18,7 @@ import Landing from './routes/landing';
 import Login from './routes/login';
 import ModelPlaza from './routes/model-plaza';
 import Models from './routes/models';
+import Moderation from './routes/moderation';
 import NotFound from './routes/not-found';
 import Overview from './routes/overview';
 import Profile from './routes/profile';
@@ -61,6 +62,7 @@ createRoot(root).render(
                     <Route path="models/:modelId/pricing" element={<Models />} />
                     <Route path="users" element={<Users />} />
                     <Route path="groups" element={<Groups />} />
+                    <Route path="moderation" element={<Moderation />} />
                   </Route>
                 </Route>
               </Route>

@@ -62,10 +62,20 @@ export const channels = pgTable(
     /** API 渠道同时执行的请求数上限，null 表示不限；订阅渠道使用账号的上限。 */
     maxConcurrent: integer('max_concurrent'),
     multiplierMicros: bigint('multiplier_micros', { mode: 'bigint' }).default(sql`1000000`).notNull(),
+    /** 内容审计按 session 抽样的比例，单位为百万分之一，0 表示不按比例抽样。 */
+    moderationSamplePpm: integer('moderation_sample_ppm').default(0).notNull(),
+    /** 每个用户每天在此渠道至少审计的 session 数，0 表示不保底。 */
+    moderationDailyFloor: integer('moderation_daily_floor').default(0).notNull(),
+    /** 送审内容是否包含模型输出。 */
+    moderationIncludeOutput: boolean('moderation_include_output').default(false).notNull(),
     createdAt: createdAt(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => [
+    check(
+      'channels_moderation',
+      sql`${table.moderationSamplePpm} between 0 and 1000000 and ${table.moderationDailyFloor} between 0 and 100`,
+    ),
     uniqueIndex('channels_name_unique').on(table.name).where(sql`${table.deletedAt} is null`),
     uniqueIndex('channels_subscription_account_unique')
       .on(table.subscriptionAccountId)

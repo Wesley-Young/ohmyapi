@@ -22,6 +22,7 @@ import { activeChannel, availableSubscription } from '../database/query.ts';
 import type { Endpoint } from '../database/schema/index.ts';
 import { channels, requestAttempts, requests } from '../database/schema/index.ts';
 import type { KeyIdentity } from '../keys/access.ts';
+import type { ModerationCapture, ModerationSampler } from '../moderation/sampler.ts';
 import type { OutboundHttp } from '../outbound/index.ts';
 import type { PricingService } from '../pricing/service.ts';
 import { type ChannelAdapter, channelAdapter, type SubscriptionChannels } from './adapters.ts';
@@ -34,6 +35,7 @@ import { availableModels } from './models.ts';
 import { mapReasoningEffort, mapUpstreamModel, reasoningEffort } from './protocol.ts';
 import { UserRateLimiter } from './rate-limit.ts';
 import { type ExecutionRoute, noCandidate, planExecution, resolveEntryRoute, takeCandidate } from './routing.ts';
+import { requestSession } from './session.ts';
 
 import { randomUUID } from 'node:crypto';
 
@@ -74,6 +76,7 @@ export class GatewayService implements Disposable {
   private readonly subscriptions: SubscriptionChannels;
   private readonly concurrency: ChannelConcurrency;
   private readonly outbound: OutboundHttp;
+  private readonly moderation: ModerationSampler;
   private readonly config: GatewayConfig;
   private readonly logger: EventLogger;
   private readonly sampleLog = createLogSampler();
@@ -90,6 +93,7 @@ export class GatewayService implements Disposable {
     subscriptions: SubscriptionChannels;
     concurrency: ChannelConcurrency;
     outbound: OutboundHttp;
+    moderation: ModerationSampler;
     config: GatewayConfig;
     logger: EventLogger;
   }) {
@@ -100,6 +104,7 @@ export class GatewayService implements Disposable {
     this.subscriptions = deps.subscriptions;
     this.concurrency = deps.concurrency;
     this.outbound = deps.outbound;
+    this.moderation = deps.moderation;
     this.config = deps.config;
     this.logger = deps.logger;
     this.rateLimiter = new UserRateLimiter(deps.config);
@@ -236,7 +241,9 @@ export class GatewayService implements Disposable {
     });
     let binding: { selection: AffinitySelection; channelId: string; foreignHistory: number } | undefined;
     let report: HealthReport | undefined;
+    let moderation: ModerationCapture | undefined;
     const finish = (errorCode?: string) => {
+      moderation?.finish();
       const result = session.summary(errorCode);
       return lifecycle.finish(
         () => {
@@ -453,6 +460,22 @@ export class GatewayService implements Disposable {
         lifecycle.retainUpstreamOnDisconnect(
           executionChannel.type === 'subscription' ? 60_000 : this.config.disconnectDrainTimeoutMs,
         );
+        // 首次发往上游时按入口和执行渠道的配置决定是否抽样送审；切换渠道后沿用首次的决定。
+        if (!moderation) {
+          moderation = this.moderation.sample({
+            requestId: id,
+            userId: identity.user.id,
+            apiKeyId: identity.key.id,
+            endpoint,
+            requestedModel: target.model,
+            session: requestSession(req, parsed, endpoint),
+            userAgent: req.headers.get('user-agent'),
+            body: parsed,
+            entry: channel,
+            execution: executionChannel,
+          });
+          session.collector.output = moderation?.output;
+        }
         session.dispatched = true;
         let upstream: Response;
         try {

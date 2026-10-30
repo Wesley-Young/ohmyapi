@@ -110,6 +110,35 @@ function readGatewayConfig(env: Environment) {
 
 export type GatewayConfig = ReturnType<typeof readGatewayConfig>;
 
+/** 内容审计的抽样上限、送审时机、判定阈值和内容保留期；抽样比例和保底数量按渠道配置。 */
+function readModerationConfig(env: Environment) {
+  const suspectPercent = integerSetting(env, 'MODERATION_SUSPECT_PERCENT', 50, 100);
+  const violationPercent = integerSetting(env, 'MODERATION_VIOLATION_PERCENT', 85, 100);
+  if (violationPercent < suspectPercent)
+    throw new Error('MODERATION_VIOLATION_PERCENT must not be less than MODERATION_SUSPECT_PERCENT');
+  return {
+    // 每个用户每天最多审计的 session 数，包括保底抽样。
+    userDailyLimit: integerSetting(env, 'MODERATION_USER_DAILY_LIMIT', 20, 10_000),
+    // 保底抽样选择请求数达到此值的 session，避免只审到一两句试探。
+    floorMinRequests: integerSetting(env, 'MODERATION_FLOOR_MIN_REQUESTS', 3, 1000),
+    // session 空闲此时长后送审。
+    idleMs: integerSetting(env, 'MODERATION_IDLE_MS', 600_000, 86_400_000),
+    // 同时在内存中采集的 session 上限，超出时不再抽中新的 session。
+    maxActiveSessions: integerSetting(env, 'MODERATION_MAX_ACTIVE_SESSIONS', 1000, 100_000),
+    // 每个 session 送审内容的字符上限，超出时保留最近的内容。
+    maxContentChars: integerSetting(env, 'MODERATION_MAX_CONTENT_CHARS', 48_000, 1_000_000),
+    concurrency: integerSetting(env, 'MODERATION_CONCURRENCY', 2, 32),
+    timeoutMs: integerSetting(env, 'MODERATION_TIMEOUT_MS', 60_000, 600_000),
+    suspectThreshold: suspectPercent / 100,
+    violationThreshold: violationPercent / 100,
+    // 判定通过的内容保留天数；预警内容在确认后按 alertRetentionDays 保留。
+    retentionDays: integerSetting(env, 'MODERATION_RETENTION_DAYS', 7, 3650),
+    alertRetentionDays: integerSetting(env, 'MODERATION_ALERT_RETENTION_DAYS', 90, 3650),
+  };
+}
+
+export type ModerationConfig = ReturnType<typeof readModerationConfig>;
+
 /** 仓库根目录下的接入点配置。 */
 const accessEndpointsFile = new URL('../../endpoints.json', import.meta.url);
 
@@ -177,6 +206,7 @@ export function loadConfig(env: Environment = process.env) {
     session: readSessionConfig(env),
     encryptionKey: readEncryptionKey(env),
     gateway: readGatewayConfig(env),
+    moderation: readModerationConfig(env),
     accessEndpoints: readAccessEndpoints(),
     serveWeb: env.NODE_ENV === 'production',
   };

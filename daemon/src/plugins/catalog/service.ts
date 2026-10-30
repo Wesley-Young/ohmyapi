@@ -91,6 +91,11 @@ export class CatalogService {
           timeoutMs: channels.timeoutMs,
           maxConcurrent: channels.maxConcurrent,
           multiplierMicros: channels.multiplierMicros,
+          moderation: {
+            samplePpm: channels.moderationSamplePpm,
+            dailyFloor: channels.moderationDailyFloor,
+            includeOutput: channels.moderationIncludeOutput,
+          },
         })
         .from(channels)
         .leftJoin(subscriptionAccounts, eq(channels.subscriptionAccountId, subscriptionAccounts.id))
@@ -300,6 +305,11 @@ export class CatalogService {
         proxyChanged: values.proxyUrlEncrypted !== (existing?.proxyUrlEncrypted ?? null),
         proxyEnabled: Boolean(values.proxyUrlEncrypted),
         maxConcurrent: input.type === 'api' ? values.maxConcurrent : input.subscription?.maxConcurrent,
+        moderation: {
+          samplePpm: values.moderationSamplePpm,
+          dailyFloor: values.moderationDailyFloor,
+          includeOutput: values.moderationIncludeOutput,
+        },
       });
       const priced = resolved.length
         ? await tx
@@ -507,6 +517,11 @@ export class CatalogService {
           : input.credential
             ? this.vault.encrypt(input.credential)
             : (existing?.credentialEncrypted as string),
+      // 未提交时沿用已有配置；新建的订阅渠道默认每个用户每天保底审计一个 session。
+      moderationSamplePpm: input.moderation?.samplePpm ?? existing?.moderationSamplePpm ?? 0,
+      moderationDailyFloor:
+        input.moderation?.dailyFloor ?? existing?.moderationDailyFloor ?? (input.type === 'subscription' ? 1 : 0),
+      moderationIncludeOutput: input.moderation?.includeOutput ?? existing?.moderationIncludeOutput ?? false,
     };
   }
 

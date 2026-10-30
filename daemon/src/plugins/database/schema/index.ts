@@ -2,6 +2,7 @@ export * from './capabilities.ts';
 export * from './catalog.ts';
 export * from './common.ts';
 export * from './identity.ts';
+export * from './moderation.ts';
 export * from './pricing.ts';
 export * from './requests.ts';
 export * from './subscription.ts';

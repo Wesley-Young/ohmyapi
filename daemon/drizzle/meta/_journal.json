@@ -204,6 +204,13 @@
       "when": 1792845187866,
       "tag": "0028_systemone_endpoint",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793372223347,
+      "tag": "0029_moderation",
+      "breakpoints": true
     }
   ]
 }

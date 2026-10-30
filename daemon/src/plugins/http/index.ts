@@ -22,6 +22,7 @@ import { RequestHistory } from '../gateway/history.ts';
 import { GatewayService } from '../gateway/service.ts';
 import { GroupService } from '../groups/service.ts';
 import { KeyService } from '../keys/service.ts';
+import { ModerationService } from '../moderation/service.ts';
 import { PricingService } from '../pricing/service.ts';
 import { SubscriptionService } from '../subscription/service.ts';
 import { UserService } from '../users/service.ts';
@@ -49,6 +50,7 @@ export const HttpPlugin = definePlugin({
     users: UserService,
     groups: GroupService,
     wallet: WalletService,
+    moderation: ModerationService,
   },
   apply(ctx) {
     const app = ctx.hono.app;
@@ -68,6 +70,7 @@ export const HttpPlugin = definePlugin({
       channelGrants: ctx.channelGrants,
       subscription: ctx.subscription,
       requestHistory: ctx.requestHistory,
+      moderation: ctx.moderation,
     });
     const sessionConfig = ctx.config.session;
     const cookieName: string = sessionConfig.secure ? '__Host-ohmyapi_session' : 'ohmyapi_session';

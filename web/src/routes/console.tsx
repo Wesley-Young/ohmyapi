@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Network,
   ScrollText,
+  ShieldAlert,
   Tags,
   UserRound,
   Users,
@@ -16,7 +17,7 @@ import { NavLink, Outlet, Link as RouterLink, useMatch } from 'react-router';
 
 import { Tooltip } from '../components/icon-button';
 import { Logo } from '../components/logo';
-import { ReviewBadge, ReviewDot, useReviewCount } from '../components/review-badge';
+import { ReviewBadge, ReviewDot, useModerationAlertCount, useReviewCount } from '../components/review-badge';
 import { useAuth } from '../lib/auth';
 import { brandColor, textColor } from '../lib/theme';
 
@@ -28,6 +29,7 @@ const navigationIcons = {
   groups: Tags,
   channels: Network,
   models: Layers,
+  moderation: ShieldAlert,
   plaza: CircleDollarSign,
   playground: FlaskConical,
   about: Info,
@@ -42,19 +44,35 @@ export default function Console() {
   const auth = useAuth();
   const playground = Boolean(useMatch('/console/playground'));
   const reviews = useReviewCount(auth.data?.role === 'admin');
+  const moderationAlerts = useModerationAlertCount(auth.data?.role === 'admin');
   if (!auth.data) return null;
-  const links: { to: string; label: string; end: boolean; icon: keyof typeof navigationIcons; badge?: number }[] = [
+  const links: {
+    to: string;
+    label: string;
+    end: boolean;
+    icon: keyof typeof navigationIcons;
+    badge?: number;
+    badgeLabel?: string;
+  }[] = [
     { to: '/console', label: '总览', end: true, icon: 'overview' },
     { to: '/console/model-plaza', label: '模型广场', end: false, icon: 'plaza' },
     { to: '/console/keys', label: 'API Key', end: false, icon: 'keys' },
     { to: '/console/playground', label: 'Playground', end: false, icon: 'playground' },
-    { to: '/console/requests', label: '请求', end: false, icon: 'requests', badge: reviews },
+    { to: '/console/requests', label: '请求', end: false, icon: 'requests', badge: reviews, badgeLabel: '条待核对' },
     ...(auth.data.role === 'admin'
       ? [
           { to: '/console/channels', label: '渠道', end: false, icon: 'channels' as const },
           { to: '/console/models', label: '模型', end: false, icon: 'models' as const },
           { to: '/console/users', label: '用户', end: false, icon: 'users' as const },
           { to: '/console/groups', label: '用户组', end: false, icon: 'groups' as const },
+          {
+            to: '/console/moderation',
+            label: '内容审计',
+            end: false,
+            icon: 'moderation' as const,
+            badge: moderationAlerts,
+            badgeLabel: '条待确认预警',
+          },
         ]
       : []),
   ];
@@ -106,7 +124,7 @@ export default function Console() {
         >
           <Stack as="nav" aria-label="控制台导航" gap="1">
             {links.map((link) => {
-              const name = link.badge ? `${link.label}，${link.badge} 条待核对` : link.label;
+              const name = link.badge ? `${link.label}，${link.badge} ${link.badgeLabel}` : link.label;
               return (
                 <Tooltip key={link.to} content={name}>
                   <NavLink

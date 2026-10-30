@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { refreshCatalog } from '../lib/cache';
 import { type Endpoint, endpoints, responsesEndpoints } from '../lib/endpoints';
 import { formError } from '../lib/format';
+import { percentToPpm, ppmToPercent } from '../lib/moderation';
 import {
   isSubscriptionProvider,
   type SubscriptionProvider,
@@ -121,6 +122,10 @@ export function ChannelForm({
       : (initial?.endpoints ?? []),
   );
   const [multiplier, setMultiplier] = useState(initial?.multiplier ?? '1');
+  const [samplePercent, setSamplePercent] = useState(ppmToPercent(initial?.moderation.samplePpm ?? 0));
+  const [dailyFloor, setDailyFloor] = useState(String(initial?.moderation.dailyFloor ?? 0));
+  const [includeOutput, setIncludeOutput] = useState(initial?.moderation.includeOutput ?? false);
+  const samplePpm = percentToPpm(samplePercent);
   const [available, setAvailable] = useState<ChannelModel[]>(
     initial?.availableModels.flatMap((entry) => {
       const model = data.models.find((model) => model.id === entry.modelId);
@@ -198,6 +203,8 @@ export function ChannelForm({
               endpoints: type === 'aggregate' ? [] : scopes,
               members: type === 'aggregate' ? members : [],
               multiplier: passthrough ? undefined : multiplier,
+              moderation:
+                samplePpm === undefined ? undefined : { samplePpm, dailyFloor: Number(dailyFloor), includeOutput },
               availableModels: passthrough
                 ? undefined
                 : type === 'aggregate'
@@ -218,6 +225,8 @@ export function ChannelForm({
                   onChange={(e) => {
                     setType(e.target.value as typeof type);
                     setScopes(e.target.value === 'subscription' ? [...subscriptionEndpoints[provider]] : []);
+                    // 订阅渠道默认每个用户每天保底审计一个 session。
+                    setDailyFloor(e.target.value === 'subscription' ? '1' : '0');
                     resetModels();
                   }}
                 >
@@ -434,6 +443,37 @@ export function ChannelForm({
                 )
               }
             />
+            <Box as="fieldset">
+              <Text as="legend" fontSize="sm" fontWeight="500" mb="2">
+                内容审计
+              </Text>
+              <Stack gap="4">
+                <FormInput
+                  label="抽样比例（%）"
+                  value={samplePercent}
+                  inputMode="decimal"
+                  onChange={(e) => setSamplePercent(e.target.value)}
+                  required
+                  error={samplePpm === undefined ? '请输入 0–100，最多四位小数' : undefined}
+                  helper="按 session 抽样送审，0 表示不按比例抽样"
+                />
+                <FormInput
+                  label="每用户每天保底"
+                  type="number"
+                  value={dailyFloor}
+                  onChange={(e) => setDailyFloor(e.target.value)}
+                  min={0}
+                  max={100}
+                  required
+                  helper="用户当天审计的 session 少于此数时，抽取其后续会话；0 表示不保底"
+                />
+                <Checkbox.Root checked={includeOutput} onCheckedChange={(e) => setIncludeOutput(e.checked === true)}>
+                  <Checkbox.HiddenInput />
+                  <Checkbox.Control />
+                  <Checkbox.Label>送审内容包含模型输出</Checkbox.Label>
+                </Checkbox.Root>
+              </Stack>
+            </Box>
             <Stack gap="2">
               <Checkbox.Root checked={!isPublic} onCheckedChange={(e) => setIsPublic(!e.checked)}>
                 <Checkbox.HiddenInput />
@@ -454,6 +494,7 @@ export function ChannelForm({
             loading={task.isPending}
             disabled={
               fetching ||
+              samplePpm === undefined ||
               startOAuth.isPending ||
               renew.isPending ||
               (type !== 'aggregate' && modelErrors.size > 0) ||

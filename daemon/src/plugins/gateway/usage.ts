@@ -1,4 +1,4 @@
-import { type ApiProtocol, protocolFor, type UsageReader } from '@ohmyapi/protocols';
+import { type ApiProtocol, type OutputSink, protocolFor, type UsageReader } from '@ohmyapi/protocols';
 import type { ResponseObserver } from '@ohmyapi/relay';
 
 import { safeErrorMessage } from '../../core/logging.ts';
@@ -43,6 +43,8 @@ export class UsageCollector implements ResponseObserver {
   usageSeen = false;
   usageEstimate?: UsageEstimate;
   readonly estimate = new StreamUsageEstimate();
+  /** 内容审计抽中且需要输出时，另行收集生成内容。 */
+  output?: OutputSink;
   private reportedUsage: ObjectValue = {};
   private reportedOutput?: bigint;
   private malformedUsage = false;
@@ -145,6 +147,7 @@ export class UsageCollector implements ResponseObserver {
     if (!data) return;
     const { reader } = this;
     this.estimate.observe(this.protocol, data);
+    if (this.output) this.protocol.observeOutput(data, this.output);
     const envelope = reader.envelope(data);
     if (data.error || data.type === 'error' || reader.failed?.(data, envelope)) this.failed = true;
     const upstreamError = data.error ?? envelope.error;

@@ -13,7 +13,8 @@ export type AuditAction =
   | `billing.${'resolve' | 'correct'}`
   | `channel.${'save' | 'delete' | 'users'}`
   | `model.${'save' | 'delete' | 'import' | 'placeholder'}`
-  | 'subscription.cycle_reset';
+  | 'subscription.cycle_reset'
+  | `moderation.${'settings' | 'view_content' | 'acknowledge'}`;
 
 export type AuditTargetType =
   | 'user'
@@ -23,7 +24,9 @@ export type AuditTargetType =
   | 'catalog'
   | 'request'
   | 'subscription_account'
-  | 'user_group';
+  | 'user_group'
+  | 'moderation_session'
+  | 'moderation_settings';
 
 /** 事务中操作的来源，记录在该事务所有审计条目的 metadata 中。 */
 type AuditAttribution = { adminTokenId: string };

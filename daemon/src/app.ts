@@ -12,6 +12,7 @@ import { GatewayPlugin } from './plugins/gateway/index.ts';
 import { GroupsPlugin } from './plugins/groups/index.ts';
 import { HttpPlugin } from './plugins/http/index.ts';
 import { KeysPlugin } from './plugins/keys/index.ts';
+import { ModerationPlugin } from './plugins/moderation/index.ts';
 import { OutboundPlugin } from './plugins/outbound/index.ts';
 import { PricingPlugin } from './plugins/pricing/index.ts';
 import { SubscriptionPlugin } from './plugins/subscription/index.ts';
@@ -35,6 +36,7 @@ export function createApp(config: AppConfig) {
   ctx.install(OutboundPlugin);
   ctx.install(SubscriptionPlugin);
   ctx.install(CatalogPlugin);
+  ctx.install(ModerationPlugin);
   ctx.install(GatewayPlugin);
   ctx.install(HonoPlugin, { ...config.server, serveOptions: { createServer: server.createServer } });
   ctx.install(HttpPlugin);

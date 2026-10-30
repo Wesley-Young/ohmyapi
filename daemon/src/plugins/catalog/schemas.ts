@@ -43,6 +43,14 @@ export const channelInput = z.object({
   /** API 渠道的并发上限；null 表示不限，未提交时沿用已有配置。 */
   maxConcurrent: z.number().int().min(1).max(1000).nullable().optional(),
   multiplier: multiplierInput.optional(),
+  /** 内容审计的 session 抽样比例（百万分之一）、每用户每天的保底数和是否包含输出；未提交时沿用已有配置。 */
+  moderation: z
+    .object({
+      samplePpm: z.number().int().min(0, '抽样比例需为 0–100%').max(1_000_000, '抽样比例需为 0–100%'),
+      dailyFloor: z.number().int().min(0, '保底数量需为 0–100').max(100, '保底数量需为 0–100'),
+      includeOutput: z.boolean(),
+    })
+    .optional(),
   availableModels: z
     .array(
       z.object({
