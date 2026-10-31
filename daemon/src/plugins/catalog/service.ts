@@ -1,6 +1,6 @@
 import { serviceToken } from '@fraqjs/kernel';
 import { isGeminiPathModel } from '@ohmyapi/protocols';
-import { and, asc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, max, min, notInArray, or, sql } from 'drizzle-orm';
 
 import { AppError } from '../../core/errors.ts';
 import { type EventLogger, errorDetails, formatEvent } from '../../core/logging.ts';
@@ -12,6 +12,7 @@ import {
   aggregateChannelMembers,
   channelAvailableModels,
   channelEndpoints,
+  channelModelPrices,
   channels,
   effectiveChannelEndpoints,
   effectiveChannelModels,
@@ -38,6 +39,12 @@ type ConfiguredModel = {
   upstreamModel: string | null;
   reasoningEffortRules: ReasoningEffortRule[];
 };
+
+/** 透传倍率渠道的倍率区间；其他渠道或没有可用子渠道时为 null。 */
+function passthroughRange(pricingMode: string, range: { minimum: bigint | null; maximum: bigint | null } | undefined) {
+  if (pricingMode !== 'passthrough' || range?.minimum == null || range.maximum == null) return null;
+  return { minimum: formatMoney(range.minimum), maximum: formatMoney(range.maximum) };
+}
 
 export class CatalogService {
   static readonly token = serviceToken<CatalogService>('ohmyapi/catalog');
@@ -67,59 +74,69 @@ export class CatalogService {
   }
 
   async list() {
-    const [channelRows, modelRows, channelScopes, available, rewrites, activePrices, members] = await Promise.all([
-      this.db
-        .select({
-          id: channels.id,
-          name: channels.name,
-          type: channels.type,
-          pricingMode: channels.pricingMode,
-          subscription: {
-            id: subscriptionAccounts.id,
-            provider: subscriptionAccounts.provider,
-            credentialEncrypted: subscriptionAccounts.credentialEncrypted,
-            maxConcurrent: subscriptionAccounts.maxConcurrent,
-            expiresAt: subscriptionAccounts.expiresAt,
-            errorCode: subscriptionAccounts.errorCode,
-            cooldownUntil: subscriptionAccounts.cooldownUntil,
-            modelCooldowns: subscriptionAccounts.modelCooldowns,
-          },
-          baseUrl: channels.baseUrl,
-          proxyUrlEncrypted: channels.proxyUrlEncrypted,
-          enabled: channels.enabled,
-          isPublic: channels.isPublic,
-          timeoutMs: channels.timeoutMs,
-          maxConcurrent: channels.maxConcurrent,
-          multiplierMicros: channels.multiplierMicros,
-          moderation: {
-            samplePpm: channels.moderationSamplePpm,
-            dailyFloor: channels.moderationDailyFloor,
-            includeOutput: channels.moderationIncludeOutput,
-          },
-        })
-        .from(channels)
-        .leftJoin(subscriptionAccounts, eq(channels.subscriptionAccountId, subscriptionAccounts.id))
-        .where(isNull(channels.deletedAt)),
-      this.db.select().from(models).where(isNull(models.deletedAt)).orderBy(asc(models.name)),
-      this.db.select().from(effectiveChannelEndpoints),
-      this.db.select().from(effectiveChannelModels),
-      this.db
-        .select({
-          channelId: channelAvailableModels.channelId,
-          modelId: channelAvailableModels.modelId,
-          upstreamModel: channelAvailableModels.upstreamModel,
-          reasoningEffortRules: channelAvailableModels.reasoningEffortRules,
-        })
-        .from(channelAvailableModels)
-        .where(
-          or(
-            isNotNull(channelAvailableModels.upstreamModel),
-            sql`${channelAvailableModels.reasoningEffortRules} <> '[]'::jsonb`,
+    const [channelRows, modelRows, channelScopes, available, rewrites, activePrices, members, multiplierRanges] =
+      await Promise.all([
+        this.db
+          .select({
+            id: channels.id,
+            name: channels.name,
+            type: channels.type,
+            pricingMode: channels.pricingMode,
+            subscription: {
+              id: subscriptionAccounts.id,
+              provider: subscriptionAccounts.provider,
+              credentialEncrypted: subscriptionAccounts.credentialEncrypted,
+              maxConcurrent: subscriptionAccounts.maxConcurrent,
+              expiresAt: subscriptionAccounts.expiresAt,
+              errorCode: subscriptionAccounts.errorCode,
+              cooldownUntil: subscriptionAccounts.cooldownUntil,
+              modelCooldowns: subscriptionAccounts.modelCooldowns,
+            },
+            baseUrl: channels.baseUrl,
+            proxyUrlEncrypted: channels.proxyUrlEncrypted,
+            enabled: channels.enabled,
+            isPublic: channels.isPublic,
+            timeoutMs: channels.timeoutMs,
+            maxConcurrent: channels.maxConcurrent,
+            multiplierMicros: channels.multiplierMicros,
+            moderation: {
+              samplePpm: channels.moderationSamplePpm,
+              dailyFloor: channels.moderationDailyFloor,
+              includeOutput: channels.moderationIncludeOutput,
+            },
+          })
+          .from(channels)
+          .leftJoin(subscriptionAccounts, eq(channels.subscriptionAccountId, subscriptionAccounts.id))
+          .where(isNull(channels.deletedAt)),
+        this.db.select().from(models).where(isNull(models.deletedAt)).orderBy(asc(models.name)),
+        this.db.select().from(effectiveChannelEndpoints),
+        this.db.select().from(effectiveChannelModels),
+        this.db
+          .select({
+            channelId: channelAvailableModels.channelId,
+            modelId: channelAvailableModels.modelId,
+            upstreamModel: channelAvailableModels.upstreamModel,
+            reasoningEffortRules: channelAvailableModels.reasoningEffortRules,
+          })
+          .from(channelAvailableModels)
+          .where(
+            or(
+              isNotNull(channelAvailableModels.upstreamModel),
+              sql`${channelAvailableModels.reasoningEffortRules} <> '[]'::jsonb`,
+            ),
           ),
-        ),
-      this.db.select({ modelId: priceRules.modelId }).from(priceRules).where(eq(priceRules.kind, 'default')),
-      this.db.select().from(aggregateChannelMembers),
-    ]);
+        this.db.select({ modelId: priceRules.modelId }).from(priceRules).where(eq(priceRules.kind, 'default')),
+        this.db.select().from(aggregateChannelMembers),
+        // 透传倍率按子渠道对各模型实际适用的倍率取区间。
+        this.db
+          .select({
+            channelId: channelModelPrices.channelId,
+            minimum: min(channelModelPrices.multiplierMicros),
+            maximum: max(channelModelPrices.multiplierMicros),
+          })
+          .from(channelModelPrices)
+          .groupBy(channelModelPrices.channelId),
+      ]);
     channelRows.sort(compareChannels);
     return {
       channels: channelRows.map(({ multiplierMicros, proxyUrlEncrypted, ...c }) => ({
@@ -146,6 +163,10 @@ export class CatalogService {
             weight: member.weight,
           })),
         multiplier: formatMoney(multiplierMicros),
+        multiplierRange: passthroughRange(
+          c.pricingMode,
+          multiplierRanges.find((r) => r.channelId === c.id),
+        ),
         availableModels: available
           .filter((a) => a.channelId === c.id && modelRows.some((m) => m.id === a.modelId))
           .map((a) => {

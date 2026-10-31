@@ -142,12 +142,25 @@ export class KeyService {
       .map((id) => {
         const filteredRows = rows.filter((r) => r.channelId === id);
         const [first] = filteredRows;
+        // 透传倍率按子渠道对各模型实际适用的倍率取区间。
+        const minimum = filteredRows.reduce(
+          (low, r) => (r.multiplierMicros < low ? r.multiplierMicros : low),
+          first.multiplierMicros,
+        );
+        const maximum = filteredRows.reduce(
+          (high, r) => (r.maxMultiplierMicros > high ? r.maxMultiplierMicros : high),
+          first.maxMultiplierMicros,
+        );
         return {
           id,
           name: first.channelName,
           type: first.channelType,
           pricingMode: first.pricingMode,
           multiplier: formatMoney(first.channelMultiplierMicros),
+          multiplierRange:
+            first.pricingMode === 'passthrough'
+              ? { minimum: formatMoney(minimum), maximum: formatMoney(maximum) }
+              : null,
           endpoints: [...new Set(filteredRows.map((r) => r.endpoint))],
           models: [...new Map(filteredRows.map((r) => [r.modelId, { id: r.modelId, name: r.modelName }])).values()],
         };

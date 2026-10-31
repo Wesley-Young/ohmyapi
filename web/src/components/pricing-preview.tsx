@@ -2,7 +2,7 @@ import { Badge, Box, Grid, Heading, HStack, Stack, Table, Text } from '@chakra-u
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { displayRange, formError } from '../lib/format';
+import { displayMultiplier, displayRange, formError } from '../lib/format';
 import { kinds } from '../lib/pricing';
 import { trpc } from '../lib/trpc';
 import { SelectField } from './fields';
@@ -113,7 +113,7 @@ export function PricingPreview({ modelId }: { modelId: string }) {
                 {task.data.ruleLabel}
               </Text>
               <Badge colorPalette="gray">{kinds[task.data.ruleKind]}</Badge>
-              <Badge colorPalette="gray">{displayRange(task.data.multiplier, task.data.maximum.multiplier)}×</Badge>
+              <Badge colorPalette="gray">{displayMultiplier(task.data.multiplier, task.data.maximum.multiplier)}</Badge>
               <Badge colorPalette="gray">上下文 {task.data.contextTokens} Token</Badge>
             </HStack>
             {task.data.pricingMode === 'passthrough' && (

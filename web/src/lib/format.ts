@@ -54,6 +54,13 @@ export const displayAmount = (value: string, currency: string | undefined) =>
 /** 金额字符串是否为零，如 "0.000000"。 */
 export const isZeroMoney = (value: string) => /^-?0(\.0*)?$/.test(value);
 
+/** 倍率或倍率区间，如 1×、1× ~ 10×。 */
+export function displayMultiplier(minimum: string, maximum = minimum) {
+  const low = displayMoney(minimum);
+  const high = displayMoney(maximum);
+  return low === high ? `${low}×` : `${low}× ~ ${high}×`;
+}
+
 export function displayRange(minimum: string, maximum: string) {
   const low = displayMoney(minimum);
   const high = displayMoney(maximum);

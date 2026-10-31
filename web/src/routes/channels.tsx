@@ -26,7 +26,7 @@ import { SubscriptionQuota } from '../components/subscription-quota';
 import { ConfirmAction, ErrorText, Loading, Metric, NameAction, PrimaryButton, Title } from '../components/ui';
 import { refreshCatalog } from '../lib/cache';
 import { type ChannelType, channelTypeLabels } from '../lib/channels';
-import { displayAmount, formError, localDateTime } from '../lib/format';
+import { displayAmount, displayMultiplier, formError, localDateTime } from '../lib/format';
 import { ppmToPercent } from '../lib/moderation';
 import { brandColor, textColor } from '../lib/theme';
 import { trpc, trpcClient } from '../lib/trpc';
@@ -187,15 +187,23 @@ function ConcurrencyMetric({ active, maximum }: { active: number; maximum: numbe
 
 /** 扣费倍率；模型专属倍率折叠为数量，悬停查看。 */
 function MultiplierMetric({ channel: c, modelNames }: { channel: Channel; modelNames: Map<string, string> }) {
-  if (c.pricingMode === 'passthrough') return <Metric label="倍率">透传</Metric>;
+  if (c.pricingMode === 'passthrough')
+    return (
+      <Metric label="透传倍率">
+        {c.multiplierRange ? displayMultiplier(c.multiplierRange.minimum, c.multiplierRange.maximum) : '—'}
+      </Metric>
+    );
   const specialModels = c.availableModels.filter((model) => model.multiplier !== null);
   return (
     <Metric label="倍率">
-      {Number(c.multiplier)}×
+      {displayMultiplier(c.multiplier)}
       {specialModels.length > 0 && (
         <Tooltip
           content={`模型专属倍率：${specialModels
-            .map((model) => `${modelNames.get(model.modelId) ?? model.modelId} ${Number(model.multiplier)}×`)
+            .map(
+              (model) =>
+                `${modelNames.get(model.modelId) ?? model.modelId} ${displayMultiplier(model.multiplier ?? c.multiplier)}`,
+            )
             .join('、')}`}
         >
           <Text as="span" tabIndex={0} fontSize="xs" fontWeight="400" color="gray.500" borderRadius="sm">
@@ -390,8 +398,6 @@ function ChannelCard({
         >
           {c.type === 'api' && (
             <>
-              <ConcurrencyMetric active={c.active} maximum={c.maxConcurrent} />
-              <MultiplierMetric channel={c} modelNames={modelNames} />
               {[
                 { label: '近 24 小时', value: spending?.channel?.last24Hours },
                 { label: '近 30 天', value: spending?.channel?.last30Days },
@@ -400,6 +406,8 @@ function ChannelCard({
                   {spending ? displayAmount(value ?? '0', spending.currency) : '—'}
                 </Metric>
               ))}
+              <ConcurrencyMetric active={c.active} maximum={c.maxConcurrent} />
+              <MultiplierMetric channel={c} modelNames={modelNames} />
             </>
           )}
           {c.subscription && (

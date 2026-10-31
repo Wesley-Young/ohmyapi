@@ -3,22 +3,27 @@ import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMemo } from 'react';
 
 import { channelTypeLabels } from '../lib/channels';
+import { displayMultiplier } from '../lib/format';
 
 type AvailableChannel = RouterOutputs['keys']['channels'][number];
 
 /** 下拉选项：可用渠道，或已绑定但当前不可用的渠道。 */
 export type ChannelOption =
-  | Pick<AvailableChannel, 'id' | 'name' | 'type' | 'pricingMode' | 'multiplier'>
+  | Pick<AvailableChannel, 'id' | 'name' | 'type' | 'pricingMode' | 'multiplier' | 'multiplierRange'>
   | { id: string; name: string; unavailable: true };
 
 function ChannelBadge({ channel }: { channel: ChannelOption }) {
   if ('unavailable' in channel) return <Badge colorPalette="gray">不可用</Badge>;
   return (
-    <Badge flexShrink="0">{channel.pricingMode === 'passthrough' ? '透传' : `${Number(channel.multiplier)}×`}</Badge>
+    <Badge flexShrink="0">
+      {channel.multiplierRange
+        ? displayMultiplier(channel.multiplierRange.minimum, channel.multiplierRange.maximum)
+        : displayMultiplier(channel.multiplier)}
+    </Badge>
   );
 }
 
-/** 选择 Key 绑定的渠道，选项按渠道页面的顺序展示名称和整体扣费倍率。 */
+/** 选择 Key 绑定的渠道，选项按渠道页面的顺序展示名称和整体扣费倍率；透传倍率显示子渠道的倍率区间。 */
 export function ChannelSelect({
   label,
   value,
@@ -76,6 +81,7 @@ export function ChannelSelect({
                 {'type' in option && (
                   <Text fontSize="xs" color="gray.500">
                     {channelTypeLabels[option.type]}
+                    {option.pricingMode === 'passthrough' && '（透传倍率）'}
                   </Text>
                 )}
               </Stack>

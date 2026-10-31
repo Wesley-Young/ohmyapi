@@ -9,7 +9,7 @@ import { IconButton } from '../components/icon-button';
 import { emptyModelFilter, ModelFilter } from '../components/model-filter';
 import { ErrorText, FormDialog, Loading, NameAction, pinnedColumn, Title } from '../components/ui';
 import { useAuth } from '../lib/auth';
-import { currencySymbol, displayMoney, displayRange, formatCount, formError } from '../lib/format';
+import { currencySymbol, displayMoney, displayMultiplier, displayRange, formatCount, formError } from '../lib/format';
 import { filterModels, sortModelsByBrand } from '../lib/model-brands';
 import { minuteText } from '../lib/pricing';
 import { trpc } from '../lib/trpc';
@@ -226,7 +226,7 @@ export default function ModelPlaza() {
                   <Heading as="h3" fontSize="md" overflowWrap="anywhere">
                     {channel.name}
                   </Heading>
-                  <Badge colorPalette="gray">{displayRange(channel.multiplier, channel.maxMultiplier)}×</Badge>
+                  <Badge colorPalette="gray">{displayMultiplier(channel.multiplier, channel.maxMultiplier)}</Badge>
                   {channel.pricingMode === 'passthrough' && <Badge colorPalette="gray">透传倍率</Badge>}
                 </HStack>
                 {channel.pricingMode === 'passthrough' && (
