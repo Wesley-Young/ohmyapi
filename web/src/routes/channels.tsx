@@ -1,8 +1,20 @@
-import { Badge, Box, Grid, Heading, HStack, Link, Stack, Text } from '@chakra-ui/react';
+import { Badge, Box, Grid, Heading, HStack, Link, Menu, Portal, Stack, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
-import { CircleAlert, Layers, Lock, Pencil, Plug, ShieldCheck, Trash2, UserRoundKey } from 'lucide-react';
-import { Fragment, type ReactNode, useState } from 'react';
+import {
+  ArrowLeftRight,
+  ChevronRight,
+  CircleAlert,
+  Ellipsis,
+  Layers,
+  Lock,
+  Pencil,
+  Plug,
+  ShieldCheck,
+  Trash2,
+  UserRoundKey,
+} from 'lucide-react';
+import { type ReactNode, useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
 import { ModelIcon, ProviderIcon } from '../components/brand-icon';
@@ -11,11 +23,12 @@ import { ChannelUsersDialog } from '../components/channel-grants';
 import { IconButton, Tooltip } from '../components/icon-button';
 import { PlanBadge } from '../components/plan-badge';
 import { SubscriptionQuota } from '../components/subscription-quota';
-import { ConfirmAction, ErrorText, Loading, NameAction, PrimaryButton, Title } from '../components/ui';
+import { ConfirmAction, ErrorText, Loading, Metric, NameAction, PrimaryButton, Title } from '../components/ui';
 import { refreshCatalog } from '../lib/cache';
 import { type ChannelType, channelTypeLabels } from '../lib/channels';
 import { displayAmount, formError, localDateTime } from '../lib/format';
-import { brandColor } from '../lib/theme';
+import { ppmToPercent } from '../lib/moderation';
+import { brandColor, textColor } from '../lib/theme';
 import { trpc, trpcClient } from '../lib/trpc';
 
 type Catalog = RouterOutputs['admin']['catalog']['list'];
@@ -25,48 +38,22 @@ type Spending = RouterOutputs['admin']['channelSpending']['channels'][number];
 // 分节顺序与后端的渠道排序一致；节内保持后端顺序（需要重新授权的在前，其次启用的）。
 const sectionOrder = ['aggregate', 'api', 'subscription'] as const satisfies readonly ChannelType[];
 
-/** 进行中的请求数；有上限时按占用比例着色。 */
-function ConcurrencyBadge({ active, maximum }: { active: number; maximum: number | null }) {
-  const ratio = maximum === null ? 0 : active / maximum;
-  return (
-    <Badge colorPalette={ratio >= 0.8 ? 'red' : ratio >= 0.5 ? 'yellow' : active > 0 ? 'green' : 'gray'}>
-      并发 {active}
-      {maximum !== null && ` / ${maximum}`}
-    </Badge>
-  );
-}
+type Member = { channel: Channel; priority: number; weight: number };
 
-/** 渠道名称组成的徽标组；禁用的渠道以浅色显示。 */
-function ChannelBadges({ channels }: { channels: Channel[] }) {
-  return (
-    <HStack gap="1.5" flexWrap="wrap" minW="0">
-      {channels.map((c) => (
-        <Badge
-          key={c.id}
-          colorPalette="gray"
-          color={c.enabled ? undefined : 'gray.400'}
-          title={c.enabled ? undefined : '已禁用'}
-        >
-          {c.type === 'api' && <Plug size={12} aria-hidden="true" />}
-          {c.type === 'aggregate' && <Layers size={12} aria-hidden="true" /> /* unreachable */}
-          {c.subscription && <ProviderIcon provider={c.subscription.provider} size={12} />}
-          {c.name}
-        </Badge>
-      ))}
-    </HStack>
-  );
-}
+const coolingDown = (until: string | null) => !!until && Date.parse(until) > Date.now();
 
-/** 卡片中栏的一行：左侧固定宽度的标签，右侧内容。 */
-function DetailRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <HStack gap="3" align="start" minW="0">
-      <Text fontSize="xs" color="gray.500" w="10" flexShrink="0" lineHeight="20px">
-        {label}
-      </Text>
-      {children}
-    </HStack>
-  );
+/** 渠道的健康状态，以类型图标上的状态点表示。 */
+function channelStatus(c: Channel): { color: string; label: string } {
+  if (!c.enabled) return { color: 'gray.300', label: '已禁用' };
+  const sub = c.subscription;
+  if (sub?.errorCode)
+    return {
+      color: 'red.500',
+      label: sub.errorCode === 'subscription_refresh_uncertain' ? '需重新导入凭据' : '需要重新授权',
+    };
+  if (sub && (coolingDown(sub.cooldownUntil) || Object.values(sub.modelCooldowns).some(coolingDown)))
+    return { color: 'orange.400', label: '冷却中' };
+  return { color: 'green.500', label: '已启用' };
 }
 
 /** 需要处理的异常，以通栏提示显示在卡片底部。 */
@@ -80,17 +67,30 @@ function channelNotices(c: Channel) {
       tone: 'red',
       text: sub.errorCode === 'subscription_refresh_uncertain' ? '需重新导入凭据' : '需要重新授权',
     });
-  if (sub.cooldownUntil && Date.parse(sub.cooldownUntil) > Date.now())
+  if (sub.cooldownUntil && coolingDown(sub.cooldownUntil))
     notices.push({ key: 'cooldown', tone: 'orange', text: `限流冷却中，${localDateTime(sub.cooldownUntil)} 恢复` });
   for (const [model, until] of Object.entries(sub.modelCooldowns))
-    if (Date.parse(until) > Date.now())
+    if (coolingDown(until))
       notices.push({ key: `model:${model}`, tone: 'orange', text: `${model} 冷却中，${localDateTime(until)} 恢复` });
   return notices;
 }
 
+function StatusDot({ color, ring }: { color: string; ring: string }) {
+  return <Box boxSize="2.5" flexShrink="0" borderRadius="full" bg={color} borderWidth="2px" borderColor={ring} />;
+}
+
 function ChannelIcon({ channel: c }: { channel: Channel }) {
+  const status = channelStatus(c);
   return (
-    <Box color="gray.500" display="flex" flexShrink="0">
+    <Box
+      position="relative"
+      color="gray.500"
+      display="flex"
+      flexShrink="0"
+      role="img"
+      aria-label={status.label}
+      title={status.label}
+    >
       {c.subscription ? (
         <ProviderIcon provider={c.subscription.provider} />
       ) : c.type === 'aggregate' ? (
@@ -98,37 +98,221 @@ function ChannelIcon({ channel: c }: { channel: Channel }) {
       ) : (
         <Plug size={16} aria-hidden="true" />
       )}
+      <Box position="absolute" right="-3px" bottom="-3px">
+        <StatusDot color={status.color} ring={c.enabled ? 'white' : 'gray.50'} />
+      </Box>
     </Box>
   );
 }
 
-/** 实际落到该渠道上的扣费，与 API Key 页面的消费列一致。 */
-function ChannelSpending({ spending, currency }: { spending: Spending | undefined; currency: string }) {
+/** 很少变动的配置，以名称后的小图标表示，悬停或聚焦时显示详情。 */
+function Attribute({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <Grid
-      as="dl"
-      templateColumns="auto auto"
-      columnGap="3"
-      rowGap="1.5"
-      justifyContent="start"
-      fontSize="xs"
-      lineHeight="20px"
-      fontVariantNumeric="tabular-nums"
+    <Tooltip content={label}>
+      <Box
+        as="span"
+        tabIndex={0}
+        role="img"
+        aria-label={label}
+        display="inline-flex"
+        flexShrink="0"
+        color="gray.400"
+        borderRadius="sm"
+        _focusVisible={{ outline: `2px solid ${brandColor}`, outlineOffset: '2px' }}
+      >
+        {children}
+      </Box>
+    </Tooltip>
+  );
+}
+
+function ChannelAttributes({ channel: c, modelNames }: { channel: Channel; modelNames: Map<string, string> }) {
+  const mappedModels = c.availableModels.filter((model) => model.upstreamModel !== null);
+  const { samplePpm, dailyFloor, includeOutput } = c.moderation;
+  const moderation = [
+    samplePpm > 0 && `抽样 ${ppmToPercent(samplePpm)}%`,
+    dailyFloor > 0 && `每用户每天保底 ${dailyFloor} 个 session`,
+    includeOutput && '含模型输出',
+  ].filter(Boolean);
+  return (
+    <>
+      {!c.isPublic && (
+        <Attribute label="非公开，仅授权用户可用">
+          <Lock size={14} aria-hidden="true" />
+        </Attribute>
+      )}
+      {(samplePpm > 0 || dailyFloor > 0) && (
+        <Attribute label={`内容审计：${moderation.join('，')}`}>
+          <ShieldCheck size={14} aria-hidden="true" />
+        </Attribute>
+      )}
+      {mappedModels.length > 0 && (
+        <Attribute
+          label={`上游模型名：${mappedModels
+            .map((model) => `${modelNames.get(model.modelId) ?? model.modelId} → ${model.upstreamModel}`)
+            .join('、')}`}
+        >
+          <ArrowLeftRight size={14} aria-hidden="true" />
+        </Attribute>
+      )}
+    </>
+  );
+}
+
+/** 进行中的请求数；有上限时附占用条，按占用比例着色。 */
+function ConcurrencyMetric({ active, maximum }: { active: number; maximum: number | null }) {
+  const ratio = maximum === null ? 0 : active / maximum;
+  return (
+    <Metric
+      label="并发"
+      meter={
+        maximum === null
+          ? undefined
+          : {
+              value: ratio * 100,
+              color: ratio >= 0.8 ? 'red.500' : ratio >= 0.5 ? 'yellow.500' : 'green.500',
+              label: '并发占用',
+            }
+      }
     >
-      {[
-        { label: '近 24 小时', value: spending?.last24Hours ?? '0' },
-        { label: '近 30 天', value: spending?.last30Days ?? '0' },
-      ].map(({ label, value }) => (
-        <Fragment key={label}>
-          <Text as="dt" color="gray.500">
-            {label}
+      {active}
+      {maximum !== null && (
+        <Text as="span" fontSize="xs" fontWeight="400" color="gray.500">
+          / {maximum}
+        </Text>
+      )}
+    </Metric>
+  );
+}
+
+/** 扣费倍率；模型专属倍率折叠为数量，悬停查看。 */
+function MultiplierMetric({ channel: c, modelNames }: { channel: Channel; modelNames: Map<string, string> }) {
+  if (c.pricingMode === 'passthrough') return <Metric label="倍率">透传</Metric>;
+  const specialModels = c.availableModels.filter((model) => model.multiplier !== null);
+  return (
+    <Metric label="倍率">
+      {Number(c.multiplier)}×
+      {specialModels.length > 0 && (
+        <Tooltip
+          content={`模型专属倍率：${specialModels
+            .map((model) => `${modelNames.get(model.modelId) ?? model.modelId} ${Number(model.multiplier)}×`)
+            .join('、')}`}
+        >
+          <Text as="span" tabIndex={0} fontSize="xs" fontWeight="400" color="gray.500" borderRadius="sm">
+            +{specialModels.length} 个模型
           </Text>
-          <Text as="dd" color="gray.700" fontWeight="500">
-            {displayAmount(value, currency)}
-          </Text>
-        </Fragment>
-      ))}
-    </Grid>
+        </Tooltip>
+      )}
+    </Metric>
+  );
+}
+
+/** 子渠道按优先级从高到低排成故障转移链；同一优先级按权重分流。 */
+function MemberChain({ members }: { members: Member[] }) {
+  if (!members.length)
+    return (
+      <Metric label="子渠道" gridColumn={{ base: 'span 2', lg: 'span 3' }}>
+        <Text as="span" fontWeight="400" color="gray.500">
+          无
+        </Text>
+      </Metric>
+    );
+  const tiers = [...new Set(members.map((member) => member.priority))]
+    .sort((a, b) => b - a)
+    .map((priority) => members.filter((member) => member.priority === priority));
+  return (
+    <Metric label="子渠道" gridColumn={{ base: 'span 2', lg: 'span 3' }}>
+      <HStack as="ol" gap="1.5" rowGap="1" flexWrap="wrap" minW="0" listStyleType="none" fontWeight="400">
+        {tiers.map((tier, index) => (
+          <HStack as="li" key={tier[0].priority} gap="1.5" aria-label={`优先级 ${tier[0].priority}`}>
+            {index > 0 && <ChevronRight size={14} color="var(--chakra-colors-gray-400)" aria-hidden="true" />}
+            <HStack gap="3" flexWrap="wrap" rowGap="1">
+              {tier.map(({ channel, weight }) => {
+                const status = channelStatus(channel);
+                return (
+                  <HStack
+                    key={channel.id}
+                    gap="1.5"
+                    minW="0"
+                    color={channel.enabled ? undefined : 'gray.400'}
+                    title={status.label}
+                  >
+                    <StatusDot color={status.color} ring="transparent" />
+                    <Text as="span" truncate>
+                      {channel.name}
+                    </Text>
+                    {tier.length > 1 && (
+                      <Text as="span" fontSize="xs" color="gray.500">
+                        权重 {weight}
+                      </Text>
+                    )}
+                  </HStack>
+                );
+              })}
+            </HStack>
+          </HStack>
+        ))}
+      </HStack>
+    </Metric>
+  );
+}
+
+function ChannelActions({
+  channel: c,
+  onEdit,
+  onGrant,
+}: {
+  channel: Channel;
+  onEdit: () => void;
+  onGrant: () => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  return (
+    <>
+      <Menu.Root
+        positioning={{ placement: 'bottom-end' }}
+        onSelect={({ value }) => {
+          if (value === 'edit') onEdit();
+          else if (value === 'grant') onGrant();
+          else if (value === 'delete') setDeleting(true);
+        }}
+      >
+        <Menu.Trigger asChild>
+          <IconButton aria-label={`「${c.name}」的操作`} title="操作" variant="ghost" size="sm" color="gray.600">
+            <Ellipsis size={16} aria-hidden="true" />
+          </IconButton>
+        </Menu.Trigger>
+        <Portal>
+          <Menu.Positioner>
+            <Menu.Content minW="160px" borderRadius="xl">
+              <Menu.Item value="edit" borderRadius="lg">
+                <Pencil size={14} aria-hidden="true" />
+                编辑
+              </Menu.Item>
+              {!c.isPublic && (
+                <Menu.Item value="grant" borderRadius="lg">
+                  <UserRoundKey size={14} aria-hidden="true" />
+                  用户授权
+                </Menu.Item>
+              )}
+              <Menu.Item value="delete" borderRadius="lg" color="red.600" _highlighted={{ bg: 'red.50' }}>
+                <Trash2 size={14} aria-hidden="true" />
+                删除
+              </Menu.Item>
+            </Menu.Content>
+          </Menu.Positioner>
+        </Portal>
+      </Menu.Root>
+      <ConfirmAction
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        label="删除"
+        danger
+        description={`删除渠道「${c.name}」后，绑定它的 Key 将无法发起新请求。历史请求与账单仍然保留。`}
+        action={() => trpcClient.admin.catalog.deleteChannel.mutate({ channelId: c.id })}
+        onSuccess={refreshCatalog}
+      />
+    </>
   );
 }
 
@@ -141,16 +325,14 @@ function ChannelCard({
   onGrant,
 }: {
   channel: Channel;
-  members: Channel[];
+  members: Member[];
   spending: { currency: string; channel: Spending | undefined } | undefined;
   modelNames: Map<string, string>;
   onEdit: () => void;
   onGrant: () => void;
 }) {
-  const specialModels = c.availableModels.filter((model) => model.multiplier !== null);
-  const mappedModels = c.availableModels.filter((model) => model.upstreamModel !== null);
-  const multiplier = Number(c.multiplier);
   const notices = channelNotices(c);
+  const subtitle = c.subscription ? (c.subscription.email ?? '（未获取邮箱）') : c.baseUrl;
   return (
     <Box
       as="article"
@@ -162,22 +344,23 @@ function ChannelCard({
       overflow="hidden"
     >
       <Grid
-        templateColumns={{ base: 'minmax(0, 1fr) auto', lg: 'minmax(220px, 1fr) minmax(0, 2fr) auto' }}
-        templateAreas={{ base: `"identity actions" "details details"`, lg: `"identity details actions"` }}
-        columnGap="6"
+        templateColumns={{ base: 'minmax(0, 1fr) auto', lg: 'minmax(0, 260px) minmax(0, 1fr) auto' }}
+        templateAreas={{ base: `"identity actions" "metrics metrics"`, lg: `"identity metrics actions"` }}
+        columnGap={{ base: '3', lg: '8' }}
         rowGap="4"
         px="5"
         py="4"
         alignItems="center"
       >
-        <Stack gridArea="identity" gap="1.5" minW="0" align="start">
-          <HStack gap="2" minW="0" maxW="full" flexWrap="wrap">
+        <Stack gridArea="identity" gap="1" minW="0">
+          <HStack gap="2" minW="0">
             <ChannelIcon channel={c} />
             <NameAction
               aria-haspopup="dialog"
               fontSize="md"
               fontWeight="600"
-              color={c.enabled ? '#171717' : 'gray.500'}
+              color={c.enabled ? textColor : 'gray.500'}
+              flexShrink="1"
               onClick={onEdit}
             >
               {c.name}
@@ -189,118 +372,59 @@ function ChannelCard({
                 enabled={c.enabled && !c.subscription.errorCode}
               />
             )}
+            <ChannelAttributes channel={c} modelNames={modelNames} />
           </HStack>
-          {c.subscription ? (
-            <Text fontSize="xs" color="gray.500" maxW="full" truncate>
-              {c.subscription.email ?? '（未获取邮箱）'}
+          {subtitle && (
+            <Text fontSize="xs" color="gray.500" truncate title={subtitle}>
+              {subtitle}
             </Text>
-          ) : (
-            c.baseUrl && (
-              <Text fontSize="xs" color="gray.500" maxW="full" truncate title={c.baseUrl}>
-                {c.baseUrl}
-              </Text>
-            )
           )}
-          <HStack gap="1.5" flexWrap="wrap" _empty={{ display: 'none' }}>
-            {!c.enabled && <Badge colorPalette="gray">已禁用</Badge>}
-            {!c.isPublic && (
-              <Badge colorPalette="gray">
-                <Lock size={12} aria-hidden="true" />
-                非公开
-              </Badge>
-            )}
-            {c.pricingMode === 'passthrough' ? (
-              <Badge>透传</Badge>
-            ) : (
-              (multiplier !== 1 || specialModels.length > 0) && <Badge title="扣费倍率">{multiplier}×</Badge>
-            )}
-            {c.pricingMode !== 'passthrough' && specialModels.length > 0 && (
-              <Tooltip
-                content={specialModels
-                  .map((model) => `${modelNames.get(model.modelId) ?? model.modelId} ${Number(model.multiplier)}×`)
-                  .join('、')}
-              >
-                <Badge tabIndex={0}>{specialModels.length} 个模型专属倍率</Badge>
-              </Tooltip>
-            )}
-            {mappedModels.length > 0 && (
-              <Tooltip
-                content={mappedModels
-                  .map((model) => `${modelNames.get(model.modelId) ?? model.modelId} → ${model.upstreamModel}`)
-                  .join('、')}
-              >
-                <Badge tabIndex={0}>{mappedModels.length} 个上游模型名</Badge>
-              </Tooltip>
-            )}
-            {c.type === 'api' && (c.maxConcurrent !== null || c.active > 0) && (
-              <ConcurrencyBadge active={c.active} maximum={c.maxConcurrent} />
-            )}
-            {c.subscription && (
-              <ConcurrencyBadge active={c.subscription.active} maximum={c.subscription.maxConcurrent} />
-            )}
-            {(c.moderation.samplePpm > 0 || c.moderation.dailyFloor > 0) && (
-              <Badge title="内容审计">
-                <ShieldCheck size={12} aria-hidden="true" />
-                审计
-              </Badge>
-            )}
-          </HStack>
         </Stack>
 
-        {(c.type !== 'api' || spending) && (
-          <Stack gridArea="details" gap="3" minW="0">
-            {c.type === 'api' && spending && (
-              <ChannelSpending spending={spending.channel} currency={spending.currency} />
-            )}
-            {c.type === 'aggregate' && (
-              <DetailRow label="子渠道">
-                {members.length ? (
-                  <ChannelBadges channels={members} />
-                ) : (
-                  <Text fontSize="xs" color="gray.500" lineHeight="20px">
-                    无
-                  </Text>
-                )}
-              </DetailRow>
-            )}
-            {c.subscription && (
+        <Grid
+          gridArea="metrics"
+          templateColumns={{ base: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }}
+          columnGap="6"
+          rowGap="4"
+          alignItems="start"
+        >
+          {c.type === 'api' && (
+            <>
+              <ConcurrencyMetric active={c.active} maximum={c.maxConcurrent} />
+              <MultiplierMetric channel={c} modelNames={modelNames} />
+              {[
+                { label: '近 24 小时', value: spending?.channel?.last24Hours },
+                { label: '近 30 天', value: spending?.channel?.last30Days },
+              ].map(({ label, value }) => (
+                <Metric key={label} label={label}>
+                  {spending ? displayAmount(value ?? '0', spending.currency) : '—'}
+                </Metric>
+              ))}
+            </>
+          )}
+          {c.subscription && (
+            <>
               <SubscriptionQuota
                 provider={c.subscription.provider}
                 channelId={c.id}
                 enabled={c.enabled}
                 reauthorizationRequired={!!c.subscription.errorCode}
               />
-            )}
-          </Stack>
-        )}
-
-        <HStack gridArea="actions" gap="1" alignSelf={{ base: 'start', lg: 'center' }}>
-          {c.isPublic ? (
-            // 占位保持各卡片的操作按钮对齐。
-            <Box w="8" flexShrink="0" aria-hidden="true" />
-          ) : (
-            <IconButton
-              aria-label={`为「${c.name}」授权用户`}
-              title="用户授权"
-              variant="ghost"
-              size="sm"
-              onClick={onGrant}
-            >
-              <UserRoundKey size={16} aria-hidden="true" />
-            </IconButton>
+              <ConcurrencyMetric active={c.subscription.active} maximum={c.subscription.maxConcurrent} />
+              <MultiplierMetric channel={c} modelNames={modelNames} />
+            </>
           )}
-          <IconButton aria-label="编辑渠道" variant="ghost" size="sm" onClick={onEdit}>
-            <Pencil size={16} aria-hidden="true" />
-          </IconButton>
-          <ConfirmAction
-            label="删除"
-            icon={<Trash2 size={16} aria-hidden="true" />}
-            danger
-            description={`删除渠道「${c.name}」后，绑定它的 Key 将无法发起新请求。历史请求与账单仍然保留。`}
-            action={() => trpcClient.admin.catalog.deleteChannel.mutate({ channelId: c.id })}
-            onSuccess={refreshCatalog}
-          />
-        </HStack>
+          {c.type === 'aggregate' && (
+            <>
+              <MemberChain members={members} />
+              <MultiplierMetric channel={c} modelNames={modelNames} />
+            </>
+          )}
+        </Grid>
+
+        <Box gridArea="actions" alignSelf={{ base: 'start', lg: 'center' }}>
+          <ChannelActions channel={c} onEdit={onEdit} onGrant={onGrant} />
+        </Box>
       </Grid>
       {notices.length > 0 && (
         <Stack gap="0" borderTopWidth="1px" borderColor="gray.100" role="status">
@@ -355,7 +479,10 @@ function ChannelList({
               <ChannelCard
                 key={c.id}
                 channel={c}
-                members={c.members.flatMap((member) => byId.get(member.channelId) ?? [])}
+                members={c.members.flatMap((member) => {
+                  const channel = byId.get(member.channelId);
+                  return channel ? [{ channel, priority: member.priority, weight: member.weight }] : [];
+                })}
                 spending={spending && { currency: spending.currency, channel: spendingByChannel.get(c.id) }}
                 modelNames={modelNames}
                 onEdit={() => onEdit(c.id)}

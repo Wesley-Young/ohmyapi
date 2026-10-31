@@ -12,8 +12,10 @@ import {
   type InputProps,
   Link,
   Portal,
+  Progress,
   Spinner,
   Stack,
+  type StackProps,
   Text,
 } from '@chakra-ui/react';
 import { useMutation } from '@tanstack/react-query';
@@ -22,7 +24,7 @@ import { type ReactNode, useId, useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
 import { formError } from '../lib/format';
-import { brandColor, brandHoverColor } from '../lib/theme';
+import { brandColor, brandHoverColor, textColor } from '../lib/theme';
 import { IconButton } from './icon-button';
 
 export function PrimaryButton(props: ButtonProps) {
@@ -161,6 +163,49 @@ export function Facts({ items }: { items: { label: string; value: ReactNode }[] 
     </DataList.Root>
   );
 }
+/** 卡片中的运行指标：标签在上、数值在下，可附一条细进度条；`meter.value` 为 null 时只显示轨道。 */
+export function Metric({
+  label,
+  extra,
+  meter,
+  children,
+  ...props
+}: Omit<StackProps, 'children'> & {
+  label: string;
+  extra?: ReactNode;
+  meter?: { value: number | null; color: string; label: string };
+  children: ReactNode;
+}) {
+  return (
+    <Stack gap="1" minW="0" {...props}>
+      <HStack gap="1.5" minH="5" fontSize="xs" color="gray.500" whiteSpace="nowrap">
+        <Text truncate>{label}</Text>
+        {extra}
+      </HStack>
+      <HStack
+        gap="1.5"
+        minH="5"
+        fontSize="sm"
+        fontWeight="500"
+        color={textColor}
+        fontVariantNumeric="tabular-nums"
+        whiteSpace="nowrap"
+      >
+        {children}
+      </HStack>
+      {meter &&
+        (meter.value === null ? (
+          <Box h="1" bg="gray.100" borderRadius="full" />
+        ) : (
+          <Progress.Root value={Math.min(meter.value, 100)} aria-label={meter.label}>
+            <Progress.Track h="1" bg="gray.100" borderRadius="full">
+              <Progress.Range bg={meter.color} borderRadius="full" />
+            </Progress.Track>
+          </Progress.Root>
+        ))}
+    </Stack>
+  );
+}
 /** 设置行：左侧为名称和说明，右侧为操作，两者垂直居中；窄屏时操作换到下方。 */
 export function SettingRow({ title, hint, action }: { title: string; hint?: string; action: ReactNode }) {
   return (
@@ -264,6 +309,8 @@ export function ConfirmAction({
   disabled,
   danger,
   icon,
+  open: controlledOpen,
+  onClose,
 }: {
   label: string;
   description: string;
@@ -272,8 +319,17 @@ export function ConfirmAction({
   disabled?: boolean;
   danger?: boolean;
   icon?: ReactNode;
+  /** 传入时由调用方控制打开（如从菜单项打开），不渲染触发按钮。 */
+  open?: boolean;
+  onClose?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const controlled = controlledOpen !== undefined;
+  const open = controlled ? controlledOpen : uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    if (!controlled) setUncontrolledOpen(next);
+    else if (!next) onClose?.();
+  };
   const task = useMutation({
     mutationFn: action,
     onSuccess: async () => {
@@ -291,28 +347,30 @@ export function ConfirmAction({
         }
       }}
     >
-      <Dialog.Trigger asChild>
-        {icon ? (
-          <IconButton
-            aria-label={label}
-            variant={danger ? 'ghost' : 'outline'}
-            color={danger ? 'red.600' : undefined}
-            size="sm"
-            disabled={disabled}
-          >
-            {icon}
-          </IconButton>
-        ) : (
-          <Button
-            variant={danger ? 'ghost' : 'outline'}
-            color={danger ? 'red.600' : undefined}
-            size="sm"
-            disabled={disabled}
-          >
-            {label}
-          </Button>
-        )}
-      </Dialog.Trigger>
+      {!controlled && (
+        <Dialog.Trigger asChild>
+          {icon ? (
+            <IconButton
+              aria-label={label}
+              variant={danger ? 'ghost' : 'outline'}
+              color={danger ? 'red.600' : undefined}
+              size="sm"
+              disabled={disabled}
+            >
+              {icon}
+            </IconButton>
+          ) : (
+            <Button
+              variant={danger ? 'ghost' : 'outline'}
+              color={danger ? 'red.600' : undefined}
+              size="sm"
+              disabled={disabled}
+            >
+              {label}
+            </Button>
+          )}
+        </Dialog.Trigger>
+      )}
       <Portal>
         <Dialog.Backdrop />
         <Dialog.Positioner>

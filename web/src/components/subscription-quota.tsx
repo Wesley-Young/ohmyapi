@@ -1,4 +1,4 @@
-import { Box, Button, HStack, Progress, Stack, Text } from '@chakra-ui/react';
+import { Button, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
@@ -9,6 +9,7 @@ import type { SubscriptionProvider } from '../lib/subscription';
 import { queryClient, trpc } from '../lib/trpc';
 import { IconButton, Tooltip } from './icon-button';
 import { SubscriptionCycleDialog, subscriptionCycleQuery } from './subscription-cycle';
+import { Metric } from './ui';
 
 type Quota = RouterOutputs['admin']['catalog']['openAIQuota'];
 
@@ -35,11 +36,13 @@ function QuotaWindow({
   window,
   unavailable,
   extra,
+  children,
 }: {
   label: '5h' | '7d';
   window: Quota['fiveHour'];
   unavailable: string;
   extra?: ReactNode;
+  children?: ReactNode;
 }) {
   const used = window?.usedPercent;
   const color = usageColor(used);
@@ -56,41 +59,36 @@ function QuotaWindow({
     ? `${label} 已用 ${percent}，${window.resetsAt ? `${localDateTime(window.resetsAt)} 重置` : '重置时间未知'}`
     : `${label}：${unavailable}`;
   return (
-    <HStack gap="2">
-      <Tooltip content={description}>
-        <HStack gap="2" tabIndex={0} aria-label={description}>
-          <Text fontSize="xs" color="gray.500" w="5" flexShrink={0}>
-            {label}
-          </Text>
-          <Text
-            fontSize="xs"
-            color={used != null && used >= 75 ? color : 'gray.500'}
-            w="10"
-            flexShrink={0}
-            textAlign="right"
-            fontVariantNumeric="tabular-nums"
-          >
-            {percent}
-          </Text>
-          {used == null ? (
-            <Box w="20" h="1.5" bg="gray.100" borderRadius="full" />
-          ) : (
-            <Progress.Root value={Math.min(used, 100)} w="20" aria-label={`${label} 已用额度`}>
-              <Progress.Track h="1.5" bg="gray.100" borderRadius="full">
-                <Progress.Range bg={color} borderRadius="full" />
-              </Progress.Track>
-            </Progress.Root>
+    <Metric
+      label={label}
+      extra={
+        <>
+          {resetCountdown && (
+            <Text color="gray.400" fontVariantNumeric="tabular-nums">
+              {resetCountdown}
+            </Text>
           )}
-          <Text fontSize="xs" color="gray.500" minW="12" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
-            {resetCountdown}
-          </Text>
-        </HStack>
+          {extra}
+        </>
+      }
+      meter={{ value: used ?? null, color, label: `${label} 已用额度` }}
+    >
+      <Tooltip content={description}>
+        <Text
+          tabIndex={0}
+          aria-label={description}
+          color={used == null ? 'gray.400' : used >= 75 ? color : undefined}
+          borderRadius="sm"
+        >
+          {percent}
+        </Text>
       </Tooltip>
-      {extra}
-    </HStack>
+      {children}
+    </Metric>
   );
 }
 
+/** 5h 和 7d 两个额度指标格，放在渠道卡片的指标网格中。 */
 export function SubscriptionQuota({
   provider,
   channelId,
@@ -129,58 +127,64 @@ export function SubscriptionQuota({
         : query.isPending
           ? '正在获取额度'
           : '上游未提供此窗口额度';
+  const failed = canFetch && (query.isError || refreshFailed);
+  const refreshTitle = !enabled
+    ? '渠道已禁用'
+    : reauthorizationRequired
+      ? '需要重新授权'
+      : refreshFailed
+        ? '刷新失败，点击重试'
+        : query.isError
+          ? '额度获取失败，点击重试'
+          : '刷新额度';
   return (
-    <Stack gap="1.5" w="fit-content" aria-busy={canFetch && (query.isFetching || refresh.isPending)}>
-      <HStack gap="2">
-        <Stack gap="1.5">
-          <QuotaWindow label="5h" window={data?.fiveHour ?? null} unavailable={unavailable} />
-          <QuotaWindow
-            label="7d"
-            window={data?.sevenDay ?? null}
-            unavailable={unavailable}
-            extra={
-              cycle.data && data?.sevenDay ? (
-                <Button
-                  variant="ghost"
-                  size="2xs"
-                  px="1"
-                  fontSize="xs"
-                  fontWeight="500"
-                  color="gray.700"
-                  fontVariantNumeric="tabular-nums"
-                  aria-label={`本周期等效 API 费用约 ${formatUsd(cycle.data.amount)}，查看明细`}
-                  title={
-                    cycle.data.projectedAmount !== null
-                      ? `本周期等效 API 费用（估算），整个周期约 ${formatUsd(cycle.data.projectedAmount)}`
-                      : '本周期等效 API 费用（估算）'
-                  }
-                  onClick={() => setShowingCycle(true)}
-                >
-                  ≈ {formatUsd(cycle.data.amount)}
-                </Button>
-              ) : undefined
+    <>
+      <QuotaWindow
+        label="5h"
+        window={data?.fiveHour ?? null}
+        unavailable={unavailable}
+        extra={
+          <IconButton
+            aria-label={refreshTitle}
+            title={refreshTitle}
+            variant="ghost"
+            size="2xs"
+            minW="5"
+            h="5"
+            ms="auto"
+            color={failed ? 'red.600' : 'gray.500'}
+            disabled={!canFetch || query.isFetching || refresh.isPending}
+            loading={refresh.isPending}
+            onClick={() => refresh.mutate({ channelId })}
+          >
+            <RefreshCw size={12} aria-hidden="true" />
+          </IconButton>
+        }
+      />
+      <QuotaWindow label="7d" window={data?.sevenDay ?? null} unavailable={unavailable}>
+        {cycle.data && data?.sevenDay && (
+          <Button
+            variant="ghost"
+            size="2xs"
+            h="5"
+            px="1"
+            fontSize="xs"
+            fontWeight="500"
+            color="gray.600"
+            fontVariantNumeric="tabular-nums"
+            aria-label={`本周期等效 API 费用约 ${formatUsd(cycle.data.amount)}，查看明细`}
+            title={
+              cycle.data.projectedAmount !== null
+                ? `本周期等效 API 费用（估算），整个周期约 ${formatUsd(cycle.data.projectedAmount)}`
+                : '本周期等效 API 费用（估算）'
             }
-          />
-        </Stack>
-        <IconButton
-          aria-label="刷新额度"
-          title={!enabled ? '渠道已禁用' : reauthorizationRequired ? '需要重新授权' : '刷新额度'}
-          variant="ghost"
-          size="xs"
-          color="gray.500"
-          disabled={!canFetch || query.isFetching || refresh.isPending}
-          loading={refresh.isPending}
-          onClick={() => refresh.mutate({ channelId })}
-        >
-          <RefreshCw size={14} aria-hidden="true" />
-        </IconButton>
-      </HStack>
+            onClick={() => setShowingCycle(true)}
+          >
+            ≈ {formatUsd(cycle.data.amount)}
+          </Button>
+        )}
+      </QuotaWindow>
       {showingCycle && <SubscriptionCycleDialog channelId={channelId} onClose={() => setShowingCycle(false)} />}
-      {canFetch && (query.isError || refreshFailed) && (
-        <Text fontSize="xs" color="gray.500" role="status">
-          {refreshFailed ? '刷新失败，请重试' : '获取失败'}
-        </Text>
-      )}
-    </Stack>
+    </>
   );
 }
