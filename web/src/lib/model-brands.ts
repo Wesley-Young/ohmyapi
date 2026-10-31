@@ -49,6 +49,9 @@ export function modelBrand(model: string): ModelBrand | undefined {
 
 const brandFilterLabel = (filter: BrandFilter) => (filter === 'other' ? '其他' : brandLabels[filter]);
 
+/** 模型所属厂商的名称，无法识别时为「其他」。 */
+export const modelBrandLabel = (model: string) => brandFilterLabel(modelBrand(model) ?? 'other');
+
 const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
 
 /** 先按厂商名、再按模型名排序；无法识别厂商的模型排在最后。 */

@@ -1,15 +1,39 @@
 import { Box, Button, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
+import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Calculator, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
-import { formError } from '../lib/format';
+import { displayMoney, formatCount, formError } from '../lib/format';
 import { dayNames, defaultRule, kinds, minuteText, type Rule } from '../lib/pricing';
 import { queryClient, trpc } from '../lib/trpc';
 import { IconButton } from './icon-button';
 import { PricingPreview } from './pricing-preview';
 import { RuleForm } from './pricing-rule-form';
 import { ErrorText, Loading, NameAction, PrimaryButton, pinnedColumn } from './ui';
+
+type PricingRule = RouterOutputs['admin']['pricing']['list']['rules'][number];
+
+/** 规则的生效条件，如「≥ 200,000 Token」「周一、周二 09:00–18:00」。 */
+function conditionText(r: PricingRule) {
+  const parts = [];
+  if (r.contextMin !== null)
+    parts.push(
+      r.contextMax === null
+        ? `≥ ${formatCount(r.contextMin)} Token`
+        : `≥ ${formatCount(r.contextMin)} 且 < ${formatCount(r.contextMax)} Token`,
+    );
+  if (r.weekdaysMask !== null)
+    parts.push(
+      `${dayNames
+        .filter((_, i) => (r.weekdaysMask as number) & (1 << i))
+        .map((d) => `周${d}`)
+        .join('、')} ${minuteText(r.startMinute)}–${minuteText(r.endMinute)}`,
+    );
+  return parts.length ? parts.join('，') : kinds[r.kind];
+}
+
+const price = (value: string | null | undefined) => (value ? displayMoney(value) : '—');
 
 export function ModelPricing({
   modelId,
@@ -26,6 +50,7 @@ export function ModelPricing({
     trpc.admin.pricing.list.queryOptions({ modelId: lunaModelId ?? '' }, { enabled: copyLunaPrice && !!lunaModelId }),
   );
   const [editingRule, setEditingRule] = useState<{ index?: number; rule: Rule }>();
+  const [previewing, setPreviewing] = useState(false);
   const save = useMutation(
     trpc.admin.pricing.save.mutationOptions({
       onSuccess: async () => {
@@ -38,17 +63,23 @@ export function ModelPricing({
     }),
   );
   const currentRules = data.data?.rules.map(({ id: _id, ...r }) => r) ?? [];
+  const searchDefaults = data.data?.searchDefaults;
+  // 规则和默认值都没有搜索价格时，不显示搜索相关的列和输入。
+  const hasSearch =
+    !!searchDefaults?.webSearchPrice ||
+    !!searchDefaults?.webSearchPreviewPrice ||
+    currentRules.some((r) => r.webSearchPrice || r.webSearchPreviewPrice);
   return (
-    <Stack gap="7">
+    <Stack gap="4">
       <HStack justify="space-between" gap="4" flexWrap="wrap">
-        <Stack gap="1">
-          <Heading as="h3" fontSize="lg">
+        <HStack gap="2" align="baseline">
+          <Heading as="h3" fontSize="md">
             定价规则
           </Heading>
-          <Text fontSize="sm" color="gray.500">
+          <Text fontSize="xs" color="gray.500">
             单价 / 百万 Token
           </Text>
-        </Stack>
+        </HStack>
         <HStack gap="2" flexWrap="wrap">
           {copyLunaPrice && (
             <Button
@@ -69,6 +100,12 @@ export function ModelPricing({
               }}
             >
               复制 GPT-5.6 Luna 价格
+            </Button>
+          )}
+          {currentRules.length > 0 && (
+            <Button size="sm" variant="ghost" aria-haspopup="dialog" onClick={() => setPreviewing(true)}>
+              <Calculator size={14} aria-hidden="true" />
+              费用试算
             </Button>
           )}
           <PrimaryButton
@@ -102,12 +139,15 @@ export function ModelPricing({
         <>
           <ErrorText>{formError(save.error)?.message}</ErrorText>
           <Box overflowX="auto">
-            <Table.Root size="sm" whiteSpace="nowrap">
+            <Table.Root size="sm" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
               <Table.Header>
                 <Table.Row>
-                  {['规则名称', '条件', '输入', '输出', '缓存读', '缓存写', '搜索 / 千次', '预览搜索 / 千次'].map(
+                  <Table.ColumnHeader>规则</Table.ColumnHeader>
+                  {['输入', '输出', '缓存读', '缓存写', ...(hasSearch ? ['搜索 / 千次', '预览搜索 / 千次'] : [])].map(
                     (h) => (
-                      <Table.ColumnHeader key={h}>{h}</Table.ColumnHeader>
+                      <Table.ColumnHeader key={h} textAlign="end">
+                        {h}
+                      </Table.ColumnHeader>
                     ),
                   )}
                   <Table.ColumnHeader {...pinnedColumn}>操作</Table.ColumnHeader>
@@ -127,32 +167,24 @@ export function ModelPricing({
                       >
                         {r.label}
                       </NameAction>
+                      <Text fontSize="xs" color="gray.500">
+                        {conditionText(r)}
+                      </Text>
                     </Table.Cell>
-                    <Table.Cell>
-                      <Text fontWeight="500">{kinds[r.kind]}</Text>
-                      {r.contextMin !== null && (
-                        <Text fontSize="xs" color="gray.500">
-                          [{r.contextMin}, {r.contextMax ?? '∞'}) Token
-                        </Text>
-                      )}
-                      {r.weekdaysMask !== null && (
-                        <Text fontSize="xs" color="gray.500">
-                          {dayNames
-                            .filter((_, i) => (r.weekdaysMask as number) & (1 << i))
-                            .map((d) => `周${d}`)
-                            .join('、')}{' '}
-                          {minuteText(r.startMinute)}–{minuteText(r.endMinute)}
-                        </Text>
-                      )}
-                    </Table.Cell>
-                    <Table.Cell>{r.inputPrice}</Table.Cell>
-                    <Table.Cell>{r.outputPrice}</Table.Cell>
-                    <Table.Cell>{r.cacheReadPrice ?? '—'}</Table.Cell>
-                    <Table.Cell>{r.cacheWritePrice ?? '—'}</Table.Cell>
-                    <Table.Cell>{r.webSearchPrice ?? data.data.searchDefaults.webSearchPrice ?? '—'}</Table.Cell>
-                    <Table.Cell>
-                      {r.webSearchPreviewPrice ?? data.data.searchDefaults.webSearchPreviewPrice ?? '—'}
-                    </Table.Cell>
+                    <Table.Cell textAlign="end">{price(r.inputPrice)}</Table.Cell>
+                    <Table.Cell textAlign="end">{price(r.outputPrice)}</Table.Cell>
+                    <Table.Cell textAlign="end">{price(r.cacheReadPrice)}</Table.Cell>
+                    <Table.Cell textAlign="end">{price(r.cacheWritePrice)}</Table.Cell>
+                    {hasSearch && (
+                      <>
+                        <Table.Cell textAlign="end">
+                          {price(r.webSearchPrice ?? data.data.searchDefaults.webSearchPrice)}
+                        </Table.Cell>
+                        <Table.Cell textAlign="end">
+                          {price(r.webSearchPreviewPrice ?? data.data.searchDefaults.webSearchPreviewPrice)}
+                        </Table.Cell>
+                      </>
+                    )}
                     <Table.Cell {...pinnedColumn}>
                       <HStack gap="1">
                         <IconButton
@@ -205,9 +237,7 @@ export function ModelPricing({
               }}
             />
           )}
-          {currentRules.length > 0 && (
-            <PricingPreview key={data.data.rules.map((r) => r.id).join(':')} modelId={modelId} />
-          )}
+          {previewing && <PricingPreview modelId={modelId} showSearch={hasSearch} close={() => setPreviewing(false)} />}
         </>
       ) : null}
     </Stack>

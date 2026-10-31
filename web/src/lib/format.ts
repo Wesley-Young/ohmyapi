@@ -23,6 +23,10 @@ export function dateTimeInput(value: string | null) {
 }
 /** 整数计数（含 Token 数），按浏览器区域的数字格式显示。 */
 export const formatCount = (value: string | number | bigint) => BigInt(value).toLocaleString();
+
+const compactFormat = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 });
+/** 简写的数量，如 128K、1M。 */
+export const compactCount = (value: string | number) => compactFormat.format(Number(value));
 /** 按浏览器默认区域显示的日期时间。 */
 export const localDateTime = (value: string | number | Date) => new Date(value).toLocaleString();
 /** 等效 API 费用固定以美元展示。 */
