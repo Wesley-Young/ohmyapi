@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.env
+.env.*
+endpoints.json
+**/*.log
+.DS_Store
+.idea
+deploy/1panel/secrets
+deploy/1panel/config

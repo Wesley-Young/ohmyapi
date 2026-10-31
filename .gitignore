@@ -8,3 +8,5 @@ dist/
 .idea/
 *.log
 /endpoints.json
+/deploy/1panel/secrets/
+/deploy/1panel/config/endpoints.json
