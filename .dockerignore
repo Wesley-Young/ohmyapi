@@ -10,3 +10,4 @@ endpoints.json
 .idea
 deploy/1panel/secrets
 deploy/1panel/config
+deploy/1panel/run
