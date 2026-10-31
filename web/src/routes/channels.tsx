@@ -6,26 +6,34 @@ import {
   ChevronRight,
   CircleAlert,
   Ellipsis,
-  Layers,
   Lock,
   Pencil,
-  Plug,
   ShieldCheck,
   Trash2,
   UserRoundKey,
 } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
-import { ModelIcon, ProviderIcon } from '../components/brand-icon';
+import { ModelIcon } from '../components/brand-icon';
 import { ChannelForm } from '../components/channel-form';
 import { ChannelUsersDialog } from '../components/channel-grants';
+import { ChannelIcon, StatusDot } from '../components/channel-icon';
 import { IconButton, Tooltip } from '../components/icon-button';
 import { PlanBadge } from '../components/plan-badge';
 import { SubscriptionQuota } from '../components/subscription-quota';
-import { ConfirmAction, ErrorText, Loading, Metric, NameAction, PrimaryButton, Title } from '../components/ui';
+import {
+  Attribute,
+  ConfirmAction,
+  ErrorText,
+  Loading,
+  Metric,
+  NameAction,
+  PrimaryButton,
+  Title,
+} from '../components/ui';
 import { refreshCatalog } from '../lib/cache';
-import { type ChannelType, channelTypeLabels } from '../lib/channels';
+import { type ChannelType, channelStatus, channelTypeLabels, coolingDown } from '../lib/channels';
 import { displayAmount, displayMultiplier, formError, localDateTime } from '../lib/format';
 import { ppmToPercent } from '../lib/moderation';
 import { brandColor, textColor } from '../lib/theme';
@@ -39,22 +47,6 @@ type Spending = RouterOutputs['admin']['channelSpending']['channels'][number];
 const sectionOrder = ['aggregate', 'api', 'subscription'] as const satisfies readonly ChannelType[];
 
 type Member = { channel: Channel; priority: number; weight: number };
-
-const coolingDown = (until: string | null) => !!until && Date.parse(until) > Date.now();
-
-/** 渠道的健康状态，以类型图标上的状态点表示。 */
-function channelStatus(c: Channel): { color: string; label: string } {
-  if (!c.enabled) return { color: 'gray.300', label: '已禁用' };
-  const sub = c.subscription;
-  if (sub?.errorCode)
-    return {
-      color: 'red.500',
-      label: sub.errorCode === 'subscription_refresh_uncertain' ? '需重新导入凭据' : '需要重新授权',
-    };
-  if (sub && (coolingDown(sub.cooldownUntil) || Object.values(sub.modelCooldowns).some(coolingDown)))
-    return { color: 'orange.400', label: '冷却中' };
-  return { color: 'green.500', label: '已启用' };
-}
 
 /** 需要处理的异常，以通栏提示显示在卡片底部。 */
 function channelNotices(c: Channel) {
@@ -73,57 +65,6 @@ function channelNotices(c: Channel) {
     if (coolingDown(until))
       notices.push({ key: `model:${model}`, tone: 'orange', text: `${model} 冷却中，${localDateTime(until)} 恢复` });
   return notices;
-}
-
-function StatusDot({ color, ring }: { color: string; ring: string }) {
-  return <Box boxSize="2.5" flexShrink="0" borderRadius="full" bg={color} borderWidth="2px" borderColor={ring} />;
-}
-
-function ChannelIcon({ channel: c }: { channel: Channel }) {
-  const status = channelStatus(c);
-  return (
-    <Box
-      position="relative"
-      color="gray.500"
-      display="flex"
-      flexShrink="0"
-      role="img"
-      aria-label={status.label}
-      title={status.label}
-    >
-      {c.subscription ? (
-        <ProviderIcon provider={c.subscription.provider} />
-      ) : c.type === 'aggregate' ? (
-        <Layers size={16} aria-hidden="true" />
-      ) : (
-        <Plug size={16} aria-hidden="true" />
-      )}
-      <Box position="absolute" right="-3px" bottom="-3px">
-        <StatusDot color={status.color} ring={c.enabled ? 'white' : 'gray.50'} />
-      </Box>
-    </Box>
-  );
-}
-
-/** 很少变动的配置，以名称后的小图标表示，悬停或聚焦时显示详情。 */
-function Attribute({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <Tooltip content={label}>
-      <Box
-        as="span"
-        tabIndex={0}
-        role="img"
-        aria-label={label}
-        display="inline-flex"
-        flexShrink="0"
-        color="gray.400"
-        borderRadius="sm"
-        _focusVisible={{ outline: `2px solid ${brandColor}`, outlineOffset: '2px' }}
-      >
-        {children}
-      </Box>
-    </Tooltip>
-  );
 }
 
 function ChannelAttributes({ channel: c, modelNames }: { channel: Channel; modelNames: Map<string, string> }) {
@@ -362,7 +303,7 @@ function ChannelCard({
       >
         <Stack gridArea="identity" gap="1" minW="0">
           <HStack gap="2" minW="0">
-            <ChannelIcon channel={c} />
+            <ChannelIcon channel={c} ring={c.enabled ? 'white' : 'gray.50'} />
             <NameAction
               aria-haspopup="dialog"
               fontSize="md"

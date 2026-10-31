@@ -25,7 +25,7 @@ import { Link as RouterLink } from 'react-router';
 
 import { formError } from '../lib/format';
 import { brandColor, brandHoverColor, textColor } from '../lib/theme';
-import { IconButton } from './icon-button';
+import { IconButton, Tooltip } from './icon-button';
 
 export function PrimaryButton(props: ButtonProps) {
   return (
@@ -458,5 +458,26 @@ export function FormDialog({
         </Dialog.Positioner>
       </Portal>
     </Dialog.Root>
+  );
+}
+
+/** 很少变动的配置，以名称后的小图标表示，悬停或聚焦时显示详情。 */
+export function Attribute({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Tooltip content={label}>
+      <Box
+        as="span"
+        tabIndex={0}
+        role="img"
+        aria-label={label}
+        display="inline-flex"
+        flexShrink="0"
+        color="gray.400"
+        borderRadius="sm"
+        _focusVisible={{ outline: `2px solid ${brandColor}`, outlineOffset: '2px' }}
+      >
+        {children}
+      </Box>
+    </Tooltip>
   );
 }

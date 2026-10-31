@@ -1,13 +1,21 @@
-import { Badge, Box, Checkbox, Grid, HStack, Stack, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Grid, HStack, Input, Menu, Stack, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
+import { Lock, Plus, X } from 'lucide-react';
 
+import { channelTypeLabels } from '../lib/channels';
 import { endpoints as allEndpoints, type Endpoint } from '../lib/endpoints';
+import { displayMultiplier } from '../lib/format';
+import { ChannelIcon } from './channel-icon';
 import type { ChannelModel } from './channel-models';
-import { FormInput } from './ui';
+import { IconButton } from './icon-button';
+import { Attribute } from './ui';
 
 type Channel = RouterOutputs['admin']['catalog']['list']['channels'][number];
 type Member = Channel['members'][number];
 
+const memberColumns = 'minmax(0, 1fr) 4.5rem 4.5rem auto';
+
+/** 已选子渠道逐行编辑优先级和权重，其余候选渠道从「添加子渠道」菜单中按类型选择。 */
 export function AggregateMembers({
   value,
   onChange,
@@ -18,6 +26,13 @@ export function AggregateMembers({
   channels: Channel[];
 }) {
   const candidates = channels.filter((channel) => channel.type !== 'aggregate');
+  const selected = value.flatMap((member) => {
+    const channel = candidates.find((candidate) => candidate.id === member.channelId);
+    return channel ? [{ member, channel }] : [];
+  });
+  const remaining = candidates.filter((channel) => !value.some((member) => member.channelId === channel.id));
+  const update = (channelId: string, patch: Partial<Member>) =>
+    onChange(value.map((entry) => (entry.channelId === channelId ? { ...entry, ...patch } : entry)));
   return (
     <Box as="fieldset" minW="0">
       <Text as="legend" fontSize="sm" fontWeight="500" mb="2">
@@ -27,75 +42,142 @@ export function AggregateMembers({
         <Text fontSize="sm" color="gray.500">
           模型和端点取全部子渠道的交集；优先级越大越优先调用该渠道，同优先级内按权重分流；上游未执行请求时依次换用其他子渠道。
         </Text>
-        {candidates.map((channel) => {
-          const member = value.find((entry) => entry.channelId === channel.id);
-          return (
-            <Stack key={channel.id} gap="3" borderWidth="1px" borderColor="gray.200" borderRadius="lg" p="3">
-              <Checkbox.Root
-                checked={Boolean(member)}
-                onCheckedChange={(event) =>
-                  onChange(
-                    event.checked === true
-                      ? [...value, { channelId: channel.id, priority: 0, weight: 1 }]
-                      : value.filter((entry) => entry.channelId !== channel.id),
-                  )
-                }
-              >
-                <Checkbox.HiddenInput />
-                <Checkbox.Control />
-                <Checkbox.Label overflowWrap="anywhere">
-                  <HStack gap="2" flexWrap="wrap">
-                    {channel.name}
-                    <Badge>{channel.type === 'api' ? 'API 渠道' : '订阅渠道'}</Badge>
-                    {!channel.enabled && <Badge>已禁用</Badge>}
-                    {!channel.isPublic && <Badge>非公开</Badge>}
+        {selected.length > 0 && (
+          <Box borderWidth="1px" borderColor="gray.200" borderRadius="lg" px="3">
+            <Grid
+              templateColumns={memberColumns}
+              columnGap="2"
+              py="2"
+              fontSize="xs"
+              color="gray.500"
+              aria-hidden="true"
+            >
+              <Text>渠道</Text>
+              <Text>优先级</Text>
+              <Text>权重</Text>
+              <Box w="6" />
+            </Grid>
+            <Box as="ul" listStyleType="none">
+              {selected.map(({ member, channel }) => (
+                <Grid
+                  as="li"
+                  key={channel.id}
+                  templateColumns={memberColumns}
+                  columnGap="2"
+                  alignItems="center"
+                  py="2"
+                  borderTopWidth="1px"
+                  borderColor="gray.100"
+                >
+                  <HStack gap="2" minW="0">
+                    <ChannelIcon channel={channel} />
+                    <Text fontSize="sm" truncate title={channel.name} color={channel.enabled ? undefined : 'gray.500'}>
+                      {channel.name}
+                    </Text>
+                    <Badge flexShrink="0">{displayMultiplier(channel.multiplier)}</Badge>
+                    {!channel.isPublic && (
+                      <Attribute label="非公开，仅授权用户可用">
+                        <Lock size={14} aria-hidden="true" />
+                      </Attribute>
+                    )}
                   </HStack>
-                </Checkbox.Label>
-              </Checkbox.Root>
-
-              {member && (
-                <Grid templateColumns="repeat(2, minmax(0, 1fr))" gap="3">
-                  <FormInput
-                    label="优先级"
+                  <Input
+                    size="sm"
                     type="number"
                     min={0}
                     max={1000}
                     required
+                    aria-label={`${channel.name}的优先级`}
                     value={String(member.priority ?? 0)}
-                    onChange={(event) =>
-                      onChange(
-                        value.map((entry) =>
-                          entry.channelId === channel.id ? { ...entry, priority: Number(event.target.value) } : entry,
-                        ),
-                      )
-                    }
+                    onChange={(event) => update(channel.id, { priority: Number(event.target.value) })}
                   />
-                  <FormInput
-                    label="权重"
+                  <Input
+                    size="sm"
                     type="number"
                     min={1}
                     max={1000}
                     required
+                    aria-label={`${channel.name}的权重`}
                     value={String(member.weight ?? 1)}
-                    onChange={(event) =>
-                      onChange(
-                        value.map((entry) =>
-                          entry.channelId === channel.id ? { ...entry, weight: Number(event.target.value) } : entry,
-                        ),
-                      )
-                    }
+                    onChange={(event) => update(channel.id, { weight: Number(event.target.value) })}
                   />
+                  <IconButton
+                    aria-label={`移除${channel.name}`}
+                    size="xs"
+                    variant="ghost"
+                    color="gray.500"
+                    onClick={() => onChange(value.filter((entry) => entry.channelId !== channel.id))}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </IconButton>
                 </Grid>
-              )}
-            </Stack>
-          );
-        })}
-        {!candidates.length && (
+              ))}
+            </Box>
+          </Box>
+        )}
+        {candidates.length ? (
+          <Menu.Root
+            positioning={{ placement: 'bottom-start', strategy: 'fixed' }}
+            onSelect={({ value: channelId }) => onChange([...value, { channelId, priority: 0, weight: 1 }])}
+          >
+            <Menu.Trigger asChild>
+              <Button size="sm" variant="outline" alignSelf="start" disabled={!remaining.length}>
+                <Plus size={14} aria-hidden="true" />
+                {remaining.length ? '添加子渠道' : '已添加全部渠道'}
+              </Button>
+            </Menu.Trigger>
+            <Menu.Positioner>
+              <Menu.Content
+                minW="240px"
+                maxW="min(360px, var(--available-width))"
+                maxH="min(320px, var(--available-height))"
+                overflowY="auto"
+                borderRadius="xl"
+              >
+                {(['api', 'subscription'] as const).map((type) => {
+                  const items = remaining.filter((channel) => channel.type === type);
+                  return (
+                    items.length > 0 && (
+                      <Menu.ItemGroup key={type}>
+                        <Menu.ItemGroupLabel fontSize="xs" fontWeight="500" color="gray.500">
+                          {channelTypeLabels[type]}
+                        </Menu.ItemGroupLabel>
+                        {items.map((channel) => (
+                          <Menu.Item key={channel.id} value={channel.id} gap="2" borderRadius="lg">
+                            <ChannelIcon channel={channel} />
+                            <Text truncate color={channel.enabled ? undefined : 'gray.500'}>
+                              {channel.name}
+                            </Text>
+                            {!channel.isPublic && (
+                              <Box
+                                as="span"
+                                display="inline-flex"
+                                flexShrink="0"
+                                color="gray.400"
+                                role="img"
+                                aria-label="非公开"
+                              >
+                                <Lock size={14} aria-hidden="true" />
+                              </Box>
+                            )}
+                            <Badge flexShrink="0" ms="auto">
+                              {displayMultiplier(channel.multiplier)}
+                            </Badge>
+                          </Menu.Item>
+                        ))}
+                      </Menu.ItemGroup>
+                    )
+                  );
+                })}
+              </Menu.Content>
+            </Menu.Positioner>
+          </Menu.Root>
+        ) : (
           <Text fontSize="sm" color="gray.500">
             请先创建 API 或订阅渠道。
           </Text>
         )}
-        {candidates.some((channel) => !channel.isPublic && value.some((member) => member.channelId === channel.id)) && (
+        {selected.some(({ channel }) => !channel.isPublic) && (
           <Text fontSize="sm" color="gray.600">
             获准使用此聚合渠道的用户，也可以通过它调用所选非公开子渠道。
           </Text>
