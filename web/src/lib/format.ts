@@ -66,3 +66,9 @@ export function displayRange(minimum: string, maximum: string) {
   const high = displayMoney(maximum);
   return low === high ? low : `${low}–${high}`;
 }
+
+/** 时长，如 0.4s、2m 5s。 */
+export function formatSeconds(seconds: number) {
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  return `${Math.floor(seconds / 60)}m ${(seconds % 60).toFixed(0)}s`;
+}

@@ -13,7 +13,7 @@ import { useReviewCount } from '../components/review-badge';
 import { ErrorText, Loading, PageControls, pinnedColumn, Title } from '../components/ui';
 import { ViewSwitch } from '../components/view-switch';
 import { useAuth } from '../lib/auth';
-import { formError, localDate } from '../lib/format';
+import { formatSeconds, formError, localDate } from '../lib/format';
 import { trpc } from '../lib/trpc';
 
 const usageKinds = {
@@ -66,11 +66,6 @@ function totalTone(seconds: number, tokens: number): Tone {
   if (tokens < 100 || seconds <= 0) return seconds < 10 ? 'success' : seconds < 30 ? 'warning' : 'danger';
   const throughput = tokens / seconds;
   return throughput >= 30 ? 'success' : throughput >= 15 ? 'warning' : 'danger';
-}
-
-function formatSeconds(seconds: number) {
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  return `${Math.floor(seconds / 60)}m ${(seconds % 60).toFixed(0)}s`;
 }
 
 function RequestDuration({ request: r }: { request: RequestItem }) {
