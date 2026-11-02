@@ -43,6 +43,9 @@ export class UsageCollector implements ResponseObserver {
   usageSeen = false;
   usageEstimate?: UsageEstimate;
   readonly estimate = new StreamUsageEstimate();
+  /** 收到的事件数和最后一个事件的顶层字段，上游没有报告用量时用于诊断。 */
+  private events = 0;
+  private lastEventKeys: string[] = [];
   /** 内容审计抽中且需要输出时，另行收集生成内容。 */
   output?: OutputSink;
   private reportedUsage: ObjectValue = {};
@@ -145,6 +148,8 @@ export class UsageCollector implements ResponseObserver {
   event(value: unknown) {
     const data = object(value);
     if (!data) return;
+    this.events++;
+    this.lastEventKeys = Object.keys(data).slice(0, 10);
     const { reader } = this;
     this.estimate.observe(this.protocol, data);
     if (this.output) this.protocol.observeOutput(data, this.output);
@@ -177,6 +182,14 @@ export class UsageCollector implements ResponseObserver {
     this.syncSearchUsage();
     if (usage) this.normalize(reader.merge(this.reportedUsage, usage));
     if (this.usage && !this.invalid && reader.finalizes(data, final, usage !== undefined)) this.finalUsage = true;
+  }
+
+  /** 上游响应的结构摘要：事件数、是否收到结束事件和最后一个事件的顶层字段，不含内容。 */
+  diagnostics() {
+    const keys = this.lastEventKeys.map((key) => key.slice(0, 64)).join(', ');
+    return `上游响应诊断：事件 ${this.events} 个，${this.complete ? '已收到' : '未收到'}结束事件${
+      this.events ? `，最后一个事件的字段：${keys || '无'}` : ''
+    }`;
   }
 
   /** SSE 正常读到结尾；以 [DONE] 为完成标志的协议缺少 [DONE] 时，结尾同样表示不会再有用量。 */

@@ -98,8 +98,15 @@ export class ForwardBillingSession {
       noExecution: !dispatched || this.notSent || safeRejection,
       errorCode: code,
       errorMessage:
-        [requestErrorMessage(code), failureMessage, collector.errorMessage].filter(Boolean).join('\n').slice(0, 4096) ||
-        undefined,
+        [
+          requestErrorMessage(code),
+          failureMessage,
+          collector.errorMessage,
+          code === 'usage_missing' ? collector.diagnostics() : undefined,
+        ]
+          .filter(Boolean)
+          .join('\n')
+          .slice(0, 4096) || undefined,
     };
   }
 
@@ -267,6 +274,7 @@ export class ForwardBillingSession {
           usageFinal: result.usageFinal,
           usageEstimate: result.usageEstimate,
           blockSettlement: result.blockSettlement,
+          usageDiagnostics: code === 'usage_missing' ? this.collector.diagnostics() : undefined,
           maxBodyBytes: code === 'request_too_large' ? config.maxBodyBytes : undefined,
           timeoutMs:
             code === 'body_timeout'
