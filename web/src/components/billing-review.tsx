@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { refreshRequestBilling, refreshUser } from '../lib/cache';
-import { formError, isZeroMoney } from '../lib/format';
+import { formError } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './fields';
 import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
@@ -126,10 +126,6 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
         }}
       >
         <Stack gap="5">
-          <Text fontSize="sm" color="gray.500">
-            {isZeroMoney(r.held) ? '' : `冻结 ${r.held} ${r.currency}。`}
-            请依据上游请求记录确认费用，未确认用量不能视为免费。
-          </Text>
           <SelectField
             label="核对方式"
             value={action}
@@ -174,7 +170,7 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
               inputMode="decimal"
               disabled={locked}
               onChange={(e) => setAmount(e.target.value)}
-              helper="最多六位小数；0 表示已确认免费"
+              helper="最多六位小数"
             />
           )}
           <FormInput
