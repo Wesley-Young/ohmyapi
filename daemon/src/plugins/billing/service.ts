@@ -265,6 +265,8 @@ export class BillingService implements Disposable {
         } else if (summary.noExecution) {
           await releaseRequest(tx, { ...r, ...metadata }, undefined, '上游未执行，释放预占');
           return { request: { ...r, ...metadata }, status: 'released', chargedMicros: 0n };
+        } else if (summary.noUsageReported && !summary.blockSettlement && !(await this.hasUsage(tx, id))) {
+          return this.settleUnreported(tx, { ...r, ...metadata }, summary.errorCode);
         } else {
           return {
             ...(await markNeedsReview(tx, r, summary.errorCode ?? 'usage_not_final')),
@@ -323,6 +325,29 @@ export class BillingService implements Disposable {
     } finally {
       this.active.delete(id);
     }
+  }
+
+  private async hasUsage(tx: Transaction, id: string) {
+    const [row] = await tx
+      .select({ id: requestUsage.requestId })
+      .from(requestUsage)
+      .where(eq(requestUsage.requestId, id));
+    return Boolean(row);
+  }
+
+  /**
+   * 上游执行后没有报告任何用量（如断连截断、上游省略用量），没有可以计价的依据，按 0 结算。
+   * 错误码和诊断信息保留在请求上，可以按错误码统计。
+   */
+  private async settleUnreported(tx: Transaction, r: RequestRow, errorCode: string | undefined) {
+    const snapshot = {
+      total: formatMoney(0n),
+      totalMicros: '0',
+      source: 'no_usage_reported',
+      currency: this.pricing.currency,
+    };
+    await settleRequest(tx, r, 0n, snapshot, undefined, '上游未报告用量，按 0 结算');
+    return { request: r, status: 'settled', chargedMicros: 0n, errorCode } satisfies BillingOutcome;
   }
 
   private async reviewFailed(id: string, summary?: BillingSummary, error?: unknown) {

@@ -260,7 +260,10 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                 </Section>
               )}
 
-              {(r.preview || r.pricing?.source === 'administrator_amount' || r.previewError) && (
+              {(r.preview ||
+                r.pricing?.source === 'administrator_amount' ||
+                r.pricing?.source === 'no_usage_reported' ||
+                r.previewError) && (
                 <Section
                   title={`费用明细${r.usageEstimate ? '（估算）' : r.preview && !r.usageFinal ? '（用量未最终确认）' : ''}`}
                 >
@@ -316,6 +319,9 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                   )}
                   {r.pricing?.source === 'administrator_amount' && (
                     <Text fontSize="sm">已按管理员核对费用结算，依据：{String(r.pricing.reason)}</Text>
+                  )}
+                  {r.pricing?.source === 'no_usage_reported' && (
+                    <Text fontSize="sm">上游未报告用量，已按 0 结算。</Text>
                   )}
                   <ErrorText>{r.previewError}</ErrorText>
                 </Section>

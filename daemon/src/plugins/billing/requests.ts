@@ -11,7 +11,7 @@ type RequestStatus = RequestRow['status'];
  * 计费请求的状态流转：
  * received → reserved → forwarding → settling → settled
  *                     ↘ released（未执行或人工释放）
- * 任何未能确认费用的请求进入 needs_review，由管理员核对后结算或释放；
+ * 上游执行后没有报告任何用量的请求按 0 结算；其他未能确认费用的请求进入 needs_review，由管理员核对后结算或释放；
  * 未启用计费的请求（准入前被拒绝）直接进入 rejected。
  */
 export const inflightStatuses = ['reserved', 'forwarding', 'settling'] as const satisfies RequestStatus[];
@@ -41,6 +41,8 @@ export type BillingSummary = {
   errorCode?: string;
   errorMessage?: string;
   noExecution: boolean;
+  /** 上游没有报告用量、搜索调用或无法计价的费用，响应也已完整观察。 */
+  noUsageReported?: boolean;
   ttftMs?: number;
   outputTps?: number;
 };

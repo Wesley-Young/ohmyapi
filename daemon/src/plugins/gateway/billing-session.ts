@@ -96,6 +96,12 @@ export class ForwardBillingSession {
       httpStatus,
       upstreamRequestId: collector.upstreamId,
       noExecution: !dispatched || this.notSent || safeRejection,
+      noUsageReported:
+        !collector.usageSeen &&
+        !collector.searchObserved &&
+        !collector.unknownCosts &&
+        !collector.invalid &&
+        !collector.observationIncomplete,
       errorCode: code,
       errorMessage:
         [
