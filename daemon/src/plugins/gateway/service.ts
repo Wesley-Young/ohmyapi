@@ -457,9 +457,7 @@ export class GatewayService implements Disposable {
         if (abort.signal.aborted)
           throw new GatewayError(400, 'request_cancelled', 'Request was cancelled before forwarding');
         // 客户端断开后继续读取上游以取得最终用量。
-        lifecycle.retainUpstreamOnDisconnect(
-          executionChannel.type === 'subscription' ? 60_000 : this.config.disconnectDrainTimeoutMs,
-        );
+        lifecycle.retainUpstreamOnDisconnect(this.config.disconnectDrainTimeoutMs);
         // 首次发往上游时按入口和执行渠道的配置决定是否抽样送审；切换渠道后沿用首次的决定。
         if (!moderation) {
           moderation = this.moderation.sample({
