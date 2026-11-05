@@ -8,11 +8,12 @@ export const endpoints = [
   '/v1beta/generateContent',
   // TypeSafe System One 决策接口，返回类型化的判断而不是生成文本。
   '/v1/systemone',
+  '/v1/decisions',
 ] as const;
 export type Endpoint = (typeof endpoints)[number];
 
 /** 同一协议族共享请求和响应结构，例如 Responses 与 compact。 */
-export type ProtocolFamily = 'chat' | 'responses' | 'messages' | 'gemini' | 'systemone';
+export type ProtocolFamily = 'chat' | 'responses' | 'messages' | 'gemini' | 'systemone' | 'decisions';
 
 /**
  * 每个协议族的主端点。上游服务按协议族提供 API：提供主端点的服务同时提供同族的其他端点，例如 Responses 与 compact。
@@ -23,5 +24,6 @@ export const familyEndpoints = {
   messages: '/v1/messages',
   gemini: '/v1beta/generateContent',
   systemone: '/v1/systemone',
+  decisions: '/v1/decisions',
 } as const satisfies Record<ProtocolFamily, Endpoint>;
 export type FamilyEndpoint = (typeof familyEndpoints)[ProtocolFamily];

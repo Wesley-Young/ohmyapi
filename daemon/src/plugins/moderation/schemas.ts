@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { pageInput } from '../../core/pagination.ts';
+import { moderationEndpoints } from '../database/schema/index.ts';
 
 export const moderationListInput = z.object({
   /** alerts：未确认的疑似和违规；all：全部。 */
@@ -19,6 +20,7 @@ export const moderationSettingsInput = z
   .object({
     /** null 表示停用审核：不再采集新内容，已入队的会话等待重新配置。 */
     channelId: z.uuid().nullable(),
+    endpoint: z.enum(moderationEndpoints).default('/v1/systemone'),
     model: z.string().trim().min(1, '请填写审核模型').max(128).nullable(),
     rules: z.string().trim().max(8000, '审核规则最多 8000 个字符'),
   })

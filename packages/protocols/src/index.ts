@@ -1,5 +1,6 @@
 import type { Endpoint } from './endpoints.ts';
 import { chatProtocol } from './families/chat.ts';
+import { decisionsProtocol } from './families/decisions.ts';
 import { geminiProtocol } from './families/gemini.ts';
 import { messagesProtocol } from './families/messages.ts';
 import { responses, responsesCompact } from './families/responses.ts';
@@ -28,6 +29,7 @@ const registry = {
   '/v1/responses/compact': responsesCompact,
   '/v1beta/generateContent': geminiProtocol,
   '/v1/systemone': systemOneProtocol,
+  '/v1/decisions': decisionsProtocol,
 } as const satisfies Record<Endpoint, ApiProtocol>;
 
 /** 端点对应的协议描述。 */

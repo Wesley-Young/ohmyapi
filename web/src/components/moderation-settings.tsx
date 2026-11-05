@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { refreshModeration } from '../lib/cache';
+import { endpointProtocolNames } from '../lib/endpoints';
 import { formError } from '../lib/format';
 import { trpc } from '../lib/trpc';
 import { SelectField } from './fields';
@@ -14,6 +15,8 @@ type Settings = RouterOutputs['admin']['moderation']['settings'];
 /** 审核渠道、模型和规则；不选择渠道时停用审计，不再采集新内容。 */
 export function ModerationSettings({ settings, onClose }: { settings: Settings; onClose: () => void }) {
   const [channelId, setChannelId] = useState(settings.channelId ?? '');
+  const [endpoint, setEndpoint] = useState(settings.endpoint);
+  const channels = settings.channels.filter((channel) => channel.endpoint === endpoint);
   const [model, setModel] = useState(settings.model ?? '');
   const [rules, setRules] = useState(settings.rules);
   const task = useMutation(
@@ -30,25 +33,38 @@ export function ModerationSettings({ settings, onClose }: { settings: Settings; 
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!task.isPending) task.mutate({ channelId: channelId || null, model: channelId ? model : null, rules });
+          if (!task.isPending)
+            task.mutate({ channelId: channelId || null, endpoint, model: channelId ? model : null, rules });
         }}
       >
         <fieldset disabled={task.isPending} style={{ border: 0, padding: 0, minWidth: 0 }}>
           <Stack gap="5">
+            <SelectField
+              label="审核接口"
+              value={endpoint}
+              onChange={(value) => {
+                const next = settings.endpoints.find((candidate) => candidate === value);
+                if (!next) return;
+                setEndpoint(next);
+                if (!settings.channels.some((channel) => channel.id === channelId && channel.endpoint === next))
+                  setChannelId('');
+              }}
+              options={settings.endpoints.map((id) => ({ id, name: endpointProtocolNames[id] }))}
+            />
             <Stack gap="2">
               <SelectField
                 label="审核渠道"
                 value={channelId}
                 onChange={setChannelId}
-                options={settings.channels.map((channel) => ({
+                options={channels.map((channel) => ({
                   id: channel.id,
                   name: channel.enabled ? channel.name : `${channel.name}（已禁用）`,
                 }))}
               />
               <Text fontSize="sm" color="gray.500">
-                {settings.channels.length
-                  ? '通过 System One 决策接口审核；不选择时停用审计。'
-                  : '没有支持 /v1/systemone 端点的 API 渠道，请先添加。'}
+                {channels.length
+                  ? '通过所选决策接口审核；不选择渠道时停用审计。'
+                  : `没有支持 ${endpoint} 端点的 API 渠道，请先添加。`}
               </Text>
             </Stack>
             {channelId && (
@@ -56,7 +72,7 @@ export function ModerationSettings({ settings, onClose }: { settings: Settings; 
                 label="审核模型"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                placeholder="jev-latest"
+                placeholder={endpoint === '/v1/decisions' ? 'gpt-6-luna' : 'jev-latest'}
                 required
                 maxLength={128}
                 error={error?.fields.model?.[0]}

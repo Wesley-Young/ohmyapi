@@ -11,7 +11,14 @@ import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
 import type { Database } from '../database/client.ts';
 import { paginate } from '../database/query.ts';
-import { channelEndpoints, channels, moderationSessions, moderationSettings, users } from '../database/schema/index.ts';
+import {
+  channelEndpoints,
+  channels,
+  moderationEndpoints,
+  moderationSessions,
+  moderationSettings,
+  users,
+} from '../database/schema/index.ts';
 import type { OutboundHttp } from '../outbound/index.ts';
 import { defaultRules, type JudgeSettings, ModerationJudge } from './judge.ts';
 import type { ModerationSampler, StoredContent } from './sampler.ts';
@@ -99,7 +106,9 @@ export class ModerationService implements Disposable {
   private async loadSettings() {
     const [row] = await this.db.select().from(moderationSettings).where(eq(moderationSettings.id, 1));
     this.settings =
-      row?.channelId && row.model ? { channelId: row.channelId, model: row.model, rules: row.rules } : undefined;
+      row?.channelId && row.model
+        ? { channelId: row.channelId, endpoint: row.endpoint, model: row.model, rules: row.rules }
+        : undefined;
     this.sampler.ready = Boolean(this.settings);
   }
 
@@ -310,22 +319,29 @@ export class ModerationService implements Disposable {
     });
   }
 
-  /** 审核设置，以及可选的审核渠道：未删除、支持 System One 端点的 API 渠道。 */
+  /** 审核设置，以及可选的审核渠道：未删除、支持审核端点的 API 渠道。 */
   async getSettings() {
     const [[row], candidates] = await Promise.all([
       this.db.select().from(moderationSettings).where(eq(moderationSettings.id, 1)),
       this.db
-        .select({ id: channels.id, name: channels.name, enabled: channels.enabled })
+        .select({
+          id: channels.id,
+          name: channels.name,
+          enabled: channels.enabled,
+          endpoint: channelEndpoints.endpoint,
+        })
         .from(channels)
         .innerJoin(
           channelEndpoints,
-          and(eq(channelEndpoints.channelId, channels.id), eq(channelEndpoints.endpoint, '/v1/systemone')),
+          and(eq(channelEndpoints.channelId, channels.id), inArray(channelEndpoints.endpoint, moderationEndpoints)),
         )
         .where(and(eq(channels.type, 'api'), isNull(channels.deletedAt)))
         .orderBy(asc(channels.name)),
     ]);
     return {
       channelId: row?.channelId ?? null,
+      endpoint: row?.endpoint ?? '/v1/systemone',
+      endpoints: moderationEndpoints,
       model: row?.model ?? null,
       rules: row?.rules ?? '',
       defaultRules,
@@ -336,6 +352,7 @@ export class ModerationService implements Disposable {
   async saveSettings(principal: Principal, input: ModerationSettingsInput) {
     const values = {
       channelId: input.channelId,
+      endpoint: input.endpoint,
       model: input.channelId ? input.model : null,
       rules: input.rules,
     };
@@ -346,11 +363,11 @@ export class ModerationService implements Disposable {
           .from(channels)
           .innerJoin(
             channelEndpoints,
-            and(eq(channelEndpoints.channelId, channels.id), eq(channelEndpoints.endpoint, '/v1/systemone')),
+            and(eq(channelEndpoints.channelId, channels.id), eq(channelEndpoints.endpoint, input.endpoint)),
           )
           .where(and(eq(channels.id, input.channelId), eq(channels.type, 'api'), isNull(channels.deletedAt)))
           .for('share', { of: channels });
-        if (!channel) throw new AppError('bad_request', '审核渠道需为支持 /v1/systemone 的 API 渠道');
+        if (!channel) throw new AppError('bad_request', `审核渠道需为支持 ${input.endpoint} 的 API 渠道`);
       }
       await tx
         .insert(moderationSettings)
@@ -365,7 +382,12 @@ export class ModerationService implements Disposable {
         // 设置只有一行，以操作人作为审计目标。
         targetType: 'moderation_settings',
         targetId: actor.id,
-        metadata: { channelId: values.channelId, model: values.model, rulesChars: values.rules.length },
+        metadata: {
+          channelId: values.channelId,
+          endpoint: values.endpoint,
+          model: values.model,
+          rulesChars: values.rules.length,
+        },
       });
     });
     await this.loadSettings();

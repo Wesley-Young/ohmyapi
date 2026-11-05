@@ -110,12 +110,16 @@ export const moderationSessions = pgTable(
   ],
 );
 
+export const moderationEndpoints = ['/v1/systemone', '/v1/decisions'] as const;
+export type ModerationEndpoint = (typeof moderationEndpoints)[number];
+
 /** 审核使用的渠道、模型和规则；单行。 */
 export const moderationSettings = pgTable(
   'moderation_settings',
   {
     id: integer('id').primaryKey().default(1),
     channelId: uuid('channel_id').references(() => channels.id),
+    endpoint: endpoint('endpoint').$type<ModerationEndpoint>().default('/v1/systemone').notNull(),
     model: text('model'),
     rules: text('rules').default('').notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -123,6 +127,7 @@ export const moderationSettings = pgTable(
   },
   (table) => [
     check('moderation_settings_singleton', sql`${table.id} = 1`),
+    check('moderation_settings_endpoint', sql`${table.endpoint}::text in ('/v1/systemone', '/v1/decisions')`),
     check('moderation_settings_rules', sql`char_length(${table.rules}) <= 8000`),
     check('moderation_settings_model', sql`${table.model} is null or char_length(${table.model}) between 1 and 128`),
   ],

@@ -11,6 +11,8 @@ import type { RequestRow } from './requests.ts';
 export function priceRequestUsage(pricing: PricingService, r: RequestRow, usage: Usage) {
   const locked = pricing.restore(r.reservationSnapshot?.pricing, r.receivedAt);
   if (locked.modelId !== r.modelId) throw new Error('Price snapshot scope mismatch');
+  // Decisions 复用模型规则，仅免除输出费用；真实输出用量仍保留在账单明细。
+  if (r.endpoint === '/v1/decisions') locked.rules = locked.rules.map((rule) => ({ ...rule, outputPriceMicros: 0n }));
   return pricing.calculate(locked, usage);
 }
 
