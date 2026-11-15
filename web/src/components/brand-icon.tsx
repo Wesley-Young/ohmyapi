@@ -94,13 +94,14 @@ export function ModelIcon({ model, size = 16 }: { model: string; size?: number }
       </Box>
     );
   }
-  return <Icon size={size} aria-hidden focusable="false" style={{ flexShrink: 0 }} />;
+  // 按钮等组件的 `_icon` 样式会覆盖 svg 的 width/height 属性，用内联样式固定尺寸，与黑底图标保持一致。
+  return <Icon size={size} aria-hidden focusable="false" style={{ flexShrink: 0, width: size, height: size }} />;
 }
 
 /** 订阅平台图标。 */
 export function ProviderIcon({ provider, size = 16 }: { provider: SubscriptionProvider; size?: number }) {
   const Icon = providerIcons[provider];
-  return <Icon size={size} aria-hidden focusable="false" style={{ flexShrink: 0 }} />;
+  return <Icon size={size} aria-hidden focusable="false" style={{ flexShrink: 0, width: size, height: size }} />;
 }
 
 /** 图标与模型名并排；`children` 缺省时显示模型名。 */
