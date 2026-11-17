@@ -25,7 +25,7 @@ import { type ClaudeCredentials, claudeCredentialsSchema } from './claude/creden
 import { ClaudeOAuth } from './claude/oauth.ts';
 import { ClaudeQuota } from './claude/quota.ts';
 import { estimateCycleUsage } from './cycle.ts';
-import { accountHeaders, codexBaseUrl, latestCodexClientVersion, readJson } from './openai/client.ts';
+import { accountHeaders, codexBaseUrl, codexClientVersion, readJson } from './openai/client.ts';
 import { credentialsSchema, type OpenAICredentials, parseCredentials } from './openai/credentials.ts';
 import { OpenAIOAuth } from './openai/oauth.ts';
 import { OpenAIQuota } from './openai/quota.ts';
@@ -468,9 +468,8 @@ export class SubscriptionService implements Disposable {
       const credentials = provided ?? (id ? await tokens.get(id, false, proxyUrl) : undefined);
       if (!credentials) throw new Error('缺少订阅凭据');
       if (provider === 'claude') return await fetchClaudeModels(claudeCredentialsSchema.parse(credentials), request);
-      const clientVersion = await latestCodexClientVersion(request);
-      const response = await request(`${codexBaseUrl}/models?client_version=${clientVersion}`, {
-        headers: accountHeaders(credentials, 'application/json', clientVersion),
+      const response = await request(`${codexBaseUrl}/models?client_version=${codexClientVersion}`, {
+        headers: accountHeaders(credentials, 'application/json'),
         signal: AbortSignal.timeout(20_000),
         redirect: 'error',
       });

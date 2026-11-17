@@ -6,32 +6,11 @@ import type { OpenAICredentials } from './credentials.ts';
 export const clientId = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const redirectUri = 'http://localhost:1455/auth/callback';
 export const codexBaseUrl = 'https://chatgpt.com/backend-api/codex';
-export const fallbackCodexClientVersion = '0.162.0';
-
-export async function latestCodexClientVersion(request: OutboundFetch): Promise<string> {
-  try {
-    const response = await request('https://registry.npmjs.org/@openai%2Fcodex/latest', {
-      headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(3000),
-      redirect: 'error',
-    });
-    if (!response.ok) {
-      await response.body?.cancel();
-      return fallbackCodexClientVersion;
-    }
-    const metadata = await readJson(response, 256 * 1024);
-    const version = metadata && typeof metadata === 'object' && 'version' in metadata ? metadata.version : undefined;
-    if (typeof version === 'string' && version.length <= 64 && /^\d+\.\d+\.\d+$/.test(version)) return version;
-  } catch {
-    // npmjs 不可用时继续拉取模型，避免版本查询阻断渠道配置。
-  }
-  return fallbackCodexClientVersion;
-}
+export const codexClientVersion = '0.169.1';
 
 export function accountHeaders(
   credentials: OpenAICredentials,
   accept: 'text/event-stream' | 'application/json' = 'text/event-stream',
-  clientVersion = fallbackCodexClientVersion,
 ) {
   return new Headers({
     authorization: `Bearer ${credentials.accessToken}`,
@@ -39,8 +18,8 @@ export function accountHeaders(
     'content-type': 'application/json',
     accept,
     originator: 'codex_cli_rs',
-    'user-agent': `codex_cli_rs/${clientVersion}`,
-    version: clientVersion,
+    'user-agent': `codex_cli_rs/${codexClientVersion}`,
+    version: codexClientVersion,
   });
 }
 
