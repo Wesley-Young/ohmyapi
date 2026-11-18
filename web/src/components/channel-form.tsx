@@ -14,7 +14,7 @@ import {
   subscriptionProviderLabels,
 } from '../lib/subscription';
 import { trpc } from '../lib/trpc';
-import { AggregateMembers, AggregateSummary, aggregateCommon } from './aggregate-members';
+import { AggregateMembers, AggregateSummary, aggregateCapabilities } from './aggregate-members';
 import {
   type ChannelModel,
   ChannelModels,
@@ -139,7 +139,7 @@ export function ChannelForm({
         : [];
     }) ?? [],
   );
-  const { commonEndpoints, commonModels } = aggregateCommon(members, data, available);
+  const { aggregateEndpoints, aggregateModels } = aggregateCapabilities(members, data, available);
   const modelErrors = channelModelErrors(available);
   const [fetchNotice, setFetchNotice] = useState<string>();
   const [fetchError, setFetchError] = useState<string>();
@@ -208,7 +208,7 @@ export function ChannelForm({
               availableModels: passthrough
                 ? undefined
                 : type === 'aggregate'
-                  ? commonModels.map(({ name, multiplier }) => ({ name, multiplier }))
+                  ? aggregateModels.map(({ name, multiplier }) => ({ name, multiplier }))
                   : channelModelsInput(available),
             });
         }}
@@ -361,7 +361,7 @@ export function ChannelForm({
               required
             />
             {type === 'aggregate' ? (
-              <AggregateSummary endpoints={commonEndpoints} hasModels={commonModels.length > 0} />
+              <AggregateSummary endpoints={aggregateEndpoints} hasModels={aggregateModels.length > 0} />
             ) : (
               <EndpointFields
                 value={scopes}
@@ -401,7 +401,7 @@ export function ChannelForm({
             <ChannelModels
               derived={type === 'aggregate'}
               editableMultipliers={!passthrough}
-              value={type === 'aggregate' ? commonModels : available}
+              value={type === 'aggregate' ? aggregateModels : available}
               onChange={setAvailable}
               models={data.models}
               disabled={busy}
@@ -499,7 +499,7 @@ export function ChannelForm({
               renew.isPending ||
               (type !== 'aggregate' && modelErrors.size > 0) ||
               (type === 'aggregate' &&
-                (!members.length || (enabled && (!commonModels.length || !commonEndpoints.length))))
+                (!members.length || (enabled && (!aggregateModels.length || !aggregateEndpoints.length))))
             }
           >
             保存渠道

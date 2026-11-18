@@ -21,7 +21,7 @@ export class AppError extends Error {
 
 const requestErrors: Record<string, string> = {
   aggregate_unavailable: '聚合渠道当前没有可执行请求的子渠道。',
-  aggregate_request_unsupported: '聚合渠道中没有支持该端点的子渠道。',
+  aggregate_request_unsupported: '聚合渠道中没有同时支持该模型和端点的子渠道。',
   channel_concurrency_exceeded: '渠道已达到并发上限，请稍后重试。',
   subscription_unavailable: '订阅账号未启用、已删除或需要重新授权。',
   subscription_reauthorization_required: '订阅凭据已失效，请重新授权或导入凭据。',

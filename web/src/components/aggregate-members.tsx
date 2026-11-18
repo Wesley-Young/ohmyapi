@@ -40,7 +40,7 @@ export function AggregateMembers({
       </Text>
       <Stack gap="3">
         <Text fontSize="sm" color="gray.500">
-          模型和端点取全部子渠道的交集；优先级越大越优先调用该渠道，同优先级内按权重分流；上游未执行请求时依次换用其他子渠道。
+          模型和端点取全部子渠道的并集，请求只转发给同时支持该模型和端点的子渠道；优先级越大越优先调用该渠道，同优先级内按权重分流；上游未执行请求时依次换用其他子渠道。
         </Text>
         {selected.length > 0 && (
           <Box borderWidth="1px" borderColor="gray.200" borderRadius="lg" px="3">
@@ -189,26 +189,24 @@ export function AggregateMembers({
 
 type CatalogData = RouterOutputs['admin']['catalog']['list'];
 
-/** 聚合渠道继承所选子渠道共同支持的端点和模型；模型保留已设置的专属倍率。 */
-export function aggregateCommon(members: Member[], data: CatalogData, available: ChannelModel[]) {
+/** 聚合渠道继承所选子渠道支持的全部端点和模型；模型保留已设置的专属倍率。 */
+export function aggregateCapabilities(members: Member[], data: CatalogData, available: ChannelModel[]) {
   const selectedChannels = members.flatMap((member) =>
     data.channels.filter((channel) => channel.id === member.channelId),
   );
-  const commonEndpoints = selectedChannels.length
-    ? allEndpoints.filter((endpoint) => selectedChannels.every((channel) => channel.endpoints.includes(endpoint)))
-    : [];
-  const commonModels = selectedChannels.length
-    ? data.models
-        .filter((model) =>
-          selectedChannels.every((channel) => channel.availableModels.some((entry) => entry.modelId === model.id)),
-        )
-        .map((model) => ({
-          key: model.id,
-          name: model.name,
-          multiplier: available.find((entry) => entry.name === model.name)?.multiplier ?? null,
-        }))
-    : [];
-  return { commonEndpoints, commonModels };
+  const aggregateEndpoints = allEndpoints.filter((endpoint) =>
+    selectedChannels.some((channel) => channel.endpoints.includes(endpoint)),
+  );
+  const aggregateModels = data.models
+    .filter((model) =>
+      selectedChannels.some((channel) => channel.availableModels.some((entry) => entry.modelId === model.id)),
+    )
+    .map((model) => ({
+      key: model.id,
+      name: model.name,
+      multiplier: available.find((entry) => entry.name === model.name)?.multiplier ?? null,
+    }));
+  return { aggregateEndpoints, aggregateModels };
 }
 
 export function AggregateSummary({ endpoints, hasModels }: { endpoints: Endpoint[]; hasModels: boolean }) {
@@ -224,7 +222,7 @@ export function AggregateSummary({ endpoints, hasModels }: { endpoints: Endpoint
       </HStack>
       {(!endpoints.length || !hasModels) && (
         <Text fontSize="sm" color="gray.500">
-          请选择至少有一个共同模型和共同端点的子渠道。
+          请选择至少提供一个模型和端点的子渠道。
         </Text>
       )}
     </Stack>

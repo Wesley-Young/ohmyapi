@@ -218,6 +218,13 @@
       "when": 1793867383148,
       "tag": "0030_sticky_moondragon",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794994819997,
+      "tag": "0031_aggregate_capability_union",
+      "breakpoints": true
     }
   ]
 }

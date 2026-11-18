@@ -1,5 +1,5 @@
 import { GatewayError } from '@ohmyapi/protocols';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import type { ChannelConcurrency } from '../catalog/concurrency.ts';
 import type { Database } from '../database/client.ts';
@@ -8,6 +8,7 @@ import type { Endpoint, ReasoningEffortRule } from '../database/schema/index.ts'
 import {
   aggregateChannelMembers,
   channelAvailableModels,
+  channelEndpoints,
   channels,
   effectiveChannelEndpoints,
   effectiveChannelModels,
@@ -80,24 +81,30 @@ export async function planExecution(
         value: JSON.stringify([userId, session.value]),
       })
     : undefined;
+  // 聚合渠道的模型和端点是成员配置的并集，只有同时配置了请求模型和端点的成员可以执行请求。
   const rows = await db
     .select({
       channel: channels,
       member: aggregateChannelMembers,
       account: subscriptionAccounts,
+      active: sql<boolean>`(${and(activeChannel(), availableSubscription())})`,
       upstreamModel: channelAvailableModels.upstreamModel,
       reasoningEffortRules: channelAvailableModels.reasoningEffortRules,
     })
     .from(aggregateChannelMembers)
     .innerJoin(channels, eq(channels.id, aggregateChannelMembers.memberChannelId))
     .leftJoin(subscriptionAccounts, eq(subscriptionAccounts.id, channels.subscriptionAccountId))
-    .leftJoin(
+    .innerJoin(
       channelAvailableModels,
       and(eq(channelAvailableModels.channelId, channels.id), eq(channelAvailableModels.modelId, model.id)),
     )
-    .where(and(eq(aggregateChannelMembers.aggregateChannelId, entry.id), activeChannel(), availableSubscription()))
+    .innerJoin(
+      channelEndpoints,
+      and(eq(channelEndpoints.channelId, channels.id), eq(channelEndpoints.endpoint, endpoint)),
+    )
+    .where(and(eq(aggregateChannelMembers.aggregateChannelId, entry.id), isNull(channels.deletedAt)))
     .orderBy(desc(aggregateChannelMembers.priority), channels.id);
-  // 只按端点筛选成员；订阅不支持的参数由适配器删除或改写，不影响路由。
+  // 订阅不支持的参数由适配器删除或改写，不影响路由。
   const compatible = rows.filter(
     ({ channel, account }) =>
       channel.type === 'api' ||
@@ -105,15 +112,17 @@ export async function planExecution(
         account !== null &&
         subscriptions.supportsEndpoint(account.provider, endpoint)),
   );
-  if (rows.length && !compatible.length)
-    throw new GatewayError(400, 'aggregate_request_unsupported', 'No member supports the requested endpoint');
+  // 没有成员配置该组合时是请求不受支持；有成员配置但暂时停用时是渠道暂不可用。
+  if (!compatible.length)
+    throw new GatewayError(400, 'aggregate_request_unsupported', 'No member supports the requested model and endpoint');
   // 订阅账号的模型冷却按发往上游的模型名记录；并发名额在取出候选时占用。
   const available = compatible.filter(
-    ({ channel, account, upstreamModel }) =>
-      channel.type === 'api' ||
-      (account &&
-        (!account.cooldownUntil || account.cooldownUntil.getTime() <= Date.now()) &&
-        !(Date.parse(account.modelCooldowns[upstreamModel ?? model.name] ?? '') > Date.now())),
+    ({ channel, account, active, upstreamModel }) =>
+      active &&
+      (channel.type === 'api' ||
+        (account &&
+          (!account.cooldownUntil || account.cooldownUntil.getTime() <= Date.now()) &&
+          !(Date.parse(account.modelCooldowns[upstreamModel ?? model.name] ?? '') > Date.now()))),
   );
   const ordered: typeof available = [];
   for (let start = 0; start < available.length; ) {

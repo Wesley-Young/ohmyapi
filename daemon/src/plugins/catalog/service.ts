@@ -16,7 +16,6 @@ import {
   channels,
   effectiveChannelEndpoints,
   effectiveChannelModels,
-  endpoints,
   models,
   priceRules,
   type ReasoningEffortRule,
@@ -372,7 +371,7 @@ export class CatalogService {
     }));
   }
 
-  /** 按渠道类型校验连接、端点和子渠道；聚合渠道返回子渠道的共同模型。 */
+  /** 按渠道类型校验连接、端点和子渠道；聚合渠道返回子渠道模型的并集。 */
   private async validateChannelType(
     tx: Transaction,
     input: ChannelInput,
@@ -423,27 +422,21 @@ export class CatalogService {
         .from(channelAvailableModels)
         .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
         .where(and(inArray(channelAvailableModels.channelId, memberIds), isNull(models.deletedAt)));
-      aggregateModels = childModels
-        .filter(
-          (model) =>
-            model.channelId === memberIds[0] &&
-            memberIds.every((id) => childModels.some((other) => other.channelId === id && other.id === model.id)),
-        )
-        .map(({ id, name }) => ({ id, name }));
+      aggregateModels = [...new Map(childModels.map(({ id, name }) => [id, { id, name }])).values()];
       const childEndpoints = await tx
         .select()
         .from(channelEndpoints)
         .where(inArray(channelEndpoints.channelId, memberIds));
-      const hasCommonEndpoint = endpoints.some((endpoint) =>
-        memberIds.every((id) => childEndpoints.some((entry) => entry.channelId === id && entry.endpoint === endpoint)),
+      const serviceable = memberIds.some(
+        (id) =>
+          childModels.some((model) => model.channelId === id) && childEndpoints.some((entry) => entry.channelId === id),
       );
-      if (input.enabled && (!aggregateModels.length || !hasCommonEndpoint))
-        throw new AppError('bad_request', '子渠道需至少有一个共同模型和共同端点');
+      if (input.enabled && !serviceable) throw new AppError('bad_request', '子渠道需至少提供一个模型和端点');
       if (
         input.availableModels &&
-        configuredModels.some((model) => !aggregateModels.some((common) => common.name === model.name))
+        configuredModels.some((model) => !aggregateModels.some((member) => member.name === model.name))
       )
-        throw new AppError('bad_request', '只能为子渠道的共同模型设置倍率，请刷新后重试');
+        throw new AppError('bad_request', '只能为子渠道提供的模型设置倍率，请刷新后重试');
     } else if (input.type === 'api') {
       if (!input.baseUrl || (!existing && !input.credential))
         throw new AppError('bad_request', '请填写 Base URL 和上游凭据');

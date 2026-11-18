@@ -3,7 +3,8 @@ import { bigint, pgView, text, uuid } from 'drizzle-orm/pg-core';
 
 import { endpoint } from './common.ts';
 
-// 交集包含全部成员的配置，成员暂时停用或冷却不会扩大聚合渠道的能力。
+// 聚合渠道的模型和端点分别取全部成员配置的并集，成员暂时停用或冷却不改变聚合渠道的能力；
+// 某个模型和端点的组合由哪些成员执行，在路由时按成员各自的配置筛选。
 export const effectiveChannelModels = pgView('effective_channel_models', {
   channelId: uuid('channel_id').notNull(),
   modelId: uuid('model_id').notNull(),
@@ -13,7 +14,7 @@ export const effectiveChannelModels = pgView('effective_channel_models', {
   from channel_available_models cm join channels c on c.id = cm.channel_id
   where c.type <> 'aggregate'
   union all
-  select common.channel_id, common.model_id, overrides.multiplier_micros
+  select member_models.channel_id, member_models.model_id, overrides.multiplier_micros
   from (
     select membership.aggregate_channel_id as channel_id, cm.model_id
     from aggregate_channel_members membership
@@ -21,9 +22,8 @@ export const effectiveChannelModels = pgView('effective_channel_models', {
     join channels child on child.id = membership.member_channel_id and child.type in ('api', 'subscription') and child.deleted_at is null
     join channel_available_models cm on cm.channel_id = child.id
     group by membership.aggregate_channel_id, cm.model_id
-    having count(*) = (select count(*) from aggregate_channel_members all_members where all_members.aggregate_channel_id = membership.aggregate_channel_id)
-  ) common
-  left join channel_available_models overrides on overrides.channel_id = common.channel_id and overrides.model_id = common.model_id
+  ) member_models
+  left join channel_available_models overrides on overrides.channel_id = member_models.channel_id and overrides.model_id = member_models.model_id
 `);
 
 export const effectiveChannelEndpoints = pgView('effective_channel_endpoints', {
@@ -40,7 +40,6 @@ export const effectiveChannelEndpoints = pgView('effective_channel_endpoints', {
   join channels child on child.id = membership.member_channel_id and child.type in ('api', 'subscription') and child.deleted_at is null
   join channel_endpoints ce on ce.channel_id = child.id
   group by membership.aggregate_channel_id, ce.endpoint
-  having count(*) = (select count(*) from aggregate_channel_members all_members where all_members.aggregate_channel_id = membership.aggregate_channel_id)
 `);
 
 // 价格区间包含全部成员配置；实时可用性、优先级和请求兼容性由路由决定。
