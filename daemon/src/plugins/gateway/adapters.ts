@@ -58,6 +58,7 @@ const apiAdapter: ChannelAdapter = {
     const body = upstream.body ? upstream.body(parsed, bytes, { foreignHistory }) : bytes;
     const credential = vault.decrypt(channel.credentialEncrypted);
     const headers = upstream.headers(request, credential);
+    headers.set('user-agent', 'ohmyapi');
     headers.set('content-type', 'application/json');
     headers.set('accept', target.streaming ? 'text/event-stream' : 'application/json');
     return { url: upstream.url(channel.baseUrl, target), headers, body };
