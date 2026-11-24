@@ -1,41 +1,31 @@
 import { Badge, createListCollection, HStack, Select, Stack, Text } from '@chakra-ui/react';
-import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMemo } from 'react';
 
-import { channelTypeLabels } from '../lib/channels';
-import { displayMultiplier } from '../lib/format';
+import type { ModelVendor } from '../lib/model-brands';
+import { ChannelVendorIcon } from './brand-icon';
 
-type AvailableChannel = RouterOutputs['keys']['channels'][number];
+export type ChannelOption = {
+  id: string;
+  name: string;
+  vendor?: ModelVendor;
+  badge: string;
+  description?: string;
+};
 
-/** 下拉选项：可用渠道，或已绑定但当前不可用的渠道。 */
-export type ChannelOption =
-  | Pick<AvailableChannel, 'id' | 'name' | 'type' | 'pricingMode' | 'multiplier' | 'multiplierRange'>
-  | { id: string; name: string; unavailable: true };
-
-function ChannelBadge({ channel }: { channel: ChannelOption }) {
-  if ('unavailable' in channel) return <Badge colorPalette="gray">不可用</Badge>;
-  return (
-    <Badge flexShrink="0">
-      {channel.multiplierRange
-        ? displayMultiplier(channel.multiplierRange.minimum, channel.multiplierRange.maximum)
-        : displayMultiplier(channel.multiplier)}
-    </Badge>
-  );
-}
-
-/** 选择 Key 绑定的渠道，选项按渠道页面的顺序展示名称和整体扣费倍率；透传倍率显示子渠道的倍率区间。 */
 export function ChannelSelect({
   label,
   value,
   onChange,
   options,
   disabled,
+  hideLabel,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: ChannelOption[];
   disabled?: boolean;
+  hideLabel?: boolean;
 }) {
   const collection = useMemo(
     () =>
@@ -56,14 +46,15 @@ export function ChannelSelect({
       positioning={{ sameWidth: true, strategy: 'fixed' }}
     >
       <Select.HiddenSelect />
-      <Select.Label>{label}</Select.Label>
+      <Select.Label srOnly={hideLabel}>{label}</Select.Label>
       <Select.Control>
         <Select.Trigger>
           <Select.ValueText placeholder="请选择">
             {selected && (
               <HStack gap="2" minW="0">
+                <ChannelVendorIcon vendor={selected.vendor} />
                 <Text truncate>{selected.name}</Text>
-                <ChannelBadge channel={selected} />
+                <Badge flexShrink="0">{selected.badge}</Badge>
               </HStack>
             )}
           </Select.ValueText>
@@ -76,17 +67,17 @@ export function ChannelSelect({
         <Select.Content maxH="min(320px, var(--available-height))" overflowY="auto">
           {collection.items.map((option) => (
             <Select.Item key={option.id} item={option} gap="3" py="2">
+              <ChannelVendorIcon vendor={option.vendor} />
               <Stack gap="0" minW="0" flex="1">
                 <Text truncate>{option.name}</Text>
-                {'type' in option && (
+                {option.description && (
                   <Text fontSize="xs" color="gray.500">
-                    {channelTypeLabels[option.type]}
-                    {option.pricingMode === 'passthrough' && '（透传倍率）'}
+                    {option.description}
                   </Text>
                 )}
               </Stack>
               <HStack gap="2" flexShrink="0">
-                <ChannelBadge channel={option} />
+                <Badge>{option.badge}</Badge>
                 <Select.ItemIndicator />
               </HStack>
             </Select.Item>

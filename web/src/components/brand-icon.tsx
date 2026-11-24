@@ -1,8 +1,10 @@
 import { Box, HStack, type StackProps } from '@chakra-ui/react';
+import Anthropic from '@lobehub/icons/es/Anthropic/components/Mono.js';
 // Deep imports keep the SVG components only: the package entry and its Avatar/Combine
 // variants pull in antd and @lobehub/ui.
 import Antigravity from '@lobehub/icons/es/Antigravity/components/Color.js';
 import Baichuan from '@lobehub/icons/es/Baichuan/components/Color.js';
+import Baidu from '@lobehub/icons/es/Baidu/components/Color.js';
 import ByteDance from '@lobehub/icons/es/ByteDance/components/Color.js';
 import Claude from '@lobehub/icons/es/Claude/components/Color.js';
 import Cohere from '@lobehub/icons/es/Cohere/components/Color.js';
@@ -10,6 +12,7 @@ import DeepSeek from '@lobehub/icons/es/DeepSeek/components/Color.js';
 import Doubao from '@lobehub/icons/es/Doubao/components/Color.js';
 import Gemini from '@lobehub/icons/es/Gemini/components/Color.js';
 import Gemma from '@lobehub/icons/es/Gemma/components/Color.js';
+import Google from '@lobehub/icons/es/Google/components/Color.js';
 import Grok from '@lobehub/icons/es/Grok/components/Mono.js';
 import Hunyuan from '@lobehub/icons/es/Hunyuan/components/Color.js';
 import Kimi from '@lobehub/icons/es/Kimi/components/Color.js';
@@ -18,17 +21,20 @@ import Meta from '@lobehub/icons/es/Meta/components/Color.js';
 import Microsoft from '@lobehub/icons/es/Microsoft/components/Color.js';
 import Minimax from '@lobehub/icons/es/Minimax/components/Color.js';
 import Mistral from '@lobehub/icons/es/Mistral/components/Color.js';
+import Moonshot from '@lobehub/icons/es/Moonshot/components/Mono.js';
 import Nvidia from '@lobehub/icons/es/Nvidia/components/Color.js';
 import OpenAI from '@lobehub/icons/es/OpenAI/components/Mono.js';
 import Perplexity from '@lobehub/icons/es/Perplexity/components/Color.js';
 import Qwen from '@lobehub/icons/es/Qwen/components/Color.js';
 import Stepfun from '@lobehub/icons/es/Stepfun/components/Mono.js';
 import Wenxin from '@lobehub/icons/es/Wenxin/components/Color.js';
+import XAI from '@lobehub/icons/es/XAI/components/Mono.js';
 import XiaomiMiMo from '@lobehub/icons/es/XiaomiMiMo/components/Mono.js';
 import Yi from '@lobehub/icons/es/Yi/components/Color.js';
 import Zhipu from '@lobehub/icons/es/Zhipu/components/Color.js';
+import { Layers } from 'lucide-react';
 
-import { type ModelBrand, modelBrand } from '../lib/model-brands';
+import { type ModelBrand, type ModelVendor, modelBrand } from '../lib/model-brands';
 import type { SubscriptionProvider } from '../lib/subscription';
 
 type Icon = typeof OpenAI;
@@ -96,6 +102,20 @@ export function ModelIcon({ model, size = 16 }: { model: string; size?: number }
   }
   // 按钮等组件的 `_icon` 样式会覆盖 svg 的 width/height 属性，用内联样式固定尺寸，与黑底图标保持一致。
   return <Icon size={size} aria-hidden focusable="false" style={{ flexShrink: 0, width: size, height: size }} />;
+}
+
+const vendorIcons = {
+  ...modelIcons,
+  google: Google,
+  claude: Anthropic,
+  kimi: Moonshot,
+  grok: XAI,
+  wenxin: Baidu,
+} satisfies Record<ModelVendor, Icon>;
+
+export function ChannelVendorIcon({ vendor }: { vendor?: ModelVendor }) {
+  const Icon = vendor ? vendorIcons[vendor] : Layers;
+  return <Icon size={16} aria-hidden="true" focusable="false" style={{ width: 16, height: 16, flexShrink: 0 }} />;
 }
 
 /** 订阅平台图标。 */

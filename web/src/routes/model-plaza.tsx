@@ -2,6 +2,7 @@ import { Badge, Flex, Heading, HStack, Stack, Switch, Text } from '@chakra-ui/re
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
+import { ChannelVendorIcon } from '../components/brand-icon';
 import { emptyModelFilter, ModelFilter } from '../components/model-filter';
 import { PlazaChannels } from '../components/plaza-channels';
 import { PlazaPriceRow, PlazaPriceTable, PlazaRules } from '../components/plaza-pricing';
@@ -9,7 +10,7 @@ import { ErrorText, Loading, Title } from '../components/ui';
 import { ViewSwitch } from '../components/view-switch';
 import { useAuth } from '../lib/auth';
 import { currencySymbol, displayMultiplier, formatCount, formError } from '../lib/format';
-import { filterModels, sortModelsByBrand } from '../lib/model-brands';
+import { channelVendors, filterModels, sortModelsByBrand } from '../lib/model-brands';
 import { trpc } from '../lib/trpc';
 
 const views = [
@@ -21,6 +22,7 @@ export default function ModelPlaza() {
   const { data: user } = useAuth();
   const admin = user?.role === 'admin';
   const query = useQuery(trpc.modelPlaza.queryOptions());
+  const vendors = useQuery(trpc.keys.channels.queryOptions(undefined, { select: channelVendors }));
   const [view, setView] = useState<(typeof views)[number]['value']>('models');
   const [publicOnly, setPublicOnly] = useState(false);
   const [filter, setFilter] = useState(emptyModelFilter);
@@ -78,7 +80,7 @@ export default function ModelPlaza() {
       ) : (
         query.data &&
         (models.length && view === 'channels' ? (
-          <PlazaChannels models={models} symbol={symbol} />
+          <PlazaChannels models={models} symbol={symbol} vendors={vendors.data} />
         ) : models.length ? (
           <PlazaPriceTable>
             {models.map((model) => (
@@ -97,9 +99,12 @@ export default function ModelPlaza() {
                   {model.channels.map((channel) => (
                     <Stack key={channel.id} gap="3">
                       <HStack flexWrap="wrap">
-                        <Heading as="h3" fontSize="md" overflowWrap="anywhere">
-                          {channel.name}
-                        </Heading>
+                        <HStack gap="2" minW="0">
+                          <ChannelVendorIcon vendor={vendors.data?.get(channel.id)} />
+                          <Heading as="h3" fontSize="md" overflowWrap="anywhere">
+                            {channel.name}
+                          </Heading>
+                        </HStack>
                         <Badge colorPalette="gray">
                           {displayMultiplier(channel.multiplier, channel.maxMultiplier)}
                         </Badge>

@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { BookOpen, Check, ChevronDown, Copy, Download, Pencil, Trash2 } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
+import { ChannelVendorIcon } from '../components/brand-icon';
 import { CCSwitchDialog } from '../components/cc-switch-dialog';
 import { IconButton } from '../components/icon-button';
 import { KeyForm } from '../components/key-form';
@@ -12,6 +13,7 @@ import { OhmyswitchDialog } from '../components/ohmyswitch-dialog';
 import { ErrorText, Loading, NameAction, PageControls, PrimaryButton, pinnedColumn, Title } from '../components/ui';
 import { supportsCCSwitch } from '../lib/cc-switch';
 import { displayAmount, formError, localDate } from '../lib/format';
+import { channelVendors } from '../lib/model-brands';
 import { ohmyswitchEndpointsOf } from '../lib/ohmyswitch';
 import { queryClient, trpc } from '../lib/trpc';
 
@@ -81,7 +83,7 @@ export default function Keys() {
   const [showingUsage, setShowingUsage] = useState(false);
   const [exporting, setExporting] = useState<{ keyId: string; target: ExportTarget }>();
   const data = useQuery(trpc.keys.list.queryOptions({ page }));
-  const channels = useQuery(trpc.keys.channels.queryOptions());
+  const vendors = useQuery(trpc.keys.channels.queryOptions(undefined, { select: channelVendors }));
   const currency = useQuery(trpc.wallet.get.queryOptions()).data?.currency;
   const [copiedId, setCopiedId] = useState<string>();
   const [copyError, setCopyError] = useState<string>();
@@ -123,7 +125,7 @@ export default function Keys() {
       >
         API Key
       </Title>
-      <ErrorText>{formError(data.error ?? channels.error)?.message}</ErrorText>
+      <ErrorText>{formError(data.error ?? vendors.error)?.message}</ErrorText>
       <ErrorText>{copyError}</ErrorText>
       <ErrorText>{formError(deletion.error)?.message}</ErrorText>
       {showingUsage && <KeyUsageDialog onClose={() => setShowingUsage(false)} />}
@@ -216,6 +218,7 @@ export default function Keys() {
                         </Table.Cell>
                         <Table.Cell>
                           <HStack gap="2">
+                            {key.channelId && <ChannelVendorIcon vendor={vendors.data?.get(key.channelId)} />}
                             <Text>{key.channelName ?? '未绑定'}</Text>
                             {key.channelDeleted && <Badge colorPalette="gray">已删除</Badge>}
                           </HStack>

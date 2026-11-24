@@ -3,7 +3,9 @@ import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
-import { dateTimeInput, formError } from '../lib/format';
+import { channelTypeLabels } from '../lib/channels';
+import { dateTimeInput, displayMultiplier, formError } from '../lib/format';
+import { modelVendorOf } from '../lib/model-brands';
 import { queryClient, trpc } from '../lib/trpc';
 import { ModelLabel } from './brand-icon';
 import { type ChannelOption, ChannelSelect } from './channel-select';
@@ -39,9 +41,17 @@ export function KeyForm({
   );
   const saveTask = editing ? update : task;
   const channelOptions = useMemo(() => {
-    const options: ChannelOption[] = [...(channels.data ?? [])];
+    const options: ChannelOption[] = (channels.data ?? []).map((channel) => ({
+      id: channel.id,
+      name: channel.name,
+      vendor: modelVendorOf(channel.models.map((model) => model.name)),
+      badge: channel.multiplierRange
+        ? displayMultiplier(channel.multiplierRange.minimum, channel.multiplierRange.maximum)
+        : displayMultiplier(channel.multiplier),
+      description: channelTypeLabels[channel.type] + (channel.pricingMode === 'passthrough' ? '（透传倍率）' : ''),
+    }));
     if (editing?.channelId && !options.some((channel) => channel.id === editing.channelId))
-      options.push({ id: editing.channelId, name: editing.channelName ?? '原渠道', unavailable: true });
+      options.push({ id: editing.channelId, name: editing.channelName ?? '原渠道', badge: '不可用' });
     return options;
   }, [channels.data, editing?.channelId, editing?.channelName]);
   const models = [...(channels.data?.find((channel) => channel.id === channelId)?.models ?? [])];

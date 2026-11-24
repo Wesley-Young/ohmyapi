@@ -47,6 +47,24 @@ export function modelBrand(model: string): ModelBrand | undefined {
   return brands.find((brand) => brand.pattern.test(name))?.id;
 }
 
+export type ModelVendor = Exclude<ModelBrand, 'gemma' | 'gemini'> | 'google';
+
+/** 全部模型能识别为同一厂商时返回该厂商。Gemma 和 Gemini 都属于 Google。 */
+export function modelVendorOf(models: readonly string[]) {
+  let vendor: ModelVendor | undefined;
+  for (const name of models) {
+    const brand = modelBrand(name);
+    const next = brand === 'gemma' || brand === 'gemini' ? 'google' : brand;
+    if (!next || (vendor && vendor !== next)) return;
+    vendor = next;
+  }
+  return vendor;
+}
+
+export function channelVendors(channels: readonly { id: string; models: readonly { name: string }[] }[]) {
+  return new Map(channels.map((channel) => [channel.id, modelVendorOf(channel.models.map((model) => model.name))]));
+}
+
 const brandFilterLabel = (filter: BrandFilter) => (filter === 'other' ? '其他' : brandLabels[filter]);
 
 /** 模型所属厂商的名称，无法识别时为「其他」。 */

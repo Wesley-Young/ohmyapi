@@ -1,9 +1,12 @@
-import { Badge, Box, Button, Grid, Heading, HStack, NativeSelect, Stack, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Grid, Heading, HStack, Stack, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useState } from 'react';
 
 import { endpointProtocolNames } from '../lib/endpoints';
 import { displayMultiplier } from '../lib/format';
+import type { ModelVendor } from '../lib/model-brands';
+import { ChannelVendorIcon } from './brand-icon';
+import { ChannelSelect } from './channel-select';
 import { PlazaPriceRow, PlazaPriceTable, PlazaRules } from './plaza-pricing';
 
 type Model = RouterOutputs['modelPlaza']['models'][number];
@@ -66,7 +69,15 @@ function ChannelPrices({ channel, symbol }: { channel: Channel; symbol: string }
   );
 }
 
-export function PlazaChannels({ models, symbol }: { models: Model[]; symbol: string }) {
+export function PlazaChannels({
+  models,
+  symbol,
+  vendors,
+}: {
+  models: Model[];
+  symbol: string;
+  vendors?: ReadonlyMap<string, ModelVendor | undefined>;
+}) {
   const channels = groupByChannel(models);
   const [selectedId, setSelectedId] = useState<string>();
   const selected = channels.find((channel) => channel.id === selectedId) ?? channels[0];
@@ -98,20 +109,20 @@ export function PlazaChannels({ models, symbol }: { models: Model[]; symbol: str
             ({channels.length})
           </Text>
         </Heading>
-        <NativeSelect.Root hideFrom="lg" size="sm">
-          <NativeSelect.Field
-            aria-label="选择渠道"
+        <Box hideFrom="lg">
+          <ChannelSelect
+            label="选择渠道"
+            hideLabel
             value={selected.id}
-            onChange={(event) => setSelectedId(event.target.value)}
-          >
-            {channels.map((channel) => (
-              <option key={channel.id} value={channel.id}>
-                {channel.name}（{displayMultiplier(channel.multiplier, channel.maxMultiplier)}）
-              </option>
-            ))}
-          </NativeSelect.Field>
-          <NativeSelect.Indicator />
-        </NativeSelect.Root>
+            onChange={setSelectedId}
+            options={channels.map((channel) => ({
+              id: channel.id,
+              name: channel.name,
+              vendor: vendors?.get(channel.id),
+              badge: displayMultiplier(channel.multiplier, channel.maxMultiplier),
+            }))}
+          />
+        </Box>
         <Stack hideBelow="lg" gap="1">
           {channels.map((channel) => (
             <Button
@@ -129,9 +140,12 @@ export function PlazaChannels({ models, symbol }: { models: Model[]; symbol: str
               bg={channel.id === selected.id ? 'gray.100' : undefined}
               onClick={() => setSelectedId(channel.id)}
             >
-              <Text as="span" overflowWrap="anywhere">
-                {channel.name}
-              </Text>
+              <HStack as="span" minW="0" gap="2">
+                <ChannelVendorIcon vendor={vendors?.get(channel.id)} />
+                <Text as="span" overflowWrap="anywhere">
+                  {channel.name}
+                </Text>
+              </HStack>
               <Text as="span" color="gray.600" fontVariantNumeric="tabular-nums" textAlign="end">
                 {displayMultiplier(channel.multiplier, channel.maxMultiplier)}
               </Text>

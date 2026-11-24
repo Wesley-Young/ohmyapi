@@ -3,12 +3,14 @@ import { Check, ChevronDown, RefreshCw, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import { displayMultiplier } from '../lib/format';
+import type { ModelVendor } from '../lib/model-brands';
 import type { PlaygroundChannel, PlaygroundModel } from '../lib/playground';
-import { ModelIcon, ModelLabel } from './brand-icon';
+import { ChannelVendorIcon, ModelIcon, ModelLabel } from './brand-icon';
 import { IconButton } from './icon-button';
 
 export function PlaygroundSelector({
   channels,
+  vendors,
   selectedChannel,
   selectedModel,
   disabled,
@@ -17,6 +19,7 @@ export function PlaygroundSelector({
   onSelect,
 }: {
   channels: PlaygroundChannel[];
+  vendors?: ReadonlyMap<string, ModelVendor | undefined>;
   selectedChannel?: PlaygroundChannel;
   selectedModel?: PlaygroundModel;
   disabled: boolean;
@@ -32,7 +35,7 @@ export function PlaygroundSelector({
   const models = draftChannel?.models.filter((model) => model.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   const selectionLabel =
-    selectedChannel && selectedModel ? `${selectedChannel.name} / ${selectedModel.name}` : undefined;
+    selectedChannel && selectedModel ? `${selectedChannel.name}/${selectedModel.name}` : undefined;
 
   return (
     <Popover.Root
@@ -63,7 +66,7 @@ export function PlaygroundSelector({
           title={selectionLabel ?? '选择渠道和模型'}
         >
           {selectedModel && <ModelIcon model={selectedModel.name} />}
-          <Text truncate>{selectionLabel ?? '选择渠道和模型'}</Text>
+          <Text fontFamily="monospace" truncate>{selectionLabel ?? '选择渠道和模型'}</Text>
           <ChevronDown size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
         </Button>
       </Popover.Trigger>
@@ -127,7 +130,8 @@ export function PlaygroundSelector({
                       px="2"
                       py="2"
                       flexShrink="0"
-                      justifyContent="space-between"
+                      justifyContent="flex-start"
+                      gap="1.5"
                       borderRadius="lg"
                       bg={draftChannel?.id === channel.id ? 'gray.200' : 'transparent'}
                       aria-pressed={draftChannel?.id === channel.id}
@@ -136,7 +140,15 @@ export function PlaygroundSelector({
                         setSearch('');
                       }}
                     >
-                      <Text fontSize="sm" whiteSpace="normal" overflowWrap="anywhere" textAlign="left">
+                      <ChannelVendorIcon vendor={vendors?.get(channel.id)} />
+                      <Text
+                        flex="1"
+                        minW="0"
+                        fontSize="sm"
+                        whiteSpace="normal"
+                        overflowWrap="anywhere"
+                        textAlign="left"
+                      >
                         {channel.name}
                       </Text>
                       {draftChannel?.id === channel.id && (

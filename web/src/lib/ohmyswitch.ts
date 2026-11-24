@@ -1,5 +1,5 @@
 import type { Endpoint } from './endpoints';
-import { type ModelBrand, modelBrand } from './model-brands';
+import { type ModelVendor, modelVendorOf } from './model-brands';
 
 /**
  * ohmyswitch 能导入的端点，按推荐顺序排列。ohmyswitch 把供应商应用到开源 Harness，不涉及 Claude Code，
@@ -80,8 +80,7 @@ const brandVendors = {
   deepseek: 'deepseek',
   openai: 'openai',
   claude: 'anthropic',
-  gemma: 'google',
-  gemini: 'google',
+  google: 'google',
   qwen: 'qwen',
   kimi: 'moonshot',
   zhipu: 'zhipu',
@@ -102,21 +101,15 @@ const brandVendors = {
   nvidia: undefined,
   mimo: undefined,
   longcat: undefined,
-} satisfies Record<ModelBrand, OhmyswitchVendor | undefined>;
+} satisfies Record<ModelVendor, OhmyswitchVendor | undefined>;
 
 /**
  * 这批模型在 ohmyswitch 中的厂商。每个模型都能对应到同一家时返回它；
  * 有一个认不出或对应到另一家时不猜。
  */
 export function ohmyswitchVendorOf(models: readonly string[]): OhmyswitchVendor | undefined {
-  let vendor: OhmyswitchVendor | undefined;
-  for (const name of models) {
-    const brand = modelBrand(name);
-    const next = brand && brandVendors[brand];
-    if (!next || (vendor && next !== vendor)) return;
-    vendor = next;
-  }
-  return vendor;
+  const vendor = modelVendorOf(models);
+  return vendor && brandVendors[vendor];
 }
 
 export interface OhmyswitchProvider {

@@ -11,6 +11,7 @@ import { PlaygroundSelector } from '../components/playground-selector';
 import { ErrorText, Loading } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { formatCount, formError } from '../lib/format';
+import { channelVendors } from '../lib/model-brands';
 import {
   loadPlaygroundSelection,
   messageText,
@@ -30,6 +31,7 @@ const usageFields = [
 
 export default function Playground() {
   const options = useQuery(trpc.playground.options.queryOptions(undefined, { staleTime: 0, gcTime: 0 }));
+  const vendors = useQuery(trpc.keys.channels.queryOptions(undefined, { select: channelVendors }));
   // 路由守卫保证已登录，切换账号时页面会重新挂载。
   const userId = useAuth().data?.id ?? '';
   const [stored] = useState(() => loadPlaygroundSelection(userId));
@@ -299,11 +301,12 @@ export default function Playground() {
                 <HStack gap="1" minW="0">
                   <PlaygroundSelector
                     channels={options.data ?? []}
+                    vendors={vendors.data}
                     selectedChannel={selectedChannel}
                     selectedModel={selectedModel}
                     disabled={busy || options.isPending}
-                    refreshing={options.isFetching}
-                    onRefresh={() => void options.refetch()}
+                    refreshing={options.isFetching || vendors.isFetching}
+                    onRefresh={() => void Promise.all([options.refetch(), vendors.refetch()])}
                     onSelect={(channel, model) => {
                       if (channel.id !== channelId || model.id !== modelId)
                         select({ channelId: channel.id, modelId: model.id, endpoint });
