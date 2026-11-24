@@ -83,7 +83,7 @@ export default function Models() {
               {visible.map((model, index) => {
                 const active = model.id === selected?.id;
                 const brand = modelBrandLabel(model.name);
-                const status = model.enabled ? '已启用' : '已禁用';
+                const status = model.enabled ? '启用' : '禁用';
                 return (
                   <Fragment key={model.id}>
                     {(index === 0 || modelBrandLabel(visible[index - 1].name) !== brand) && (
@@ -169,7 +169,7 @@ export default function Models() {
                 <Grid templateColumns={{ base: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }} gap="4">
                   <Metric label="状态">
                     <StatusDot color={selected.enabled ? 'green.500' : 'gray.300'} ring="transparent" />
-                    {selected.enabled ? '已启用' : '已禁用'}
+                    {selected.enabled ? '启用' : '禁用'}
                   </Metric>
                   <Metric label="输入容量">
                     <Text as="span" title={`${formatCount(selected.inputTokenLimit)} Token`}>

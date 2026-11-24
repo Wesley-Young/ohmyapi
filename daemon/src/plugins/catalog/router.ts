@@ -11,6 +11,7 @@ import {
   modelIdInput,
   modelInput,
   setBlocksInput,
+  setChannelEnabledInput,
   setChannelGrantsInput,
   setGrantsInput,
 } from './schemas.ts';
@@ -25,6 +26,9 @@ export function catalogAdminRoutes(catalog: CatalogService, modelCatalog: ModelC
     saveChannel: adminProcedure
       .input(channelInput)
       .mutation(({ ctx, input }) => catalog.saveChannel(ctx.principal, input)),
+    setChannelEnabled: adminProcedure
+      .input(setChannelEnabledInput)
+      .mutation(({ ctx, input }) => catalog.setChannelEnabled(ctx.principal, input.channelId, input.enabled)),
     deleteChannel: adminProcedure
       .input(channelIdInput)
       .mutation(({ ctx, input }) => catalog.deleteChannel(ctx.principal, input.channelId)),

@@ -1,10 +1,12 @@
-import { Box, Button, Checkbox, Field, HStack, NativeSelect, Stack, Text } from '@chakra-ui/react';
+import { Badge, Box, Button, Checkbox, Field, Grid, HStack, Stack, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation } from '@tanstack/react-query';
+import { KeyRound } from 'lucide-react';
 import { useState } from 'react';
 
 import { refreshCatalog } from '../lib/cache';
-import { type Endpoint, endpoints, responsesEndpoints } from '../lib/endpoints';
+import { channelTypeLabels } from '../lib/channels';
+import { type Endpoint, endpointProtocolNames, endpoints, responsesEndpoints } from '../lib/endpoints';
 import { formError } from '../lib/format';
 import { percentToPpm, ppmToPercent } from '../lib/moderation';
 import {
@@ -14,20 +16,28 @@ import {
   subscriptionProviderLabels,
 } from '../lib/subscription';
 import { trpc } from '../lib/trpc';
-import { AggregateMembers, AggregateSummary, aggregateCapabilities } from './aggregate-members';
-import {
-  type ChannelModel,
-  ChannelModels,
-  channelModel,
-  channelModelErrors,
-  channelModelsInput,
-} from './channel-models';
-import { EnabledField, SelectField } from './fields';
+import { AggregateMembers, aggregateCapabilities } from './aggregate-members';
+import { ProviderIcon } from './brand-icon';
+import { ChannelDialog, ChannelDisclosure, ChannelMultiplierField, ChannelVisibility } from './channel-form-layout';
+import { type ChannelModel, ChannelModels, channelModel, channelModelsInput } from './channel-models';
 import { SubscriptionAccess, type SubscriptionAccessMode, SubscriptionAccount } from './subscription-access';
-import { ErrorText, FormDialog, FormInput, PrimaryButton } from './ui';
+import { ErrorText, FormInput } from './ui';
 import { type FetchedModels, UpstreamImport } from './upstream-import';
+import { ViewSwitch } from './view-switch';
 
 type CatalogData = RouterOutputs['admin']['catalog']['list'];
+
+const subscriptionPlatforms = Object.keys(subscriptionProviderLabels)
+  .filter(isSubscriptionProvider)
+  .map((value) => ({
+    value,
+    label: (
+      <HStack as="span" gap="1">
+        <ProviderIcon provider={value} size={14} />
+        {subscriptionProviderLabels[value]}
+      </HStack>
+    ),
+  }));
 
 function EndpointFields({
   value,
@@ -41,41 +51,41 @@ function EndpointFields({
   provider?: SubscriptionProvider;
 }) {
   return (
-    <Box as="fieldset">
-      <Text as="legend" fontSize="sm" fontWeight="500" mb="2">
-        支持的端点
-      </Text>
-      <Stack gap="3">
-        {endpoints
-          .filter(
-            (endpoint) =>
-              endpoint !== '/v1/responses/compact' &&
-              (!subscription || subscriptionEndpoints[provider].includes(endpoint)),
-          )
-          .map((endpoint) => (
-            <Checkbox.Root
-              key={endpoint}
-              checked={
-                endpoint === '/v1/responses'
-                  ? responsesEndpoints.some((item) => value.includes(item))
-                  : value.includes(endpoint)
-              }
-              onCheckedChange={(e) => {
-                const group = endpoint === '/v1/responses' ? responsesEndpoints : [endpoint];
-                onChange(
-                  e.checked === true
-                    ? [...new Set([...value, ...group])]
-                    : value.filter((item) => !group.includes(item)),
-                );
-              }}
-            >
-              <Checkbox.HiddenInput />
-              <Checkbox.Control />
-              <Checkbox.Label fontSize="sm">{endpoint}</Checkbox.Label>
-            </Checkbox.Root>
-          ))}
-      </Stack>
-    </Box>
+    <HStack gap="2" flexWrap="wrap">
+      {endpoints
+        .filter(
+          (endpoint) =>
+            endpoint !== '/v1/responses/compact' &&
+            (!subscription || subscriptionEndpoints[provider].includes(endpoint)),
+        )
+        .map((endpoint) => (
+          <Checkbox.Root
+            key={endpoint}
+            borderWidth="1px"
+            borderColor="gray.200"
+            borderRadius="lg"
+            px="3"
+            py="2"
+            checked={
+              endpoint === '/v1/responses'
+                ? responsesEndpoints.some((item) => value.includes(item))
+                : value.includes(endpoint)
+            }
+            onCheckedChange={(e) => {
+              const group = endpoint === '/v1/responses' ? responsesEndpoints : [endpoint];
+              onChange(
+                e.checked === true ? [...new Set([...value, ...group])] : value.filter((item) => !group.includes(item)),
+              );
+            }}
+          >
+            <Checkbox.HiddenInput data-channel-error={!value.length ? '请选择至少一个端点' : undefined} />
+            <Checkbox.Control />
+            <Checkbox.Label title={endpoint} fontSize="sm">
+              {endpointProtocolNames[endpoint]}
+            </Checkbox.Label>
+          </Checkbox.Root>
+        ))}
+    </HStack>
   );
 }
 
@@ -112,6 +122,7 @@ export function ChannelForm({
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? '');
   const [proxyUrl, setProxyUrl] = useState(initial?.proxyUrl ?? '');
   const proxyInput = proxyUrl.trim() || null;
+  const [replacingCredential, setReplacingCredential] = useState(false);
   const [credential, setCredential] = useState('');
   const [timeout, setTimeout] = useState(String(initial?.timeoutMs ?? 120000));
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
@@ -140,9 +151,7 @@ export function ChannelForm({
     }) ?? [],
   );
   const { aggregateEndpoints, aggregateModels } = aggregateCapabilities(members, data, available);
-  const modelErrors = channelModelErrors(available);
   const [fetchNotice, setFetchNotice] = useState<string>();
-  const [fetchError, setFetchError] = useState<string>();
   // 最近一次拉取的结果：导入列表关闭后仍用于标记上游未返回的模型。
   const [fetched, setFetched] = useState<{ id: number; result: FetchedModels; open: boolean }>();
   const resetModels = () => {
@@ -153,7 +162,6 @@ export function ChannelForm({
   const fetchOptions = {
     onMutate: () => {
       setFetchNotice(undefined);
-      setFetchError(undefined);
     },
     onSuccess: (result: FetchedModels) => setFetched({ id: Date.now(), result, open: true }),
   };
@@ -173,82 +181,126 @@ export function ChannelForm({
   );
   const fetching = fetchModels.isPending || fetchSubscriptionModels.isPending;
   const busy = task.isPending || fetching || startOAuth.isPending || renew.isPending || resetCreditBusy;
+  const selectedEndpoints = (type === 'aggregate' ? aggregateEndpoints : scopes).filter(
+    (endpoint) => endpoint !== '/v1/responses/compact',
+  );
+  const auditSummary =
+    [Number(samplePercent) > 0 && `抽样 ${samplePercent}%`, Number(dailyFloor) > 0 && `每天保底 ${dailyFloor} 个会话`]
+      .filter(Boolean)
+      .join('，') || '未启用抽样';
+  const membersError = !members.length
+    ? '请选择至少一个子渠道'
+    : enabled && (!aggregateModels.length || !aggregateEndpoints.length)
+      ? '请选择提供模型和端点的子渠道'
+      : undefined;
   return (
-    <FormDialog open title={initial ? '编辑渠道' : '添加渠道'} onClose={close} busy={busy} size="xl">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!busy)
-            task.mutate({
-              id: initial?.id,
-              name,
-              type,
-              pricingMode: type === 'aggregate' ? pricingMode : 'unified',
-              baseUrl: type === 'api' ? baseUrl : undefined,
-              proxyUrl: type === 'aggregate' ? undefined : proxyInput,
-              credential: type === 'api' ? credential || undefined : undefined,
-              subscription:
-                type === 'subscription'
-                  ? {
-                      provider,
-                      maxConcurrent: Number(maximum),
-                      credentials: mode === 'import' ? credentials || undefined : undefined,
-                      callbackUrl: mode === 'oauth' ? callback || undefined : undefined,
-                    }
-                  : undefined,
-              timeoutMs: Number(timeout),
-              maxConcurrent: type === 'api' ? (channelMaximum.trim() ? Number(channelMaximum) : null) : undefined,
-              enabled,
-              isPublic,
-              endpoints: type === 'aggregate' ? [] : scopes,
-              members: type === 'aggregate' ? members : [],
-              multiplier: passthrough ? undefined : multiplier,
-              moderation:
-                samplePpm === undefined ? undefined : { samplePpm, dailyFloor: Number(dailyFloor), includeOutput },
-              availableModels: passthrough
-                ? undefined
-                : type === 'aggregate'
-                  ? aggregateModels.map(({ name, multiplier }) => ({ name, multiplier }))
-                  : channelModelsInput(available),
-            });
-        }}
-      >
-        <fieldset disabled={busy} style={{ border: 0, padding: 0, minWidth: 0 }}>
+    <ChannelDialog
+      creating={!initial}
+      close={close}
+      enabled={enabled}
+      onEnabledChange={setEnabled}
+      busy={busy}
+      saving={task.isPending}
+      error={formError(task.error)?.message}
+      onSave={() =>
+        task.mutate({
+          id: initial?.id,
+          name,
+          type,
+          pricingMode: type === 'aggregate' ? pricingMode : 'unified',
+          baseUrl: type === 'api' ? baseUrl : undefined,
+          proxyUrl: type === 'aggregate' ? undefined : proxyInput,
+          credential: type === 'api' ? credential || undefined : undefined,
+          subscription:
+            type === 'subscription'
+              ? {
+                  provider,
+                  maxConcurrent: Number(maximum),
+                  credentials: mode === 'import' ? credentials || undefined : undefined,
+                  callbackUrl: mode === 'oauth' ? callback || undefined : undefined,
+                }
+              : undefined,
+          timeoutMs: Number(timeout),
+          maxConcurrent: type === 'api' ? (channelMaximum.trim() ? Number(channelMaximum) : null) : undefined,
+          enabled,
+          isPublic,
+          endpoints: type === 'aggregate' ? [] : scopes,
+          members: type === 'aggregate' ? members : [],
+          multiplier: passthrough ? undefined : multiplier,
+          moderation:
+            samplePpm === undefined ? undefined : { samplePpm, dailyFloor: Number(dailyFloor), includeOutput },
+          availableModels: passthrough
+            ? undefined
+            : type === 'aggregate'
+              ? aggregateModels.map(({ name, multiplier }) => ({ name, multiplier }))
+              : channelModelsInput(available),
+        })
+      }
+      panels={{
+        access: (
           <Stack gap="5">
-            <FormInput label="名称" value={name} onChange={(e) => setName(e.target.value)} required maxLength={128} />
-            <Field.Root>
-              <Field.Label>渠道类型</Field.Label>
-              <NativeSelect.Root disabled={Boolean(initial)}>
-                <NativeSelect.Field
-                  aria-label="渠道类型"
-                  value={type}
-                  onChange={(e) => {
-                    setType(e.target.value as typeof type);
-                    setScopes(e.target.value === 'subscription' ? [...subscriptionEndpoints[provider]] : []);
-                    // 订阅渠道默认每个用户每天保底审计一个 session。
-                    setDailyFloor(e.target.value === 'subscription' ? '1' : '0');
-                    resetModels();
-                  }}
-                >
-                  <option value="api">API 渠道</option>
-                  <option value="subscription">订阅渠道</option>
-                  <option value="aggregate">聚合渠道</option>
-                </NativeSelect.Field>
-                <NativeSelect.Indicator />
-              </NativeSelect.Root>
-            </Field.Root>
-            {type === 'aggregate' ? (
-              <AggregateMembers value={members} onChange={setMembers} channels={data.channels} />
-            ) : type === 'subscription' ? (
-              <Stack gap="5">
+            <Grid
+              gap="4"
+              templateColumns={!initial ? { base: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) auto' } : undefined}
+            >
+              <FormInput
+                label="渠道名称"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                maxLength={128}
+              />
+              {!initial && (
                 <Field.Root>
-                  <Field.Label>订阅平台</Field.Label>
-                  <NativeSelect.Root disabled={!!initial || busy}>
-                    <NativeSelect.Field
-                      aria-label="订阅平台"
+                  <Field.Label>渠道类型</Field.Label>
+                  <ViewSwitch
+                    label="渠道类型"
+                    items={(['api', 'subscription', 'aggregate'] as const).map((value) => ({
+                      value,
+                      label: channelTypeLabels[value],
+                    }))}
+                    value={type}
+                    disabled={busy}
+                    onChange={(next) => {
+                      setType(next);
+                      setScopes(next === 'subscription' ? [...subscriptionEndpoints[provider]] : []);
+                      setDailyFloor(next === 'subscription' ? '1' : '0');
+                      resetModels();
+                    }}
+                  />
+                </Field.Root>
+              )}
+            </Grid>
+            {type === 'aggregate' ? (
+              <Box tabIndex={-1} data-channel-error={membersError}>
+                <AggregateMembers value={members} onChange={setMembers} channels={data.channels} />
+              </Box>
+            ) : type === 'subscription' ? (
+              <>
+                {initial?.subscription ? (
+                  <Field.Root>
+                    <Field.Label>订阅账号</Field.Label>
+                    <HStack borderWidth="1px" borderRadius="lg" p="3" w="full">
+                      <ProviderIcon provider={provider} />
+                      <Text fontWeight="500">{subscriptionProviderLabels[provider]}</Text>
+                      {initial.subscription.email && (
+                        <Text fontSize="sm" overflowWrap="anywhere" minW="0" color="gray.600">
+                          {initial.subscription.email}
+                        </Text>
+                      )}
+                    </HStack>
+                  </Field.Root>
+                ) : (
+                  <Field.Root
+                    css={{ '& [data-scope=segment-group][data-part=item]': { px: { base: '1.5', sm: '4' } } }}
+                  >
+                    <Field.Label>订阅平台</Field.Label>
+                    <ViewSwitch
+                      label="订阅平台"
+                      items={subscriptionPlatforms}
                       value={provider}
-                      onChange={(e) => {
-                        const next = isSubscriptionProvider(e.target.value) ? e.target.value : 'openai';
+                      disabled={!!initial || busy}
+                      onChange={(next) => {
                         setProvider(next);
                         setMode('oauth');
                         startOAuth.reset();
@@ -257,35 +309,9 @@ export function ChannelForm({
                         resetModels();
                         setScopes([...subscriptionEndpoints[next]]);
                       }}
-                    >
-                      {Object.entries(subscriptionProviderLabels).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </NativeSelect.Field>
-                    <NativeSelect.Indicator />
-                  </NativeSelect.Root>
-                </Field.Root>
-                {initial?.subscription && (
-                  <SubscriptionAccount
-                    channel={initial}
-                    subscription={initial.subscription}
-                    refreshing={renew.isPending}
-                    refreshError={renew.error}
-                    onRefresh={() => renew.mutate({ channelId: initial.id })}
-                    onResetCreditBusyChange={setResetCreditBusy}
-                  />
+                    />
+                  </Field.Root>
                 )}
-                <FormInput
-                  label="并发上限"
-                  type="number"
-                  value={maximum}
-                  onChange={(e) => setMaximum(e.target.value)}
-                  min={1}
-                  max={100}
-                  required
-                />
                 <SubscriptionAccess
                   provider={provider}
                   editing={Boolean(initial)}
@@ -304,7 +330,9 @@ export function ChannelForm({
                     startOAuth.mutate({ provider });
                   }}
                 />
-              </Stack>
+
+                <ErrorText>{formError(startOAuth.error)?.message}</ErrorText>
+              </>
             ) : (
               <>
                 <FormInput
@@ -315,89 +343,97 @@ export function ChannelForm({
                   required
                   helper="支持服务根地址或以 /v1、/v1beta 结尾的 SDK 地址"
                 />
-                <FormInput
-                  label={initial ? '替换凭据（留空保留现有凭据）' : '上游凭据'}
-                  type="password"
-                  autoComplete="new-password"
-                  value={credential}
-                  onChange={(e) => setCredential(e.target.value)}
-                  required={!initial}
-                  maxLength={4096}
-                />
-                <FormInput
-                  label="并发上限"
-                  type="number"
-                  value={channelMaximum}
-                  onChange={(e) => setChannelMaximum(e.target.value)}
-                  min={1}
-                  max={1000}
-                  placeholder="不限"
-                  helper="1–1000，留空不限。聚合渠道会跳过已满的子渠道。"
-                />
+
+                {initial && (
+                  <Field.Root>
+                    <Field.Label>上游凭据</Field.Label>
+                    <HStack w="full" borderWidth="1px" px="3" py="1" borderRadius="lg">
+                      <KeyRound size={15} aria-hidden="true" />
+                      <Text flex="1" fontSize="sm">
+                        已配置凭据
+                      </Text>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-expanded={replacingCredential}
+                        onClick={() => {
+                          setReplacingCredential(!replacingCredential);
+                          setCredential('');
+                        }}
+                      >
+                        {replacingCredential ? '取消更换' : '更换凭据'}
+                      </Button>
+                    </HStack>
+                  </Field.Root>
+                )}
+                {(!initial || replacingCredential) && (
+                  <FormInput
+                    label={initial ? '新凭据' : '上游凭据'}
+                    type="password"
+                    autoComplete="new-password"
+                    value={credential}
+                    onChange={(e) => setCredential(e.target.value)}
+                    required={!initial}
+                    maxLength={4096}
+                  />
+                )}
               </>
             )}
-            {type !== 'aggregate' && (
-              <FormInput
-                label="代理地址"
-                type="url"
-                autoComplete="off"
-                value={proxyUrl}
-                onChange={(e) => setProxyUrl(e.target.value)}
-                placeholder="http://user:password@host:port"
-                maxLength={4096}
-                error={
-                  formError(task.error ?? fetchModels.error ?? fetchSubscriptionModels.error)?.fields.proxyUrl?.[0]
-                }
-                helper="支持 HTTP(S) 及用户名密码认证，留空直连。"
-              />
-            )}
-            <FormInput
-              label="超时（毫秒）"
-              value={timeout}
-              type="number"
-              min={100}
-              max={600000}
-              onChange={(e) => setTimeout(e.target.value)}
-              required
-            />
-            {type === 'aggregate' ? (
-              <AggregateSummary endpoints={aggregateEndpoints} hasModels={aggregateModels.length > 0} />
-            ) : (
-              <EndpointFields
-                value={scopes}
-                onChange={setScopes}
-                subscription={type === 'subscription'}
-                provider={provider}
-              />
-            )}
+            <ChannelDisclosure
+              title="支持端点"
+              summary={
+                type === 'aggregate'
+                  ? `从子渠道继承 ${selectedEndpoints.length} 项`
+                  : `已选 ${selectedEndpoints.length} 项`
+              }
+              defaultOpen={true}
+            >
+              {type === 'aggregate' ? (
+                <HStack gap="2" flexWrap="wrap">
+                  {selectedEndpoints.map((ep) => (
+                    <Badge key={ep} title={ep}>
+                      {endpointProtocolNames[ep]}
+                    </Badge>
+                  ))}
+                  {!selectedEndpoints.length && (
+                    <Text fontSize="sm" color="gray.500">
+                      请先选择提供端点的子渠道。
+                    </Text>
+                  )}
+                </HStack>
+              ) : (
+                <EndpointFields
+                  value={scopes}
+                  onChange={setScopes}
+                  subscription={type === 'subscription'}
+                  provider={provider}
+                />
+              )}
+            </ChannelDisclosure>
+          </Stack>
+        ),
+        models: (
+          <Stack gap="5">
             {type === 'aggregate' && (
-              <Stack gap="2">
-                <SelectField
+              <Field.Root>
+                <Field.Label>计费模式</Field.Label>
+                <ViewSwitch
                   label="计费模式"
                   value={pricingMode}
-                  onChange={(value) => setPricingMode(value === 'passthrough' ? 'passthrough' : 'unified')}
-                  options={[
-                    { id: 'unified', name: '统一倍率' },
-                    { id: 'passthrough', name: '透传倍率' },
+                  onChange={setPricingMode}
+                  disabled={busy}
+                  items={[
+                    { value: 'unified', label: '统一倍率' },
+                    { value: 'passthrough', label: '透传倍率' },
                   ]}
                 />
-                {passthrough && (
-                  <Text fontSize="sm" color="gray.500">
-                    按实际子渠道的模型专属倍率或整体倍率扣费。
-                  </Text>
-                )}
-              </Stack>
+                <Field.HelperText>
+                  {passthrough ? '使用实际承接请求的子渠道倍率。' : '使用聚合渠道设置的倍率。'}
+                </Field.HelperText>
+              </Field.Root>
             )}
-            {!passthrough && (
-              <FormInput
-                label="整体扣费倍率"
-                value={multiplier}
-                inputMode="decimal"
-                onChange={(e) => setMultiplier(e.target.value)}
-                required
-                helper="0–1000，最多六位小数；模型专属倍率覆盖此值"
-              />
-            )}
+            {!passthrough && <ChannelMultiplierField overall value={multiplier} onChange={setMultiplier} />}
             <ChannelModels
               derived={type === 'aggregate'}
               editableMultipliers={!passthrough}
@@ -422,7 +458,7 @@ export function ChannelForm({
                       proxyUrl: proxyInput,
                     })
               }
-              fetchError={fetchError ?? formError(fetchModels.error ?? fetchSubscriptionModels.error)?.message}
+              fetchError={formError(fetchModels.error ?? fetchSubscriptionModels.error)?.message}
               fetchNotice={fetchNotice}
               upstreamNames={fetched ? new Set(fetched.result.names) : undefined}
               importPanel={
@@ -443,13 +479,71 @@ export function ChannelForm({
                 )
               }
             />
-            <Box as="fieldset">
-              <Text as="legend" fontSize="sm" fontWeight="500" mb="2">
-                内容审计
-              </Text>
+          </Stack>
+        ),
+        policy: (
+          <Stack gap="5">
+            <Text as="h3" fontWeight="600">
+              请求设置
+            </Text>
+            <Grid gap="4" templateColumns={{ base: 'minmax(0,1fr)', sm: 'repeat(2,minmax(0,1fr))' }}>
+              <FormInput
+                label="超时（毫秒）"
+                value={timeout}
+                type="number"
+                min={100}
+                max={600000}
+                onChange={(e) => setTimeout(e.target.value)}
+                required
+              />
+              {type === 'subscription' && (
+                <FormInput
+                  label="并发上限"
+                  type="number"
+                  value={maximum}
+                  onChange={(e) => setMaximum(e.target.value)}
+                  min={1}
+                  max={100}
+                  required
+                />
+              )}
+              {type === 'api' && (
+                <FormInput
+                  label="并发上限"
+                  type="number"
+                  value={channelMaximum}
+                  onChange={(e) => setChannelMaximum(e.target.value)}
+                  min={1}
+                  max={1000}
+                  placeholder="不限"
+                  helper="留空不限，最多 1000"
+                />
+              )}
+            </Grid>
+            {type !== 'aggregate' && (
+              <FormInput
+                label="代理地址"
+                type="url"
+                autoComplete="off"
+                value={proxyUrl}
+                onChange={(e) => setProxyUrl(e.target.value)}
+                placeholder="http://user:password@host:port"
+                maxLength={4096}
+                error={
+                  formError(task.error ?? fetchModels.error ?? fetchSubscriptionModels.error)?.fields.proxyUrl?.[0]
+                }
+                helper="支持 HTTP(S) 及用户名密码认证，留空直连。"
+              />
+            )}
+
+            <Box borderTopWidth="1px" pt="4">
+              <ChannelVisibility isPublic={isPublic} onChange={setIsPublic} disabled={busy} />
+            </Box>
+            <ChannelDisclosure title="内容审计" summary={auditSummary}>
               <Stack gap="4">
                 <FormInput
                   label="抽样比例（%）"
+                  data-channel-error={samplePpm === undefined ? '请输入有效的抽样比例' : undefined}
                   value={samplePercent}
                   inputMode="decimal"
                   onChange={(e) => setSamplePercent(e.target.value)}
@@ -473,42 +567,20 @@ export function ChannelForm({
                   <Checkbox.Label>送审内容包含模型输出</Checkbox.Label>
                 </Checkbox.Root>
               </Stack>
-            </Box>
-            <Stack gap="2">
-              <Checkbox.Root checked={!isPublic} onCheckedChange={(e) => setIsPublic(!e.checked)}>
-                <Checkbox.HiddenInput />
-                <Checkbox.Control />
-                <Checkbox.Label>非公开渠道</Checkbox.Label>
-              </Checkbox.Root>
-              <Text fontSize="sm" color="gray.500">
-                默认对所有用户开放；非公开渠道需管理员授权可访问用户。
-              </Text>
-            </Stack>
-            <EnabledField value={enabled} onChange={setEnabled} />
-            <ErrorText>{formError(task.error ?? startOAuth.error)?.message}</ErrorText>
+            </ChannelDisclosure>
           </Stack>
-        </fieldset>
-        <HStack mt="5">
-          <PrimaryButton
-            type="submit"
-            loading={task.isPending}
-            disabled={
-              fetching ||
-              samplePpm === undefined ||
-              startOAuth.isPending ||
-              renew.isPending ||
-              (type !== 'aggregate' && modelErrors.size > 0) ||
-              (type === 'aggregate' &&
-                (!members.length || (enabled && (!aggregateModels.length || !aggregateEndpoints.length))))
-            }
-          >
-            保存渠道
-          </PrimaryButton>
-          <Button type="button" variant="ghost" disabled={busy} onClick={close}>
-            取消
-          </Button>
-        </HStack>
-      </form>
-    </FormDialog>
+        ),
+        maintenance: initial?.subscription && (
+          <SubscriptionAccount
+            channel={initial}
+            subscription={initial.subscription}
+            refreshing={renew.isPending}
+            refreshError={renew.error}
+            onRefresh={() => renew.mutate({ channelId: initial.id })}
+            onResetCreditBusyChange={setResetCreditBusy}
+          />
+        ),
+      }}
+    />
   );
 }

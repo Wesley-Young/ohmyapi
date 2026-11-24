@@ -268,6 +268,16 @@ export class SubscriptionService implements Disposable {
     return row.id;
   }
 
+  async setAccountEnabled(tx: Transaction, id: string, enabled: boolean) {
+    const [account] = await tx
+      .update(subscriptionAccounts)
+      .set({ enabled })
+      .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)))
+      .returning({ id: subscriptionAccounts.id });
+    if (!account) throw new AppError('not_found', '订阅账号不存在');
+    this.invalidateQuota(id);
+  }
+
   async removeAccount(tx: Transaction, id: string) {
     const [row] = await tx
       .select()

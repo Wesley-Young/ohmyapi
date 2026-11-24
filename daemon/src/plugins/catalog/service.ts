@@ -404,34 +404,7 @@ export class CatalogService {
       if (!input.members.length || input.members.some((member) => member.channelId === input.id))
         throw new AppError('bad_request', '至少选择一个子渠道，且不能引用自身');
       const memberIds = input.members.map((member) => member.channelId).sort();
-      const children = await tx
-        .select({ id: channels.id })
-        .from(channels)
-        .where(
-          and(
-            inArray(channels.id, memberIds),
-            inArray(channels.type, ['api', 'subscription']),
-            isNull(channels.deletedAt),
-          ),
-        )
-        .orderBy(channels.id)
-        .for('share');
-      if (children.length !== memberIds.length) throw new AppError('bad_request', '子渠道不存在、已删除或属于聚合类型');
-      const childModels = await tx
-        .select({ channelId: channelAvailableModels.channelId, id: models.id, name: models.name })
-        .from(channelAvailableModels)
-        .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
-        .where(and(inArray(channelAvailableModels.channelId, memberIds), isNull(models.deletedAt)));
-      aggregateModels = [...new Map(childModels.map(({ id, name }) => [id, { id, name }])).values()];
-      const childEndpoints = await tx
-        .select()
-        .from(channelEndpoints)
-        .where(inArray(channelEndpoints.channelId, memberIds));
-      const serviceable = memberIds.some(
-        (id) =>
-          childModels.some((model) => model.channelId === id) && childEndpoints.some((entry) => entry.channelId === id),
-      );
-      if (input.enabled && !serviceable) throw new AppError('bad_request', '子渠道需至少提供一个模型和端点');
+      aggregateModels = await this.aggregateMemberModels(tx, memberIds, input.enabled);
       if (
         input.availableModels &&
         configuredModels.some((model) => !aggregateModels.some((member) => member.name === model.name))
@@ -457,6 +430,37 @@ export class CatalogService {
         );
     }
     return aggregateModels;
+  }
+
+  private async aggregateMemberModels(tx: Transaction, memberIds: string[], enabled: boolean) {
+    const children = await tx
+      .select({ id: channels.id })
+      .from(channels)
+      .where(
+        and(
+          inArray(channels.id, memberIds),
+          inArray(channels.type, ['api', 'subscription']),
+          isNull(channels.deletedAt),
+        ),
+      )
+      .orderBy(channels.id)
+      .for('share');
+    if (children.length !== memberIds.length) throw new AppError('bad_request', '子渠道不存在、已删除或属于聚合类型');
+    const childModels = await tx
+      .select({ channelId: channelAvailableModels.channelId, id: models.id, name: models.name })
+      .from(channelAvailableModels)
+      .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
+      .where(and(inArray(channelAvailableModels.channelId, memberIds), isNull(models.deletedAt)));
+    const childEndpoints = await tx
+      .select()
+      .from(channelEndpoints)
+      .where(inArray(channelEndpoints.channelId, memberIds));
+    const serviceable = memberIds.some(
+      (id) =>
+        childModels.some((model) => model.channelId === id) && childEndpoints.some((entry) => entry.channelId === id),
+    );
+    if (enabled && !serviceable) throw new AppError('bad_request', '子渠道需至少提供一个模型和端点');
+    return [...new Map(childModels.map(({ id, name }) => [id, { id, name }])).values()];
   }
 
   /** 解析模型名称；普通渠道引用的新模型先以默认上限创建占位记录。 */
@@ -586,6 +590,41 @@ export class CatalogService {
         })),
       );
     return row;
+  }
+
+  async setChannelEnabled(principal: Principal, channelId: string, enabled: boolean) {
+    return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
+      const [channel] = await tx
+        .select({
+          name: channels.name,
+          type: channels.type,
+          enabled: channels.enabled,
+          subscriptionAccountId: channels.subscriptionAccountId,
+        })
+        .from(channels)
+        .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)))
+        .for('update');
+      if (!channel) throw new AppError('not_found', '渠道不存在或已删除');
+      if (channel.enabled === enabled) return;
+      if (enabled && channel.type === 'aggregate') {
+        const members = await tx
+          .select({ id: aggregateChannelMembers.memberChannelId })
+          .from(aggregateChannelMembers)
+          .where(eq(aggregateChannelMembers.aggregateChannelId, channelId));
+        await this.aggregateMemberModels(
+          tx,
+          members.map((member) => member.id),
+          enabled,
+        );
+      }
+      if (channel.subscriptionAccountId)
+        await this.subscription.setAccountEnabled(tx, channel.subscriptionAccountId, enabled);
+      await tx.update(channels).set({ enabled }).where(eq(channels.id, channelId));
+      await auditCatalog(tx, actor.id, enabled ? 'channel.enable' : 'channel.disable', channelId, {
+        name: channel.name,
+        enabled,
+      });
+    });
   }
 
   async deleteChannel(principal: Principal, channelId: string) {

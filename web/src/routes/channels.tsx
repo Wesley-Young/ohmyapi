@@ -1,6 +1,6 @@
-import { Badge, Box, Grid, Heading, HStack, Link, Menu, Portal, Stack, Text } from '@chakra-ui/react';
+import { Badge, Box, Grid, Heading, HStack, Link, Menu, Portal, Stack, Switch, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   ArrowLeftRight,
   ChevronRight,
@@ -157,7 +157,7 @@ function MultiplierMetric({ channel: c, modelNames }: { channel: Channel; modelN
 }
 
 /** 子渠道按优先级从高到低排成故障转移链；同一优先级按权重分流。 */
-function MemberChain({ members }: { members: Member[] }) {
+function MemberChain({ members, onEdit }: { members: Member[]; onEdit: (id: string) => void }) {
   if (!members.length)
     return (
       <Metric label="子渠道" gridColumn={{ base: 'span 2', lg: 'span 3' }}>
@@ -187,9 +187,16 @@ function MemberChain({ members }: { members: Member[] }) {
                     title={status.label}
                   >
                     <StatusDot color={status.color} ring="transparent" />
-                    <Text as="span" truncate>
-                      {channel.name}
-                    </Text>
+                    <NameAction
+                      aria-label={`编辑子渠道「${channel.name}」`}
+                      aria-haspopup="dialog"
+                      fontWeight="400"
+                      onClick={() => onEdit(channel.id)}
+                    >
+                      <Text as="span" truncate>
+                        {channel.name}
+                      </Text>
+                    </NameAction>
                     {tier.length > 1 && (
                       <Text as="span" fontSize="xs" color="gray.500">
                         权重 {weight}
@@ -277,10 +284,11 @@ function ChannelCard({
   members: Member[];
   spending: { currency: string; channel: Spending | undefined } | undefined;
   modelNames: Map<string, string>;
-  onEdit: () => void;
+  onEdit: (id: string) => void;
   onGrant: () => void;
 }) {
   const notices = channelNotices(c);
+  const setEnabled = useMutation(trpc.admin.catalog.setChannelEnabled.mutationOptions({ onSuccess: refreshCatalog }));
   const subtitle = c.subscription ? (c.subscription.email ?? '（未获取邮箱）') : c.baseUrl;
   return (
     <Box
@@ -310,7 +318,7 @@ function ChannelCard({
               fontWeight="600"
               color={c.enabled ? textColor : 'gray.500'}
               flexShrink="1"
-              onClick={onEdit}
+              onClick={() => onEdit(c.id)}
             >
               {c.name}
             </NameAction>
@@ -365,16 +373,32 @@ function ChannelCard({
           )}
           {c.type === 'aggregate' && (
             <>
-              <MemberChain members={members} />
+              <MemberChain members={members} onEdit={onEdit} />
               <MultiplierMetric channel={c} modelNames={modelNames} />
             </>
           )}
         </Grid>
 
-        <Box gridArea="actions" alignSelf={{ base: 'start', lg: 'center' }}>
-          <ChannelActions channel={c} onEdit={onEdit} onGrant={onGrant} />
-        </Box>
+        <HStack gridArea="actions" alignSelf={{ base: 'start', lg: 'center' }} gap="1">
+          <Switch.Root
+            size="sm"
+            colorPalette="green"
+            checked={setEnabled.isPending ? setEnabled.variables.enabled : c.enabled}
+            disabled={setEnabled.isPending}
+            onCheckedChange={({ checked }) => setEnabled.mutate({ channelId: c.id, enabled: checked })}
+            title={c.enabled ? '停用渠道' : '启用渠道'}
+          >
+            <Switch.HiddenInput aria-label={`启用渠道「${c.name}」`} />
+            <Switch.Control />
+          </Switch.Root>
+          <ChannelActions channel={c} onEdit={() => onEdit(c.id)} onGrant={onGrant} />
+        </HStack>
       </Grid>
+      {setEnabled.isError && (
+        <Box px="5" pb="3">
+          <ErrorText>{formError(setEnabled.error)?.message}</ErrorText>
+        </Box>
+      )}
       {notices.length > 0 && (
         <Stack gap="0" borderTopWidth="1px" borderColor="gray.100" role="status">
           {notices.map((notice) => (
@@ -434,7 +458,7 @@ function ChannelList({
                 })}
                 spending={spending && { currency: spending.currency, channel: spendingByChannel.get(c.id) }}
                 modelNames={modelNames}
-                onEdit={() => onEdit(c.id)}
+                onEdit={onEdit}
                 onGrant={() => onGrant(c)}
               />
             ))}

@@ -11,7 +11,7 @@ export type AuditAction =
   | `admin_token.${'create' | 'revoke'}`
   | 'price.save'
   | `billing.${'resolve' | 'correct'}`
-  | `channel.${'save' | 'delete' | 'users'}`
+  | `channel.${'save' | 'enable' | 'disable' | 'delete' | 'users'}`
   | `model.${'save' | 'delete' | 'import' | 'placeholder'}`
   | 'subscription.cycle_reset'
   | `moderation.${'settings' | 'view_content' | 'acknowledge'}`;

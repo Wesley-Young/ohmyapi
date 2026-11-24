@@ -3,7 +3,7 @@ import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { Lock, Plus, X } from 'lucide-react';
 
 import { channelTypeLabels } from '../lib/channels';
-import { endpoints as allEndpoints, type Endpoint } from '../lib/endpoints';
+import { endpoints as allEndpoints } from '../lib/endpoints';
 import { displayMultiplier } from '../lib/format';
 import { ChannelIcon } from './channel-icon';
 import type { ChannelModel } from './channel-models';
@@ -40,7 +40,7 @@ export function AggregateMembers({
       </Text>
       <Stack gap="3">
         <Text fontSize="sm" color="gray.500">
-          模型和端点取全部子渠道的并集，请求只转发给同时支持该模型和端点的子渠道；优先级越大越优先调用该渠道，同优先级内按权重分流；上游未执行请求时依次换用其他子渠道。
+          模型和端点取全部子渠道的并集；优先级越大越优先调用该渠道，同优先级内按权重分流。
         </Text>
         {selected.length > 0 && (
           <Box borderWidth="1px" borderColor="gray.200" borderRadius="lg" px="3">
@@ -207,24 +207,4 @@ export function aggregateCapabilities(members: Member[], data: CatalogData, avai
       multiplier: available.find((entry) => entry.name === model.name)?.multiplier ?? null,
     }));
   return { aggregateEndpoints, aggregateModels };
-}
-
-export function AggregateSummary({ endpoints, hasModels }: { endpoints: Endpoint[]; hasModels: boolean }) {
-  return (
-    <Stack gap="2">
-      <Text fontSize="sm" fontWeight="500">
-        支持端点
-      </Text>
-      <HStack gap="2" flexWrap="wrap">
-        {endpoints.map((endpoint) => (
-          <Badge key={endpoint}>{endpoint}</Badge>
-        ))}
-      </HStack>
-      {(!endpoints.length || !hasModels) && (
-        <Text fontSize="sm" color="gray.500">
-          请选择至少提供一个模型和端点的子渠道。
-        </Text>
-      )}
-    </Stack>
-  );
 }

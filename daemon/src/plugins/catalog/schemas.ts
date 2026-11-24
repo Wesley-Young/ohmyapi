@@ -112,6 +112,7 @@ export const importModelsInput = z.object({
 });
 
 export const channelIdInput = z.object({ channelId: z.uuid() });
+export const setChannelEnabledInput = channelIdInput.extend({ enabled: z.boolean() });
 export const modelIdInput = z.object({ modelId: z.uuid() });
 export const channelGrantsInput = z.object({ channelId: z.uuid(), page: pageInput, search: searchInput });
 export const setChannelGrantsInput = z.object({

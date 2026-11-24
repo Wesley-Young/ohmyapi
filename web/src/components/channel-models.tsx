@@ -1,26 +1,13 @@
-import {
-  Badge,
-  Box,
-  Button,
-  Field,
-  Grid,
-  HStack,
-  Input,
-  InputGroup,
-  Popover,
-  Stack,
-  Text,
-  Textarea,
-} from '@chakra-ui/react';
+import { Badge, Box, Button, Field, Grid, HStack, Input, Popover, Stack, Text, Textarea } from '@chakra-ui/react';
 import type { RouterInputs, RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { Download, Gauge, Plus, X } from 'lucide-react';
 import { type ReactNode, useId, useState } from 'react';
 
-import { modelBrand } from '../lib/model-brands';
 import { brandColor } from '../lib/theme';
-import { ModelIcon, ModelLabel } from './brand-icon';
+import { ModelLabel } from './brand-icon';
+import { ChannelDisclosure, ChannelMultiplierField } from './channel-form-layout';
 import { IconButton } from './icon-button';
-import { ErrorText } from './ui';
+import { ErrorText, FormInput } from './ui';
 
 type ChannelModelInput = NonNullable<RouterInputs['admin']['catalog']['saveChannel']['availableModels']>[number];
 /** 渠道弹窗中的一行模型；key 只在界面中区分行，对外名称可以修改。 */
@@ -82,7 +69,7 @@ function effortRulesError(rules: EffortRule[]) {
   }
 }
 
-export function channelModelErrors(rows: ChannelModel[]) {
+function channelModelErrors(rows: ChannelModel[]) {
   const counts = new Map<string, number>();
   for (const row of rows) counts.set(row.name.trim(), (counts.get(row.name.trim()) ?? 0) + 1);
   const errors = new Map<string, RowErrors>();
@@ -112,51 +99,6 @@ export function ModelStatus({ name, models }: { name: string; models: CatalogMod
     </>
   );
 }
-
-function MultiplierField({
-  model,
-  onChange,
-  disabled,
-}: {
-  model: ChannelModel;
-  onChange: (value: string | null) => void;
-  disabled: boolean;
-}) {
-  const id = useId();
-  return (
-    <Field.Root
-      display="grid"
-      minW="0"
-      gridTemplateColumns={{ base: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) 170px' }}
-      gap="3"
-      alignItems="center"
-    >
-      <Field.Label htmlFor={id} fontSize="sm" minW="0" overflowWrap="anywhere">
-        <ModelLabel model={model.name} />
-      </Field.Label>
-      <Input
-        id={id}
-        aria-label={`${model.name} 专属倍率`}
-        value={model.multiplier ?? ''}
-        inputMode="decimal"
-        placeholder="继承整体倍率"
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value || null)}
-        borderRadius="lg"
-        focusRingColor={brandColor}
-      />
-    </Field.Root>
-  );
-}
-
-const rowColumns = {
-  base: 'minmax(0, 1fr) auto',
-  sm: 'minmax(0, 1fr) minmax(0, 1fr) 120px auto auto',
-};
-const rowAreas = {
-  base: `"name remove" "upstream upstream" "multiplier effort"`,
-  sm: `"name upstream multiplier effort remove"`,
-};
 
 /**
  * 推理强度映射：请求的强度等于左侧时，转发前改为右侧。图标按钮打开规则编辑；
@@ -189,14 +131,13 @@ function EffortRules({
     >
       <Popover.Trigger asChild>
         <IconButton
-          gridArea="effort"
+          data-channel-error={error}
           type="button"
           aria-label={`${label} 推理强度映射`}
           title={error ?? (summary ? `推理强度映射：${summary}` : '推理强度映射')}
           variant={rules.length ? 'subtle' : 'ghost'}
           color={error ? 'red.600' : rules.length ? brandColor : undefined}
           size="sm"
-          mt="1"
           disabled={disabled}
         >
           <Gauge size={16} aria-hidden="true" />
@@ -301,87 +242,63 @@ function ModelRow({
   const name = row.name.trim();
   const label = name || '新模型';
   return (
-    <Grid
-      role="group"
-      aria-label={label}
-      templateColumns={rowColumns}
-      templateAreas={rowAreas}
-      columnGap="3"
-      rowGap="2"
-      alignItems="start"
-      py="3"
-      borderTopWidth="1px"
-      borderColor="gray.100"
-      _first={{ borderTopWidth: 0, pt: 0 }}
+    <ChannelDisclosure
+      title={
+        <HStack as="span" flexWrap="wrap" gap="2">
+          <ModelLabel model={label} overflowWrap="anywhere" />
+          {name && <ModelStatus name={name} models={models} />}
+          {missing && <Badge colorPalette="orange">上游未返回</Badge>}
+        </HStack>
+      }
+      summary={errors ? '需修正' : row.multiplier ? `${row.multiplier}×` : '继承整体倍率'}
     >
-      <Field.Root gridArea="name" invalid={Boolean(errors?.name)} minW="0">
-        <InputGroup startElement={modelBrand(name) ? <ModelIcon model={name} /> : undefined}>
-          <Input
-            aria-label="对外名称"
-            value={row.name}
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={128}
-            disabled={disabled}
-            onChange={(event) => onChange({ ...row, name: event.target.value })}
-            borderRadius="lg"
-            focusRingColor={brandColor}
-          />
-        </InputGroup>
-        {errors?.name && <Field.ErrorText>{errors.name}</Field.ErrorText>}
-        {name && !errors?.name && (
-          <HStack gap="1.5" flexWrap="wrap" _empty={{ display: 'none' }}>
-            <ModelStatus name={name} models={models} />
-            {missing && <Badge colorPalette="orange">上游未返回</Badge>}
-          </HStack>
-        )}
-      </Field.Root>
-      <Field.Root gridArea="upstream" invalid={Boolean(errors?.upstream)} minW="0">
-        <Input
-          aria-label="上游模型名"
-          value={row.upstreamModel ?? ''}
-          placeholder="同对外名称"
+      <Stack gap="3">
+        <FormInput
+          label="对外名称"
+          value={row.name}
+          error={errors?.name}
+          data-channel-error={errors?.name}
           autoComplete="off"
           spellCheck={false}
           maxLength={128}
           disabled={disabled}
-          onChange={(event) => onChange({ ...row, upstreamModel: event.target.value || null })}
-          borderRadius="lg"
-          focusRingColor={brandColor}
+          onChange={(e) => onChange({ ...row, name: e.target.value })}
         />
-        {errors?.upstream && <Field.ErrorText>{errors.upstream}</Field.ErrorText>}
-      </Field.Root>
-      <Input
-        gridArea="multiplier"
-        aria-label="专属倍率"
-        value={row.multiplier ?? ''}
-        inputMode="decimal"
-        placeholder="继承整体倍率"
-        disabled={disabled}
-        onChange={(event) => onChange({ ...row, multiplier: event.target.value || null })}
-        borderRadius="lg"
-        focusRingColor={brandColor}
-      />
-      <EffortRules
-        label={label}
-        rules={row.reasoningEffortRules ?? []}
-        error={errors?.rules}
-        disabled={disabled}
-        onChange={(reasoningEffortRules) => onChange({ ...row, reasoningEffortRules })}
-      />
-      <IconButton
-        gridArea="remove"
-        type="button"
-        aria-label={`移除 ${label}`}
-        variant="ghost"
-        size="sm"
-        mt="1"
-        disabled={disabled}
-        onClick={onRemove}
-      >
-        <X size={16} aria-hidden="true" />
-      </IconButton>
-    </Grid>
+        <Grid templateColumns={{ base: 'minmax(0,1fr)', sm: 'repeat(2,minmax(0,1fr))' }} gap="3">
+          <FormInput
+            label="上游模型名"
+            value={row.upstreamModel ?? ''}
+            placeholder="同对外名称"
+            error={errors?.upstream}
+            data-channel-error={errors?.upstream}
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={128}
+            disabled={disabled}
+            onChange={(e) => onChange({ ...row, upstreamModel: e.target.value || null })}
+          />
+          <ChannelMultiplierField
+            value={row.multiplier ?? ''}
+            onChange={(value) => onChange({ ...row, multiplier: value || null })}
+          />
+        </Grid>
+        <HStack justify="space-between">
+          <HStack gap="1" fontSize="sm">
+            推理强度映射
+            <EffortRules
+              label={label}
+              rules={row.reasoningEffortRules ?? []}
+              error={errors?.rules}
+              disabled={disabled}
+              onChange={(reasoningEffortRules) => onChange({ ...row, reasoningEffortRules })}
+            />
+          </HStack>
+          <IconButton aria-label={`移除 ${label}`} variant="ghost" size="sm" disabled={disabled} onClick={onRemove}>
+            <X size={16} />
+          </IconButton>
+        </HStack>
+      </Stack>
+    </ChannelDisclosure>
   );
 }
 
@@ -416,6 +333,7 @@ export function ChannelModels({
 }) {
   const inputId = useId();
   const [draft, setDraft] = useState('');
+  const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string>();
   const errors = channelModelErrors(value);
   function add() {
@@ -432,77 +350,67 @@ export function ChannelModels({
     }
     onChange([...value, ...additions.map((name) => channelModel(name))]);
     setDraft('');
+    setAdding(false);
     setError(undefined);
   }
   if (derived)
-    return editableMultipliers && value.length > 0 ? (
-      <Box as="fieldset" minW="0">
-        <Text as="legend" fontSize="sm" fontWeight="500" mb="2">
-          模型专属倍率
+    return (
+      <Stack gap="2" borderTopWidth="1px" pt="4">
+        <Text as="h3" fontWeight="600" fontSize="sm">
+          可用模型
         </Text>
-        <Grid
-          templateColumns={{ base: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' }}
-          rowGap="4"
-          columnGap="6"
-          borderWidth="1px"
-          borderColor="gray.200"
-          borderRadius="lg"
-          p="4"
-          maxH="360px"
-          overflowY="auto"
-        >
-          {value.map((model) => (
-            <MultiplierField
+        {!value.length ? (
+          <Text fontSize="sm" color="gray.500">
+            请先选择提供模型的子渠道。
+          </Text>
+        ) : editableMultipliers ? (
+          value.map((model) => (
+            <ChannelDisclosure
               key={model.key}
-              model={model}
-              disabled={disabled}
-              onChange={(multiplier) =>
-                onChange(value.map((item) => (item.key === model.key ? { ...item, multiplier } : item)))
-              }
-            />
-          ))}
-        </Grid>
-      </Box>
-    ) : null;
+              title={<ModelLabel model={model.name} />}
+              summary={model.multiplier ? `${model.multiplier}×` : '继承整体倍率'}
+            >
+              <ChannelMultiplierField
+                value={model.multiplier ?? ''}
+                onChange={(multiplier) =>
+                  onChange(
+                    value.map((item) => (item.key === model.key ? { ...item, multiplier: multiplier || null } : item)),
+                  )
+                }
+              />
+            </ChannelDisclosure>
+          ))
+        ) : (
+          <HStack flexWrap="wrap" gap="2">
+            {value.map((model) => (
+              <Badge key={model.key} whiteSpace="normal" overflowWrap="anywhere">
+                <ModelLabel model={model.name} />
+              </Badge>
+            ))}
+          </HStack>
+        )}
+      </Stack>
+    );
   return (
-    <Stack gap="3">
-      <Field.Root invalid={Boolean(error)}>
-        <Field.Label htmlFor={inputId}>可用模型</Field.Label>
-        <Textarea
-          id={inputId}
-          value={draft}
-          placeholder="输入对外名称，可用换行或逗号批量添加"
-          rows={3}
-          maxLength={130000}
-          disabled={disabled}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setError(undefined);
-          }}
-          borderRadius="lg"
-          focusRingColor={brandColor}
-        />
-        {error && <Field.ErrorText>{error}</Field.ErrorText>}
-      </Field.Root>
-      <HStack gap="2" flexWrap="wrap">
-        <Button type="button" variant="outline" size="sm" disabled={disabled || !draft.trim()} onClick={add}>
-          <Plus size={16} aria-hidden="true" />
-          添加模型
-        </Button>
+    <Stack gap="3" borderTopWidth="1px" pt="4">
+      <HStack justify="space-between" flexWrap="wrap">
+        <Text as="h3" fontWeight="600" fontSize="sm">
+          可用模型{' '}
+          <Text as="span" color="gray.500" fontWeight="400">
+            ({value.length})
+          </Text>
+        </Text>
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           size="sm"
           disabled={disabled && !fetching}
           loading={fetching}
           onClick={onFetch}
         >
-          <Download size={16} aria-hidden="true" />
+          <Download size={15} aria-hidden="true" />
           从上游拉取
         </Button>
-        <Text fontSize="xs" color="gray.500">
-          已添加 {value.length} / 1000
-        </Text>
       </HStack>
       <ErrorText>{fetchError}</ErrorText>
       {fetchNotice && (
@@ -512,20 +420,7 @@ export function ChannelModels({
       )}
       {importPanel}
       {value.length > 0 && (
-        <Box borderWidth="1px" borderColor="gray.200" borderRadius="lg" p="4" maxH="420px" overflowY="auto">
-          <Grid
-            templateColumns={rowColumns}
-            columnGap="3"
-            mb="2"
-            display={{ base: 'none', sm: 'grid' }}
-            fontSize="xs"
-            color="gray.500"
-            aria-hidden="true"
-          >
-            <Text>对外名称</Text>
-            <Text>上游模型名</Text>
-            <Text>专属倍率</Text>
-          </Grid>
+        <Box>
           {value.map((row) => (
             <ModelRow
               key={row.key}
@@ -539,6 +434,46 @@ export function ChannelModels({
             />
           ))}
         </Box>
+      )}
+      {adding ? (
+        <Stack gap="2">
+          <Field.Root invalid={Boolean(error)}>
+            <Field.Label htmlFor={inputId}>新模型名称</Field.Label>
+            <Textarea
+              id={inputId}
+              value={draft}
+              rows={2}
+              maxLength={130000}
+              disabled={disabled}
+              placeholder="输入对外名称，可用换行或逗号批量添加"
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setError(undefined);
+              }}
+            />
+            {error && <Field.ErrorText>{error}</Field.ErrorText>}
+          </Field.Root>
+          <HStack>
+            <Button type="button" variant="outline" size="sm" disabled={disabled || !draft.trim()} onClick={add}>
+              加入列表
+            </Button>
+            <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => setAdding(false)}>
+              收起
+            </Button>
+          </HStack>
+        </Stack>
+      ) : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          alignSelf="start"
+          disabled={disabled}
+          onClick={() => setAdding(true)}
+        >
+          <Plus size={16} aria-hidden="true" />
+          添加模型
+        </Button>
       )}
     </Stack>
   );

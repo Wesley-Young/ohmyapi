@@ -15,13 +15,13 @@ export const endpoints = Object.keys({
 } satisfies Record<Endpoint, true>) as Endpoint[];
 /** 端点对应的协议名称，用于在界面上选择协议。 */
 export const endpointProtocolNames = {
-  '/v1/chat/completions': 'Chat Completions',
-  '/v1/responses': 'Responses',
-  '/v1/messages': 'Messages',
-  '/v1/responses/compact': 'Responses Compact',
-  '/v1beta/generateContent': 'Gemini',
-  '/v1/systemone': 'System One',
-  '/v1/decisions': 'Decisions',
+  '/v1/chat/completions': 'OpenAI Chat Completions',
+  '/v1/responses': 'OpenAI Responses',
+  '/v1/messages': 'Anthropic Messages',
+  '/v1/responses/compact': 'OpenAI Responses Compact',
+  '/v1beta/generateContent': 'Google Generative AI',
+  '/v1/systemone': 'Typesafe System One',
+  '/v1/decisions': 'OpenAI Decisions',
 } satisfies Record<Endpoint, string>;
 
 export const responsesEndpoints: Endpoint[] = ['/v1/responses', '/v1/responses/compact'];
