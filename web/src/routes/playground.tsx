@@ -1,9 +1,8 @@
 import { useChat } from '@ai-sdk/react';
-import { Box, Button, Flex, Heading, HStack, Link, Stack, Text, Textarea } from '@chakra-ui/react';
+import { Box, Button, Flex, Heading, HStack, Stack, Text, Textarea } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUp, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
-import { Link as RouterLink } from 'react-router';
 
 import { IconButton } from '../components/icon-button';
 import { Markdown } from '../components/markdown';
@@ -11,51 +10,57 @@ import { PlaygroundProtocol } from '../components/playground-protocol';
 import { PlaygroundSelector } from '../components/playground-selector';
 import { ErrorText, Loading } from '../components/ui';
 import { useAuth } from '../lib/auth';
-import { formError } from '../lib/format';
+import { formatCount, formError } from '../lib/format';
 import {
   loadPlaygroundSelection,
   messageText,
   type PlaygroundEndpoint,
-  playgroundEndpoints,
   playgroundSession,
   savePlaygroundSelection,
 } from '../lib/playground';
 import { brandColor, brandHoverColor } from '../lib/theme';
 import { trpc } from '../lib/trpc';
 
+const usageFields = [
+  ['input', 'I'],
+  ['output', 'O'],
+  ['cacheRead', 'CR'],
+  ['cacheWrite', 'CW'],
+] as const;
+
 export default function Playground() {
-  const options = useQuery(trpc.keys.playgroundOptions.queryOptions(undefined, { staleTime: 0, gcTime: 0 }));
+  const options = useQuery(trpc.playground.options.queryOptions(undefined, { staleTime: 0, gcTime: 0 }));
   // 路由守卫保证已登录，切换账号时页面会重新挂载。
   const userId = useAuth().data?.id ?? '';
   const [stored] = useState(() => loadPlaygroundSelection(userId));
-  const [keyId, setKeyId] = useState(stored.keyId ?? '');
+  const [channelId, setChannelId] = useState(stored.channelId ?? '');
   const [modelId, setModelId] = useState(stored.modelId ?? '');
-  const [endpointChoice, setEndpointChoice] = useState<PlaygroundEndpoint | undefined>(stored.endpoint);
+  const [endpointChoice, setEndpointChoice] = useState(stored.endpoint);
   const [input, setInput] = useState('');
   const scrollArea = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = useState(0);
   const followOutput = useRef(true);
-  const selectedKey = options.data?.find((key) => key.id === keyId);
-  const selectedModel = selectedKey?.models.find((model) => model.id === modelId);
-  const endpoints = selectedKey ? playgroundEndpoints(selectedKey.endpoints) : [];
-  // 选择的协议不再可用时（如切换了 Key）回到推荐协议。
-  const endpoint = endpointChoice && endpoints.includes(endpointChoice) ? endpointChoice : endpoints[0];
-  // 会话保存在内存中，与选择无关：切换 Key、模型或协议后继续当前对话。
+  const selectedChannel = options.data?.find((channel) => channel.id === channelId);
+  const selectedModel = selectedChannel?.models.find((model) => model.id === modelId);
+  const endpoints = selectedModel?.endpoints ?? [];
+  // 选择的协议不再可用时（如切换了渠道或模型）回到推荐协议。
+  const endpoint = endpoints.find((item) => item === endpointChoice) ?? endpoints[0];
+  // 会话保存在内存中，与选择无关：切换渠道、模型或协议后继续当前对话。
   const session = playgroundSession(userId);
   const { messages, status, error, sendMessage, stop, regenerate, setMessages, clearError } = useChat({
     chat: session.chat,
     throttle: 50,
   });
   const busy = status === 'submitted' || status === 'streaming';
-  const ready = Boolean(selectedKey && selectedModel && endpoint && !options.error);
+  const ready = Boolean(selectedChannel && selectedModel && endpoint && !options.error);
 
   useLayoutEffect(() => {
-    Object.assign(session.selection, { key: selectedKey, model: selectedModel, endpoint });
-  }, [session, selectedKey, selectedModel, endpoint]);
+    Object.assign(session.selection, { channel: selectedChannel, model: selectedModel, endpoint });
+  }, [session, selectedChannel, selectedModel, endpoint]);
 
-  const select = (next: { keyId: string; modelId: string; endpoint?: PlaygroundEndpoint }) => {
-    setKeyId(next.keyId);
+  const select = (next: { channelId: string; modelId: string; endpoint?: PlaygroundEndpoint }) => {
+    setChannelId(next.channelId);
     setModelId(next.modelId);
     setEndpointChoice(next.endpoint);
     savePlaygroundSelection(userId, next);
@@ -139,7 +144,7 @@ export default function Playground() {
                 textAlign="center"
               >
                 <Text color="gray.500" fontSize="sm">
-                  {ready ? '试一试「给我讲个程序员冷笑话」' : '请先选择 API Key 和模型'}
+                  {ready ? '试一试「给我讲个程序员冷笑话」' : '请先选择渠道和模型'}
                 </Text>
               </Flex>
             ) : (
@@ -170,6 +175,48 @@ export default function Playground() {
                         </Text>
                       )}
                     </Box>
+                    {(message.metadata?.usage || (index === messages.length - 1 && !busy)) && (
+                      <HStack maxW="full" gap="2">
+                        {message.metadata?.usage && (
+                          <Flex
+                            as="dl"
+                            aria-label="Token 用量"
+                            wrap="wrap"
+                            columnGap="3"
+                            rowGap="1"
+                            fontSize="xs"
+                            color="gray.500"
+                          >
+                            {usageFields.map(([field, label]) => {
+                              const count = message.metadata?.usage?.[field];
+                              return (
+                                <HStack key={field} gap="1">
+                                  <Box as="dt">{label}</Box>
+                                  <Box as="dd" fontVariantNumeric="tabular-nums">
+                                    {count == null ? '—' : formatCount(count)}
+                                  </Box>
+                                </HStack>
+                              );
+                            })}
+                          </Flex>
+                        )}
+                        {index === messages.length - 1 && !busy && (
+                          <IconButton
+                            variant="ghost"
+                            size="xs"
+                            color="gray.500"
+                            aria-label="重试"
+                            disabled={!ready}
+                            onClick={() => {
+                              followOutput.current = true;
+                              void regenerate();
+                            }}
+                          >
+                            <RotateCcw size={14} aria-hidden="true" />
+                          </IconButton>
+                        )}
+                      </HStack>
+                    )}
                   </Stack>
                 ))}
                 {busy && (
@@ -202,11 +249,7 @@ export default function Playground() {
               <ErrorText>{formError(options.error)?.message ?? error?.message}</ErrorText>
               {!options.isPending && !options.error && !options.data?.length && (
                 <Text fontSize="sm" color="gray.500">
-                  暂无可用的 Key 和模型，请在{' '}
-                  <Link asChild color={brandColor}>
-                    <RouterLink to="/console/keys">API Key</RouterLink>
-                  </Link>{' '}
-                  页面创建或绑定渠道。
+                  当前账号暂无可用的对话模型，请联系管理员开通渠道。
                 </Text>
               )}
             </Box>
@@ -227,7 +270,7 @@ export default function Playground() {
                 send();
               }}
             >
-              <Stack direction={{ base: 'column', xl: 'row' }} align={{ base: 'stretch', xl: 'end' }} gap="2">
+              <Stack gap="2">
                 <Textarea
                   id="playground-input"
                   aria-label="消息"
@@ -236,7 +279,6 @@ export default function Playground() {
                   placeholder="输入消息…"
                   disabled={!ready || busy}
                   rows={1}
-                  flex={{ xl: '1' }}
                   minW="0"
                   minH="40px"
                   maxH="min(160px, 25dvh)"
@@ -254,47 +296,31 @@ export default function Playground() {
                     }
                   }}
                 />
-                <HStack justify="end" gap="1" minW="0" flexShrink="0" pb={{ xl: '1' }}>
-                  {messages.length > 0 && !busy && (
-                    <IconButton
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      mr="auto"
-                      color="gray.500"
-                      aria-label="重试"
-                      title="重试"
-                      disabled={!ready}
-                      onClick={() => {
-                        followOutput.current = true;
-                        void regenerate();
-                      }}
-                    >
-                      <RotateCcw size={16} aria-hidden="true" />
-                    </IconButton>
-                  )}
+                <HStack gap="1" minW="0">
+                  <PlaygroundSelector
+                    channels={options.data ?? []}
+                    selectedChannel={selectedChannel}
+                    selectedModel={selectedModel}
+                    disabled={busy || options.isPending}
+                    refreshing={options.isFetching}
+                    onRefresh={() => void options.refetch()}
+                    onSelect={(channel, model) => {
+                      if (channel.id !== channelId || model.id !== modelId)
+                        select({ channelId: channel.id, modelId: model.id, endpoint });
+                    }}
+                  />
                   {endpoint && endpoints.length > 1 && (
                     <PlaygroundProtocol
                       endpoints={endpoints}
                       value={endpoint}
                       disabled={busy || options.isPending}
                       onChange={(next) => {
-                        if (next !== endpoint) select({ keyId, modelId, endpoint: next });
+                        if (next !== endpoint) select({ channelId, modelId, endpoint: next });
                       }}
                     />
                   )}
-                  <PlaygroundSelector
-                    keys={options.data ?? []}
-                    selectedKey={selectedKey}
-                    selectedModel={selectedModel}
-                    disabled={busy || options.isPending}
-                    refreshing={options.isFetching}
-                    onRefresh={() => void options.refetch()}
-                    onSelect={(key, model) => {
-                      if (key.id !== keyId || model.id !== modelId)
-                        select({ keyId: key.id, modelId: model.id, endpoint: endpointChoice });
-                    }}
-                  />
+
+                  <Box flex="1" />
                   {busy ? (
                     <IconButton
                       type="button"

@@ -2,6 +2,11 @@ import { paginationInput } from '../../core/pagination.ts';
 import { adminProcedure, protectedProcedure } from '../../trpc/procedures.ts';
 import type { RequestHistory } from './history.ts';
 import { listRequestsInput } from './schemas.ts';
+import type { GatewayService } from './service.ts';
+
+export function playgroundRoutes(gateway: GatewayService) {
+  return { options: protectedProcedure.query(({ ctx }) => gateway.playgroundOptions(ctx.principal.user)) };
+}
 
 export function requestRoutes(history: RequestHistory) {
   return {

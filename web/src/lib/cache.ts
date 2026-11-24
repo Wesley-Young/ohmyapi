@@ -23,9 +23,10 @@ export const refreshCatalog = () =>
     queryClient.invalidateQueries(trpc.admin.catalog.openAIResetCredits.pathFilter()),
     queryClient.invalidateQueries(trpc.keys.models.queryFilter()),
     queryClient.invalidateQueries(trpc.modelPlaza.queryFilter()),
+    queryClient.invalidateQueries(trpc.playground.options.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.channels.queryFilter()),
     queryClient.invalidateQueries(trpc.keys.list.pathFilter()),
-    queryClient.invalidateQueries(trpc.keys.playgroundOptions.queryFilter()),
+    queryClient.invalidateQueries(trpc.keys.exportOptions.queryFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.grants.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.blocks.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.channelGrants.pathFilter()),
@@ -41,6 +42,7 @@ export const refreshGrants = () =>
     queryClient.invalidateQueries(trpc.admin.groups.pathFilter()),
     queryClient.invalidateQueries(trpc.keys.pathFilter()),
     queryClient.invalidateQueries(trpc.modelPlaza.queryFilter()),
+    queryClient.invalidateQueries(trpc.playground.options.queryFilter()),
   ]);
 
 /** 人工核对或修正某个请求的计费后，刷新请求列表、详情、对账与待核对计数。 */

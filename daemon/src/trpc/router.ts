@@ -11,7 +11,8 @@ import type { ModelCatalog } from '../plugins/catalog/models.ts';
 import { catalogAdminRoutes } from '../plugins/catalog/router.ts';
 import type { CatalogService } from '../plugins/catalog/service.ts';
 import type { RequestHistory } from '../plugins/gateway/history.ts';
-import { requestRoutes } from '../plugins/gateway/router.ts';
+import { playgroundRoutes, requestRoutes } from '../plugins/gateway/router.ts';
+import type { GatewayService } from '../plugins/gateway/service.ts';
 import { groupAdminRoutes } from '../plugins/groups/router.ts';
 import type { GroupService } from '../plugins/groups/service.ts';
 import { keyRoutes } from '../plugins/keys/router.ts';
@@ -29,6 +30,7 @@ import type { WalletService } from '../plugins/wallet/service.ts';
 import { publicProcedure, router } from './procedures.ts';
 
 export interface RouterServices {
+  gateway: GatewayService;
   startedAt: string;
   auth: AuthService;
   adminTokens: AdminTokens;
@@ -58,6 +60,7 @@ export function createAppRouter(services: RouterServices) {
       status: publicProcedure.query(() => ({ name: 'ohmyapi', status: 'ok' as const, startedAt: services.startedAt })),
     },
     auth: authRoutes(services.auth),
+    playground: playgroundRoutes(services.gateway),
     keys: keyRoutes(services.keys),
     modelPlaza: pricing.modelPlaza,
     wallet: wallet.user,

@@ -8,6 +8,8 @@ import { formatMoney } from '../../core/money.ts';
 import { toPage } from '../../core/pagination.ts';
 import { recordAudit } from '../auth/audit.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
+import { channelAccessible } from '../catalog/access.ts';
+import { channelOfferings } from '../catalog/offerings.ts';
 import { compareChannels } from '../catalog/order.ts';
 import type { Database, Transaction } from '../database/client.ts';
 import { activeApiKey, activeChannel, activeModel, availableSubscription, paginate } from '../database/query.ts';
@@ -15,7 +17,6 @@ import {
   apiKeyChannels,
   apiKeyModelGrants,
   apiKeys,
-  channelModelPrices,
   channels,
   effectiveChannelEndpoints,
   effectiveChannelModels,
@@ -23,7 +24,7 @@ import {
   priceRules,
   requests,
 } from '../database/schema/index.ts';
-import { channelAccessible, findKeyIdentity, type KeyIdentity } from './access.ts';
+import { findKeyIdentity, type KeyIdentity } from './access.ts';
 import type { CreateKeyInput, UpdateKeyInput } from './schemas.ts';
 
 import { randomBytes } from 'node:crypto';
@@ -97,43 +98,7 @@ export class KeyService {
 
   /** 用户可调用的渠道、模型和端点组合；在事务中调用时传入 tx 以读取一致的授权状态。 */
   async offerings(user: { id: string; role: string }, db: Database | Transaction = this.db) {
-    const base = db
-      .selectDistinct({
-        channelId: channels.id,
-        channelName: channels.name,
-        channelType: channels.type,
-        channelIsPublic: channels.isPublic,
-        channelMultiplierMicros: channels.multiplierMicros,
-        multiplierMicros: channelModelPrices.multiplierMicros,
-        pricingMode: channels.pricingMode,
-        endpoint: effectiveChannelEndpoints.endpoint,
-        inputTokenLimit: models.inputTokenLimit,
-        outputTokenLimit: models.outputTokenLimit,
-        modelId: models.id,
-        modelName: models.name,
-      })
-      .from(channels)
-      .innerJoin(effectiveChannelModels, eq(channels.id, effectiveChannelModels.channelId))
-      .innerJoin(models, eq(models.id, effectiveChannelModels.modelId))
-      .innerJoin(
-        channelModelPrices,
-        and(eq(channelModelPrices.channelId, channels.id), eq(channelModelPrices.modelId, models.id)),
-      )
-      .innerJoin(effectiveChannelEndpoints, eq(effectiveChannelEndpoints.channelId, channels.id))
-      .where(and(activeChannel(), availableSubscription(), activeModel(), channelAccessible(user)))
-      .orderBy(channels.name, models.name);
-    const rows = await base;
-    const ranges = new Map<string, (typeof rows)[number] & { maxMultiplierMicros: bigint }>();
-    for (const row of rows) {
-      const key = `${row.channelId}:${row.modelId}:${row.endpoint}`;
-      const previous = ranges.get(key);
-      if (!previous) ranges.set(key, { ...row, maxMultiplierMicros: row.multiplierMicros });
-      else {
-        if (row.multiplierMicros < previous.multiplierMicros) previous.multiplierMicros = row.multiplierMicros;
-        if (row.multiplierMicros > previous.maxMultiplierMicros) previous.maxMultiplierMicros = row.multiplierMicros;
-      }
-    }
-    return [...ranges.values()];
+    return channelOfferings(db, user);
   }
 
   async availableChannels(principal: Principal) {
@@ -168,7 +133,7 @@ export class KeyService {
       .sort((a, b) => compareChannels({ ...a, enabled: true }, { ...b, enabled: true }));
   }
 
-  async playgroundOptions(principal: Principal) {
+  async exportOptions(principal: Principal) {
     const rows = await this.db
       .selectDistinct({
         keyId: apiKeys.id,

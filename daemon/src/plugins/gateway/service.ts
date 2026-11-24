@@ -8,7 +8,7 @@ import {
   type RequestTarget,
 } from '@ohmyapi/protocols';
 import { errorResponse, RequestLifecycle, readJsonBody, requestNotSent, responseHeaders } from '@ohmyapi/relay';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import type { GatewayConfig } from '../../config.ts';
 import { createLogSampler, type EventLogger, errorDetails, formatEvent, safeErrorMessage } from '../../core/logging.ts';
@@ -16,12 +16,12 @@ import type { CredentialVault } from '../../core/vault.ts';
 import { validateBillableRequest } from '../billing/admission.ts';
 import { searchRequest } from '../billing/search.ts';
 import type { BillingService } from '../billing/service.ts';
+import { channelAccessible } from '../catalog/access.ts';
 import type { ChannelConcurrency } from '../catalog/concurrency.ts';
 import type { Database } from '../database/client.ts';
 import { activeChannel, availableSubscription } from '../database/query.ts';
 import type { Endpoint } from '../database/schema/index.ts';
 import { channels, requestAttempts, requests } from '../database/schema/index.ts';
-import type { KeyIdentity } from '../keys/access.ts';
 import type { ModerationCapture, ModerationSampler } from '../moderation/sampler.ts';
 import type { OutboundHttp } from '../outbound/index.ts';
 import type { PricingService } from '../pricing/service.ts';
@@ -30,8 +30,9 @@ import { type AffinitySelection, ChannelAffinity } from './affinity.ts';
 import { ForwardBillingSession } from './billing-session.ts';
 import { channelFaultStatus, errorSnippet, failoverError, failoverStatus, retryAfterMs } from './failover.ts';
 import { ChannelHealth, type HealthReport } from './health.ts';
-import { type ApiKeySources, identifyApiKey } from './identity.ts';
+import { type ApiKeySources, type ForwardIdentity, identifyApiKey } from './identity.ts';
 import { availableModels } from './models.ts';
+import { playgroundOptions } from './playground.ts';
 import { mapReasoningEffort, mapUpstreamModel, reasoningEffort } from './protocol.ts';
 import { UserRateLimiter } from './rate-limit.ts';
 import { type ExecutionRoute, noCandidate, planExecution, resolveEntryRoute, takeCandidate } from './routing.ts';
@@ -109,6 +110,10 @@ export class GatewayService implements Disposable {
     this.logger = deps.logger;
     this.rateLimiter = new UserRateLimiter(deps.config);
     this.health = new ChannelHealth(deps.config, deps.logger);
+  }
+
+  playgroundOptions(user: Pick<ForwardIdentity['user'], 'id' | 'role'>) {
+    return playgroundOptions(this.db, user);
   }
 
   get activeRequests() {
@@ -224,7 +229,12 @@ export class GatewayService implements Disposable {
   }
 
   /** params 为路由中的路径参数，由端点协议解析请求目标。 */
-  async forward(req: Request, endpoint: Endpoint, params: Readonly<Record<string, string>> = {}): Promise<Response> {
+  async forward(
+    req: Request,
+    endpoint: Endpoint,
+    params: Readonly<Record<string, string>> = {},
+    playground?: { user: ForwardIdentity['user']; channelId: string },
+  ): Promise<Response> {
     const protocol = protocolFor(endpoint);
     const lifecycle = new RequestLifecycle(req, () => this.running.delete(lifecycle.id));
     const { id, receivedAt, abort } = lifecycle;
@@ -270,11 +280,13 @@ export class GatewayService implements Disposable {
           'client_not_allowed',
           '此端点不支持 Claude Code 客户端，请在其他兼容 Anthropic Messages 的客户端中使用。',
         );
-      const identity = await identifyApiKey(this.db, req, {
-        headers: protocol.apiKeyHeaders,
-        query: protocol.apiKeyQuery,
-        rejectedQuery: protocol.rejectedApiKeyQuery,
-      });
+      const identity: ForwardIdentity = playground
+        ? { ...playground, key: null }
+        : await identifyApiKey(this.db, req, {
+            headers: protocol.apiKeyHeaders,
+            query: protocol.apiKeyQuery,
+            rejectedQuery: protocol.rejectedApiKeyQuery,
+          });
       session.userId = identity.user.id;
       session.channelId = identity.channelId ?? undefined;
       lifecycle.releaseCapacity = this.rateLimiter.acquire(identity.user);
@@ -289,6 +301,7 @@ export class GatewayService implements Disposable {
       // 计费和路由读取统一写法后的请求体，上游收到解压后的原始请求体。
       const parsed = protocol.canonicalBody ? protocol.canonicalBody(received.parsed) : received.parsed;
       if (target.unbilled) {
+        if (playground) throw new GatewayError(400, 'unsupported_method', 'Playground only supports chat requests');
         session.unbilled = true;
         session.modelName = target.model;
         return await this.relayUnbilled({ req, endpoint, target, parsed, bytes, identity, lifecycle, session, finish });
@@ -305,8 +318,14 @@ export class GatewayService implements Disposable {
         id,
         receivedAt,
         userId: identity.user.id,
-        apiKeyId: identity.key.id,
-        channelId: identity.channelId,
+        apiKeyId: identity.key?.id ?? null,
+        // Playground 的渠道来自客户端，拒绝记录只关联用户有权查看的渠道。
+        channelId: playground
+          ? sql`${this.db
+              .select({ id: channels.id })
+              .from(channels)
+              .where(and(eq(channels.id, playground.channelId), channelAccessible(identity.user), activeChannel()))}`
+          : identity.channelId,
         requestedModel: target.model,
         endpoint,
         streaming,
@@ -463,7 +482,7 @@ export class GatewayService implements Disposable {
           moderation = this.moderation.sample({
             requestId: id,
             userId: identity.user.id,
-            apiKeyId: identity.key.id,
+            apiKeyId: identity.key?.id ?? null,
             endpoint,
             requestedModel: target.model,
             session: requestSession(req, parsed, endpoint),
@@ -572,7 +591,7 @@ export class GatewayService implements Disposable {
     target: RequestTarget;
     parsed: Record<string, unknown>;
     bytes: Buffer<ArrayBuffer>;
-    identity: KeyIdentity;
+    identity: ForwardIdentity;
     lifecycle: RequestLifecycle;
     session: ForwardBillingSession;
     finish: (errorCode?: string) => Promise<void>;

@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { endpointProtocolNames } from '../lib/endpoints';
 import type { PlaygroundEndpoint } from '../lib/playground';
 
-/** Key 提供多种对话协议时选择本次使用的协议。 */
+/** 所选模型支持多种对话协议时选择本次使用的协议。 */
 export function PlaygroundProtocol({
   endpoints,
   value,
@@ -25,6 +25,7 @@ export function PlaygroundProtocol({
           size="sm"
           borderRadius="full"
           color="gray.600"
+          flexShrink="1"
           minW="0"
           disabled={disabled}
           aria-label={`选择协议，当前为 ${endpointProtocolNames[value]}`}

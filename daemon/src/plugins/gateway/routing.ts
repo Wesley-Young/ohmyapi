@@ -1,6 +1,7 @@
 import { GatewayError } from '@ohmyapi/protocols';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 
+import { channelAccessible } from '../catalog/access.ts';
 import type { ChannelConcurrency } from '../catalog/concurrency.ts';
 import type { Database } from '../database/client.ts';
 import { activeChannel, activeModel, availableSubscription } from '../database/query.ts';
@@ -15,10 +16,11 @@ import {
   models,
   subscriptionAccounts,
 } from '../database/schema/index.ts';
-import { channelAccessible, type KeyIdentity, keyAllowsModel } from '../keys/access.ts';
+import { keyAllowsModel } from '../keys/access.ts';
 import type { SubscriptionChannels } from './adapters.ts';
 import type { AffinitySelection, ChannelAffinity } from './affinity.ts';
 import type { ChannelHealth } from './health.ts';
+import type { ForwardIdentity } from './identity.ts';
 import { requestSession } from './session.ts';
 
 type Channel = typeof channels.$inferSelect;
@@ -198,10 +200,10 @@ export function noCandidate(plan: ExecutionPlan) {
     : new GatewayError(429, 'channel_concurrency_exceeded', 'The channel concurrency limit was reached');
 }
 
-/** 解析模型并确认 Key 绑定的入口渠道提供该模型和端点，且用户与 Key 均有权使用。 */
+/** 校验用户的渠道权限、模型与端点，使用 Key 时同时校验模型授权。 */
 export async function resolveEntryRoute(
   db: Database,
-  identity: KeyIdentity,
+  identity: ForwardIdentity,
   requestedModel: string,
   endpoint: Endpoint,
   details: { modelName?: string; upstreamTimeoutMs?: number },
@@ -223,7 +225,7 @@ export async function resolveEntryRoute(
   // Key 的模型授权与渠道路由互不依赖，并行查询；渠道访问规则与 canUseChannel 相同，随路由一起判断。
   const access = channelAccessible(identity.user);
   const [modelAllowed, [route]] = await Promise.all([
-    keyAllowsModel(db, identity.key, model.id),
+    identity.key ? keyAllowsModel(db, identity.key, model.id) : true,
     db
       .select({
         channel: channels,
@@ -250,7 +252,7 @@ export async function resolveEntryRoute(
   ]);
   if (!modelAllowed) throw new GatewayError(403, 'model_forbidden', 'API Key does not authorize this model');
   if (!route)
-    throw new GatewayError(503, 'channel_unavailable', 'The API Key channel does not provide this model and endpoint');
+    throw new GatewayError(503, 'channel_unavailable', 'The selected channel does not provide this model and endpoint');
   details.upstreamTimeoutMs = route.channel.timeoutMs;
 
   if (!route.accessible) throw new GatewayError(403, 'channel_forbidden', 'Channel is not authorized for this user');

@@ -20,7 +20,7 @@ export const publicUser = (user: User) => ({
 });
 export type PublicUser = ReturnType<typeof publicUser>;
 /** 控制台登录会话的身份。 */
-export type SessionPrincipal = { user: PublicUser; sessionId: string };
+export type SessionPrincipal = { user: PublicUser; sessionId: string; maxConcurrent: number | null };
 /** 公开 API 管理令牌的身份，以所属管理员的身份操作。 */
 export type TokenPrincipal = { user: PublicUser; tokenId: string; scopes: AdminScope[] };
 export type Principal = SessionPrincipal | TokenPrincipal;
@@ -81,7 +81,7 @@ export class AuthService {
           activeUser(),
         ),
       );
-    return row ? { user: publicUser(row.user), sessionId: row.sessionId } : null;
+    return row ? { user: publicUser(row.user), sessionId: row.sessionId, maxConcurrent: row.user.maxConcurrent } : null;
   }
 
   /**

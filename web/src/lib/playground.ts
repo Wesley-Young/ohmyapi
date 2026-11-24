@@ -4,47 +4,44 @@ import { type ChatTransport, streamText, toUIMessageStream, type UIMessage } fro
 
 import { queryClient, trpc } from './trpc';
 
-export type PlaygroundKey = RouterOutputs['keys']['playgroundOptions'][number];
-export type PlaygroundModel = PlaygroundKey['models'][number];
-export type PlaygroundEndpoint = PlaygroundKey['endpoints'][number];
-/** 回复消息记录生成它的模型，换模型后历史消息仍显示原模型。 */
-export type PlaygroundMessage = UIMessage<{ model?: string }>;
-/** 发送消息时使用的 Key、模型和协议，由页面在选择变化后更新。 */
-export type PlaygroundSelection = { key?: PlaygroundKey; model?: PlaygroundModel; endpoint?: PlaygroundEndpoint };
-/** 保存在 localStorage 的选择，只含 ID，不含 Key 的令牌。 */
-export type StoredPlaygroundSelection = { keyId?: string; modelId?: string; endpoint?: PlaygroundEndpoint };
-
-const endpointOrder: PlaygroundEndpoint[] = [
-  '/v1/responses',
-  '/v1/messages',
-  '/v1/chat/completions',
-  '/v1beta/generateContent',
-];
-
-/** Key 可在 Playground 中对话的端点，按推荐顺序排列。 */
-export function playgroundEndpoints(endpoints: PlaygroundEndpoint[]) {
-  return endpointOrder.filter((endpoint) => endpoints.includes(endpoint));
-}
-
-/** 与网关的 Gemini 路径规则一致：名称只含字母、数字、下划线、连字符和点。 */
-const geminiModelName = /^(?!\.+$)[A-Za-z0-9_.-]{1,128}$/;
+export type PlaygroundChannel = RouterOutputs['playground']['options'][number];
+export type PlaygroundModel = PlaygroundChannel['models'][number];
+export type PlaygroundEndpoint = PlaygroundModel['endpoints'][number];
+/** 每条回复保留本轮使用的模型及 SDK 在完成时返回的 Token 用量。 */
+export type PlaygroundMessage = UIMessage<{
+  model?: string;
+  usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+}>;
+/** 发送消息时使用的渠道、模型和协议，由页面在选择变化后更新。 */
+export type PlaygroundSelection = {
+  channel?: PlaygroundChannel;
+  model?: PlaygroundModel;
+  endpoint?: PlaygroundEndpoint;
+};
+/** 保存在 localStorage 的选择，只保存 ID 和协议。 */
+export type StoredPlaygroundSelection = { channelId?: string; modelId?: string; endpoint?: string };
 
 export function messageText(message: PlaygroundMessage) {
   return message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('');
 }
 
+const playgroundFetch: typeof fetch = async (input, init) => {
+  const headers = new Headers(init?.headers);
+  for (const name of ['authorization', 'x-api-key', 'x-goog-api-key']) headers.delete(name);
+  headers.set('X-Ohmyapi-Request', '1');
+  const response = await fetch(input, { ...init, headers, credentials: 'same-origin' });
+  if (response.status === 401) void queryClient.invalidateQueries(trpc.auth.me.queryFilter());
+  return response;
+};
+
 function playgroundTransport(selection: PlaygroundSelection): ChatTransport<PlaygroundMessage> {
   return {
     async sendMessages({ messages, abortSignal }) {
-      const { key, model: selectedModel, endpoint } = selection;
-      if (!key || !selectedModel || !endpoint) throw new Error('请选择可用的 API Key 和模型');
-      if (key.expiresAt && new Date(key.expiresAt).getTime() <= Date.now())
-        throw new Error('API Key 已过期，请选择其他 Key');
-
-      if (endpoint === '/v1beta/generateContent' && !geminiModelName.test(selectedModel.name))
-        throw new Error('该模型名称无法通过 Gemini 端点调用，请切换协议');
-
-      const settings = { baseURL: `${window.location.origin}/v1`, apiKey: key.token };
+      const { channel, model: selectedModel, endpoint } = selection;
+      if (!channel || !selectedModel || !endpoint) throw new Error('请选择可用的渠道和模型');
+      const base = `${window.location.origin}/api/playground/${channel.id}`;
+      // SDK 要求填写凭据；走控制台入口时只发送登录 Cookie 和同源校验头。
+      const settings = { baseURL: `${base}/v1`, apiKey: 'playground', fetch: playgroundFetch };
       const model =
         endpoint === '/v1/responses'
           ? (await import('@ai-sdk/openai')).createOpenAI(settings).responses(selectedModel.name)
@@ -52,7 +49,7 @@ function playgroundTransport(selection: PlaygroundSelection): ChatTransport<Play
             ? (await import('@ai-sdk/anthropic')).createAnthropic(settings).messages(selectedModel.name)
             : endpoint === '/v1beta/generateContent'
               ? (await import('@ai-sdk/google'))
-                  .createGoogleGenerativeAI({ baseURL: `${window.location.origin}/v1beta`, apiKey: key.token })
+                  .createGoogleGenerativeAI({ ...settings, baseURL: `${base}/v1beta` })
                   .chat(selectedModel.name)
               : (await import('@ai-sdk/openai-compatible'))
                   .createOpenAICompatible({ ...settings, name: 'ohmyapi', includeUsage: true })
@@ -74,7 +71,20 @@ function playgroundTransport(selection: PlaygroundSelection): ChatTransport<Play
       return toUIMessageStream({
         stream: result.stream,
         originalMessages: messages,
-        messageMetadata: ({ part }) => (part.type === 'start' ? { model: selectedModel.name } : undefined),
+        messageMetadata: ({ part }) => {
+          if (part.type === 'start') return { model: selectedModel.name };
+          if (part.type === 'finish' && part.finishReason !== 'error') {
+            const { inputTokens, outputTokens, inputTokenDetails } = part.totalUsage;
+            return {
+              usage: {
+                input: inputTokens,
+                output: outputTokens,
+                cacheRead: inputTokenDetails.cacheReadTokens,
+                cacheWrite: inputTokenDetails.cacheWriteTokens,
+              },
+            };
+          }
+        },
         sendReasoning: false,
         sendSources: false,
         onError: (error) => (error instanceof Error ? error.message : '请求失败，请重试'),
@@ -111,14 +121,17 @@ export function playgroundSession(userId: string) {
 const selectionStorageKey = (userId: string) => `ohmyapi:playground:${userId}`;
 const optionalString = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
 
-/** 读取用户上次的 Key、模型和协议选择；存储不可用或内容无效时返回空选择。 */
+/** 读取用户上次的渠道、模型和协议选择；存储不可用或内容无效时返回空选择。 */
 export function loadPlaygroundSelection(userId: string): StoredPlaygroundSelection {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(selectionStorageKey(userId)) ?? 'null');
     if (!value || typeof value !== 'object') return {};
     const stored = value as Record<string, unknown>;
-    const endpoint = endpointOrder.find((item) => item === stored.endpoint);
-    return { keyId: optionalString(stored.keyId), modelId: optionalString(stored.modelId), endpoint };
+    return {
+      channelId: optionalString(stored.channelId),
+      modelId: optionalString(stored.modelId),
+      endpoint: optionalString(stored.endpoint),
+    };
   } catch {
     return {};
   }

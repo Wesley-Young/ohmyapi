@@ -1,6 +1,7 @@
 import type { ModelInfo } from '@ohmyapi/protocols';
 import { and, eq } from 'drizzle-orm';
 
+import { canUseChannel } from '../catalog/access.ts';
 import type { Database } from '../database/client.ts';
 import { activeModel } from '../database/query.ts';
 import {
@@ -12,7 +13,7 @@ import {
   models,
   priceRules,
 } from '../database/schema/index.ts';
-import { canUseChannel, type KeyIdentity } from '../keys/access.ts';
+import type { KeyIdentity } from '../keys/access.ts';
 
 /** Key 在绑定渠道上可调用且已定价的模型；指定端点时只返回该端点可用的模型。 */
 export async function availableModels(

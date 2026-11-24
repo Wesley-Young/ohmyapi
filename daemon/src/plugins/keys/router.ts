@@ -5,7 +5,7 @@ import type { KeyService } from './service.ts';
 
 export function keyRoutes(keys: KeyService) {
   return {
-    playgroundOptions: protectedProcedure.query(({ ctx }) => keys.playgroundOptions(ctx.principal)),
+    exportOptions: protectedProcedure.query(({ ctx }) => keys.exportOptions(ctx.principal)),
     list: protectedProcedure.input(paginationInput).query(({ ctx, input }) => keys.list(ctx.principal, input.page)),
     accessEndpoints: protectedProcedure.query(() => keys.accessEndpoints()),
     channels: protectedProcedure.query(({ ctx }) => keys.availableChannels(ctx.principal)),

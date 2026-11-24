@@ -1,34 +1,38 @@
-import { Box, Button, Flex, HStack, Input, Popover, Portal, Stack, Text } from '@chakra-ui/react';
+import { Button, Flex, HStack, Input, Popover, Portal, Stack, Text } from '@chakra-ui/react';
 import { Check, ChevronDown, RefreshCw, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 
-import type { PlaygroundKey, PlaygroundModel } from '../lib/playground';
+import { displayMultiplier } from '../lib/format';
+import type { PlaygroundChannel, PlaygroundModel } from '../lib/playground';
 import { ModelIcon, ModelLabel } from './brand-icon';
 import { IconButton } from './icon-button';
 
 export function PlaygroundSelector({
-  keys,
-  selectedKey,
+  channels,
+  selectedChannel,
   selectedModel,
   disabled,
   refreshing,
   onRefresh,
   onSelect,
 }: {
-  keys: PlaygroundKey[];
-  selectedKey?: PlaygroundKey;
+  channels: PlaygroundChannel[];
+  selectedChannel?: PlaygroundChannel;
   selectedModel?: PlaygroundModel;
   disabled: boolean;
   refreshing: boolean;
   onRefresh: () => void;
-  onSelect: (key: PlaygroundKey, model: PlaygroundModel) => void;
+  onSelect: (channel: PlaygroundChannel, model: PlaygroundModel) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [draftKeyId, setDraftKeyId] = useState('');
+  const [draftChannelId, setDraftChannelId] = useState('');
   const [search, setSearch] = useState('');
   const searchInput = useRef<HTMLInputElement>(null);
-  const draftKey = keys.find((key) => key.id === draftKeyId);
-  const models = draftKey?.models.filter((model) => model.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const draftChannel = channels.find((channel) => channel.id === draftChannelId);
+  const models = draftChannel?.models.filter((model) => model.name.toLowerCase().includes(search.trim().toLowerCase()));
+
+  const selectionLabel =
+    selectedChannel && selectedModel ? `${selectedChannel.name} / ${selectedModel.name}` : undefined;
 
   return (
     <Popover.Root
@@ -36,11 +40,11 @@ export function PlaygroundSelector({
       onOpenChange={({ open: nextOpen }) => {
         setOpen(nextOpen);
         if (nextOpen) {
-          setDraftKeyId(selectedKey?.id ?? keys[0]?.id ?? '');
+          setDraftChannelId(selectedChannel?.id ?? channels[0]?.id ?? '');
           setSearch('');
         }
       }}
-      positioning={{ placement: 'top-end', strategy: 'fixed', gutter: 12, shift: 12 }}
+      positioning={{ placement: 'top-start', strategy: 'fixed', gutter: 12, shift: 12 }}
       initialFocusEl={() => searchInput.current}
       lazyMount
       unmountOnExit
@@ -51,14 +55,15 @@ export function PlaygroundSelector({
           variant="ghost"
           size="sm"
           borderRadius="full"
+          flexShrink="1"
           minW="0"
           maxW={{ base: '160px', sm: '300px' }}
           disabled={disabled}
-          aria-label={selectedModel ? `选择 API Key 和模型，当前模型 ${selectedModel.name}` : '选择 API Key 和模型'}
-          title={selectedModel?.name ?? '选择 API Key 和模型'}
+          aria-label={selectionLabel ? `选择渠道和模型，当前为 ${selectionLabel}` : '选择渠道和模型'}
+          title={selectionLabel ?? '选择渠道和模型'}
         >
           {selectedModel && <ModelIcon model={selectedModel.name} />}
-          <Text truncate>{selectedModel?.name ?? '选择模型'}</Text>
+          <Text truncate>{selectionLabel ?? '选择渠道和模型'}</Text>
           <ChevronDown size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
         </Button>
       </Popover.Trigger>
@@ -78,14 +83,14 @@ export function PlaygroundSelector({
           >
             <HStack px="4" py="3" justify="space-between" flexShrink="0" borderBottomWidth="1px" borderColor="gray.100">
               <Popover.Title fontSize="sm" fontWeight="600">
-                选择 Key 和模型
+                选择渠道和模型
               </Popover.Title>
               <HStack gap="1">
                 <IconButton
                   type="button"
                   variant="ghost"
                   size="xs"
-                  aria-label="刷新 Key 和模型"
+                  aria-label="刷新渠道和模型"
                   loading={refreshing}
                   onClick={onRefresh}
                 >
@@ -109,12 +114,12 @@ export function PlaygroundSelector({
                 borderColor="gray.100"
               >
                 <Text fontSize="xs" color="gray.500" px="2">
-                  API Key
+                  渠道
                 </Text>
-                <Stack gap="1" overflowY="auto" minH="0" aria-label="API Key 列表">
-                  {keys.map((key) => (
+                <Stack gap="1" overflowY="auto" minH="0" aria-label="渠道列表">
+                  {channels.map((channel) => (
                     <Button
-                      key={key.id}
+                      key={channel.id}
                       type="button"
                       variant="ghost"
                       h="auto"
@@ -124,33 +129,24 @@ export function PlaygroundSelector({
                       flexShrink="0"
                       justifyContent="space-between"
                       borderRadius="lg"
-                      bg={draftKey?.id === key.id ? 'gray.200' : 'transparent'}
-                      aria-pressed={draftKey?.id === key.id}
+                      bg={draftChannel?.id === channel.id ? 'gray.200' : 'transparent'}
+                      aria-pressed={draftChannel?.id === channel.id}
                       onClick={() => {
-                        setDraftKeyId(key.id);
+                        setDraftChannelId(channel.id);
                         setSearch('');
                       }}
                     >
-                      <Box minW="0" textAlign="left">
-                        <Text fontSize="sm" whiteSpace="normal" overflowWrap="anywhere">
-                          {key.name}
-                        </Text>
-                        <Text
-                          fontSize="xs"
-                          color="gray.500"
-                          fontWeight="400"
-                          whiteSpace="normal"
-                          overflowWrap="anywhere"
-                        >
-                          {key.channelName}
-                        </Text>
-                      </Box>
-                      {draftKey?.id === key.id && <Check size={14} aria-hidden="true" style={{ flexShrink: 0 }} />}
+                      <Text fontSize="sm" whiteSpace="normal" overflowWrap="anywhere" textAlign="left">
+                        {channel.name}
+                      </Text>
+                      {draftChannel?.id === channel.id && (
+                        <Check size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
+                      )}
                     </Button>
                   ))}
-                  {!keys.length && (
+                  {!channels.length && (
                     <Text fontSize="xs" color="gray.500" px="2">
-                      暂无可用 Key
+                      暂无可用渠道
                     </Text>
                   )}
                 </Stack>
@@ -180,26 +176,31 @@ export function PlaygroundSelector({
                       py="2"
                       borderRadius="lg"
                       bg={
-                        selectedKey?.id === draftKey?.id && selectedModel?.id === model.id ? 'gray.100' : 'transparent'
+                        selectedChannel?.id === draftChannel?.id && selectedModel?.id === model.id
+                          ? 'gray.100'
+                          : 'transparent'
                       }
-                      aria-pressed={selectedKey?.id === draftKey?.id && selectedModel?.id === model.id}
+                      aria-pressed={selectedChannel?.id === draftChannel?.id && selectedModel?.id === model.id}
                       onClick={() => {
-                        if (!draftKey) return;
-                        onSelect(draftKey, model);
+                        if (!draftChannel) return;
+                        onSelect(draftChannel, model);
                         setOpen(false);
                       }}
                     >
                       <Text fontSize="sm" fontWeight="500" whiteSpace="normal" overflowWrap="anywhere" textAlign="left">
                         <ModelLabel model={model.name} />
                       </Text>
-                      {selectedKey?.id === draftKey?.id && selectedModel?.id === model.id && (
+                      <Text as="span" fontSize="xs" color="gray.500" ms="auto">
+                        {displayMultiplier(model.minimum, model.maximum)}
+                      </Text>
+                      {selectedChannel?.id === draftChannel?.id && selectedModel?.id === model.id && (
                         <Check size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
                       )}
                     </Button>
                   ))}
                   {!models?.length && (
                     <Text fontSize="sm" color="gray.500" p="3">
-                      {draftKey ? '没有匹配的模型' : '请选择 API Key'}
+                      {draftChannel ? '没有匹配的模型' : '请选择渠道'}
                     </Text>
                   )}
                 </Stack>

@@ -1,9 +1,11 @@
 import { HonoService } from '@fraqjs/plugin-hono';
 import { protocols } from '@ohmyapi/protocols';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
+import type { MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie } from 'hono/cookie';
 import { serialize } from 'hono/utils/cookie';
+import { z } from 'zod';
 
 import { errorDetails, formatEvent } from '../../core/logging.ts';
 import { definePlugin } from '../../kernel.ts';
@@ -19,6 +21,7 @@ import { ModelCatalog } from '../catalog/models.ts';
 import { CatalogService } from '../catalog/service.ts';
 import { DatabaseService } from '../database/index.ts';
 import { RequestHistory } from '../gateway/history.ts';
+import { isPlaygroundEndpoint } from '../gateway/playground.ts';
 import { GatewayService } from '../gateway/service.ts';
 import { GroupService } from '../groups/service.ts';
 import { KeyService } from '../keys/service.ts';
@@ -55,6 +58,7 @@ export const HttpPlugin = definePlugin({
   apply(ctx) {
     const app = ctx.hono.app;
     const appRouter = createAppRouter({
+      gateway: ctx.gateway,
       startedAt: new Date().toISOString(),
       auth: ctx.auth,
       adminTokens: ctx.adminTokens,
@@ -97,7 +101,7 @@ export const HttpPlugin = definePlugin({
         ? importBodyLimit
         : rpcBodyLimit)(c, next),
     );
-    app.use('/api/trpc/*', async (c, next) => {
+    const consoleRequest: MiddlewareHandler = async (c, next) => {
       c.header('Cache-Control', 'no-store');
       if (c.req.method === 'POST') {
         const origin = c.req.header('Origin');
@@ -106,7 +110,9 @@ export const HttpPlugin = definePlugin({
           return c.json({ error: 'Forbidden' }, 403);
       }
       await next();
-    });
+    };
+    app.use('/api/trpc/*', consoleRequest);
+    app.use('/api/playground/*', consoleRequest);
 
     app.get('/api/health', (c) => c.json({ name: 'ohmyapi', status: 'ok' }));
     app.get('/api/ready', async (c) => {
@@ -198,6 +204,19 @@ export const HttpPlugin = definePlugin({
     }
     for (const { endpoint, routes } of protocols)
       for (const route of routes) {
+        if (isPlaygroundEndpoint(endpoint)) {
+          app.post(`/api/playground/:channelId${route}`, async (c) => {
+            const principal = await ctx.auth.resolve(getCookie(c, cookieName));
+            const id = requestInfo(c.req.raw).requestId;
+            if (!principal) return ctx.gateway.error(endpoint, 401, 'unauthorized', '登录已失效，请重新登录', id);
+            const channelId = z.uuid().safeParse(c.req.param('channelId'));
+            if (!channelId.success) return ctx.gateway.error(endpoint, 400, 'invalid_channel', '渠道 ID 无效', id);
+            return ctx.gateway.forward(c.req.raw, endpoint, c.req.param(), {
+              user: { ...principal.user, maxConcurrent: principal.maxConcurrent },
+              channelId: channelId.data,
+            });
+          });
+        }
         app.post(route, (c) => ctx.gateway.forward(c.req.raw, endpoint, c.req.param()));
         app.all(route, () =>
           ctx.gateway.error(endpoint, 405, 'method_not_allowed', 'Only POST is supported', crypto.randomUUID()),

@@ -8,7 +8,7 @@ import { formError } from '../lib/format';
 import { trpc } from '../lib/trpc';
 import { ErrorText, FormDialog, Loading } from './ui';
 
-export type ExportKey = RouterOutputs['keys']['playgroundOptions'][number];
+export type ExportKey = RouterOutputs['keys']['exportOptions'][number];
 
 export const keyExpired = (key: ExportKey) => key.expiresAt !== null && new Date(key.expiresAt).getTime() <= Date.now();
 
@@ -27,7 +27,7 @@ export function KeyExportDialog({
   onClose: () => void;
   children: (props: { apiKey: ExportKey; accessEndpoints: AccessEndpoint[]; refreshing: boolean }) => ReactNode;
 }) {
-  const options = useQuery(trpc.keys.playgroundOptions.queryOptions(undefined, { staleTime: 0, gcTime: 0 }));
+  const options = useQuery(trpc.keys.exportOptions.queryOptions(undefined, { staleTime: 0, gcTime: 0 }));
   const accessEndpoints = useQuery(trpc.keys.accessEndpoints.queryOptions());
   const selectedKey = options.data?.find((key) => key.id === keyId);
   const error = options.error ?? accessEndpoints.error;

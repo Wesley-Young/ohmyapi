@@ -27,7 +27,7 @@ type ChannelPolicy = Pick<
 export type SampleInput = {
   requestId: string;
   userId: string;
-  apiKeyId: string;
+  apiKeyId: string | null;
   endpoint: Endpoint;
   requestedModel: string;
   /** 协议约定的会话标识；没有时按会话开头的内容识别。 */
@@ -52,7 +52,7 @@ export type SessionFacts = {
 type ActiveSession = {
   key: string;
   userId: string;
-  apiKeyId: string;
+  apiKeyId: string | null;
   sessionHash: string;
   day: string;
   reason: 'rate' | 'floor';

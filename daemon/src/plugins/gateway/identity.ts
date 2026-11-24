@@ -1,7 +1,13 @@
 import { GatewayError } from '@ohmyapi/protocols';
 
 import type { Database } from '../database/client.ts';
-import { apiKeyPattern, findKeyIdentity } from '../keys/access.ts';
+import { apiKeyPattern, findKeyIdentity, type KeyIdentity } from '../keys/access.ts';
+
+export type ForwardIdentity = {
+  user: Pick<KeyIdentity['user'], 'id' | 'role' | 'maxConcurrent'>;
+  channelId: string | null;
+  key: KeyIdentity['key'] | null;
+};
 
 /** Authorization 之外接受 API Key 的位置，以及明确不接受的查询参数。 */
 export type ApiKeySources = {
