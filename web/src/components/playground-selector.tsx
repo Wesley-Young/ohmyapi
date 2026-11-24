@@ -66,7 +66,7 @@ export function PlaygroundSelector({
           title={selectionLabel ?? '选择渠道和模型'}
         >
           {selectedModel && <ModelIcon model={selectedModel.name} />}
-          <Text fontFamily="monospace" truncate>{selectionLabel ?? '选择渠道和模型'}</Text>
+          <Text truncate>{selectionLabel ?? '选择渠道和模型'}</Text>
           <ChevronDown size={14} aria-hidden="true" style={{ flexShrink: 0 }} />
         </Button>
       </Popover.Trigger>
