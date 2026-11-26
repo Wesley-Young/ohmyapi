@@ -1,0 +1,1 @@
+ALTER TABLE "requests" ADD COLUMN "upstream_service_tier" text;

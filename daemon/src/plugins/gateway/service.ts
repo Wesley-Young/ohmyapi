@@ -440,6 +440,7 @@ export class GatewayService implements Disposable {
             ? (model.outputTokenLimit ?? undefined)
             : requestedOutputLimit;
           // 渠道规则和适配器（如强制工具调用时移除）都可能改写推理强度，记录实际发往上游的值。
+          session.collector.observeServiceTier = prepared.fastMultiplier !== undefined;
           const reservationInput = {
             requestId: id,
             userId: identity.user.id,
@@ -447,7 +448,7 @@ export class GatewayService implements Disposable {
             channelId: channel.id,
             subscriptionAccountId: executionChannel.subscriptionAccountId,
             reasoningEffort: reasoningEffort(endpoint, prepared.billingBody ?? outgoing.parsed),
-            price: lockedPrice,
+            price: { ...lockedPrice, fastMultiplier: prepared.fastMultiplier },
             outputLimit,
             body: prepared.billingBody ?? outgoing.parsed,
             endpoint,

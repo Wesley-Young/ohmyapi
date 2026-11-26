@@ -58,6 +58,17 @@ export function prepareBody(parsed: Record<string, unknown>, endpoint: Endpoint)
       'OpenAI subscriptions support Responses and compact only',
     );
   const body = structuredClone(parsed);
+  if (body.service_tier == null) delete body.service_tier;
+  else {
+    const tier = typeof body.service_tier === 'string' ? body.service_tier.trim().toLowerCase() : '';
+    if (!['auto', 'default', 'scale', 'flex', 'fast', 'priority'].includes(tier))
+      throw new GatewayError(
+        400,
+        'invalid_request',
+        'service_tier must be auto, default, scale, flex, fast or priority',
+      );
+    body.service_tier = tier === 'fast' ? 'priority' : tier;
+  }
   if (typeof body.input === 'string') body.input = [{ role: 'user', content: body.input }];
   if (!Array.isArray(body.input)) throw new GatewayError(400, 'invalid_request', 'input must be a string or an array');
   for (const item of body.input) {
@@ -89,7 +100,7 @@ export function prepareBody(parsed: Record<string, unknown>, endpoint: Endpoint)
   if (endpoint === '/v1/responses/compact') {
     if (body.stream === true || body.tools != null)
       throw new GatewayError(400, 'invalid_request', 'compact does not accept streaming or tools');
-    const allowed = new Set(['model', 'input', 'instructions']);
+    const allowed = new Set(['model', 'input', 'instructions', 'service_tier']);
     for (const key of Object.keys(body)) if (!allowed.has(key)) delete body[key];
     return body;
   }

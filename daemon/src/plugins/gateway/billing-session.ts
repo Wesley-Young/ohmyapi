@@ -95,6 +95,7 @@ export class ForwardBillingSession {
         (collector.searchIncomplete && !collector.usageEstimate),
       httpStatus,
       upstreamRequestId: collector.upstreamId,
+      upstreamServiceTier: collector.upstreamServiceTier,
       noExecution: !dispatched || this.notSent || safeRejection,
       noUsageReported:
         this.options.endpoint !== '/v1/images' &&

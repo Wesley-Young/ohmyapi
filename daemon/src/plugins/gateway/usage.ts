@@ -32,6 +32,8 @@ function usageNumbers(raw: ObjectValue, depth = 0): ObjectValue {
 export class UsageCollector implements ResponseObserver {
   usage?: Usage;
   upstreamId?: string;
+  observeServiceTier = false;
+  upstreamServiceTier?: string;
   errorMessage?: string;
   complete = false;
   finalUsage = false;
@@ -162,7 +164,14 @@ export class UsageCollector implements ResponseObserver {
         : (object(upstreamError)?.message ??
           (['error', 'response.error'].includes(String(data.type)) ? data.message : undefined));
     if (typeof message === 'string') this.errorMessage = safeErrorMessage(message);
-    if (reader.terminal(data, envelope)) this.complete = true;
+    if (reader.terminal(data, envelope)) {
+      this.complete = true;
+      // Responses 的开始事件可能回显请求档位，结算只采信终止响应。
+      if (this.observeServiceTier) {
+        const tier = typeof envelope.service_tier === 'string' ? envelope.service_tier.trim().toLowerCase() : '';
+        if (/^[a-z][a-z0-9_-]{0,31}$/.test(tier)) this.upstreamServiceTier = tier;
+      }
+    }
     const final = this.complete || reader.reportsFinalUsage?.(data) === true;
     const upstreamId = reader.upstreamId ? reader.upstreamId(envelope) : envelope.id;
     if (typeof upstreamId === 'string') this.upstreamId = upstreamId.slice(0, 256);

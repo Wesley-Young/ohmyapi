@@ -3,7 +3,7 @@ import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { billingConventions, formatMoney } from '../../core/money.ts';
 import type { Database } from '../database/client.ts';
 import { models, priceRules, requests, requestUsage } from '../database/schema/index.ts';
-import { matchRule, type Rule, ruleSignature } from '../pricing/rules.ts';
+import { fastTokenMultiplier, matchRule, type Rule, ruleSignature } from '../pricing/rules.ts';
 import { applySearchDefaults } from '../pricing/search-defaults.ts';
 
 type SnapshotRule = {
@@ -24,6 +24,7 @@ const ceilMicros = (numerator: bigint) =>
  */
 export async function estimateCycleUsage(db: Database, accountId: string, start: Date, end: Date) {
   const ruleId = sql<string | null>`${requests.pricingSnapshot}->>'ruleId'`;
+  const fastMultiplier = sql<number | null>`(${requests.reservationSnapshot}->'pricing'->>'fastMultiplier')::integer`;
   const confirmed = sql<boolean>`(${requests.status} = 'settled' and ${requests.usageFinal})`;
   // 快照没有命中规则的请求逐条返回，按请求时间和上下文长度匹配当前规则。
   const single = sql<string | null>`case when ${requests.pricingSnapshot}->>'ruleId' is null then ${requests.id} end`;
@@ -31,6 +32,8 @@ export async function estimateCycleUsage(db: Database, accountId: string, start:
     .select({
       modelId: requests.modelId,
       ruleId,
+      serviceTier: requests.upstreamServiceTier,
+      fastMultiplier,
       confirmed,
       single,
       requests: sql<number>`count(*)::integer`,
@@ -49,7 +52,7 @@ export async function estimateCycleUsage(db: Database, accountId: string, start:
     .where(
       and(eq(requests.subscriptionAccountId, accountId), gte(requests.receivedAt, start), lt(requests.receivedAt, end)),
     )
-    .groupBy(requests.modelId, ruleId, confirmed, single);
+    .groupBy(requests.modelId, ruleId, requests.upstreamServiceTier, fastMultiplier, confirmed, single);
 
   const modelIds = [...new Set(groups.flatMap((g) => (g.modelId ? [g.modelId] : [])))];
   const samples = new Map<string, string>();
@@ -128,14 +131,15 @@ export async function estimateCycleUsage(db: Database, accountId: string, start:
     } else {
       rule = matchRule(rules, new Date(Number(g.receivedAtMs)), BigInt(g.contextTokens)) ?? defaultRule;
     }
+    const tokenMultiplier = BigInt(fastTokenMultiplier(g.serviceTier, g.fastMultiplier ?? undefined) ?? 1);
     let numerator = 0n;
     let unpriced = !rule;
     if (rule)
       for (const [tokens, price, scale] of [
-        [quantities.inputTokens, rule.inputPriceMicros, 1n],
-        [quantities.outputTokens, rule.outputPriceMicros, 1n],
-        [quantities.cacheReadTokens, rule.cacheReadPriceMicros, 1n],
-        [quantities.cacheWriteTokens, rule.cacheWritePriceMicros, 1n],
+        [quantities.inputTokens, rule.inputPriceMicros, tokenMultiplier],
+        [quantities.outputTokens, rule.outputPriceMicros, tokenMultiplier],
+        [quantities.cacheReadTokens, rule.cacheReadPriceMicros, tokenMultiplier],
+        [quantities.cacheWriteTokens, rule.cacheWritePriceMicros, tokenMultiplier],
         [quantities.webSearchCalls, rule.webSearchPriceMicros, 1000n],
         [quantities.webSearchPreviewCalls, rule.webSearchPreviewPriceMicros, 1000n],
       ] as const) {

@@ -190,7 +190,12 @@ function tokenPriceItems(rule: Rule, usage: TokenQuantities) {
   ] as const;
 }
 
-export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicros: bigint) {
+/** 只有上游最终报告 Fast 的请求采用快照中的 Token 倍率。 */
+export function fastTokenMultiplier(serviceTier: string | null | undefined, fastMultiplier?: number) {
+  return serviceTier === 'priority' || serviceTier === 'fast' ? fastMultiplier : undefined;
+}
+
+export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicros: bigint, tokenMultiplier = 1) {
   const contextTokens = 'inputTokens' in usage ? usage.contextTokens : 0n;
   const rule = matchRule(rules, at, contextTokens);
   if (!rule) throw new Error('没有匹配的价格规则');
@@ -218,7 +223,8 @@ export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicr
     webSearchPreview: 'Web Search Preview',
   };
   let numerator = 0n;
-  const details = items.map(({ category, tokens, price, unit, scale }) => {
+  const details = items.map(({ category, tokens, price: basePrice, unit, scale }) => {
+    const price = unit === 'million_tokens' && basePrice !== null ? basePrice * BigInt(tokenMultiplier) : basePrice;
     if (tokens > 0n && price === null) throw new Error(`${labels[category]}单价尚未配置`);
     const itemNumerator = tokens * (price ?? 0n) * multiplierMicros * scale;
     numerator += itemNumerator;

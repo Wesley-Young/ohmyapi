@@ -85,6 +85,7 @@ export class BillingRecords {
         (r.status === 'needs_review' ? '该历史请求未保存具体错误消息，请通过请求 ID 查询服务日志。' : null),
       httpStatus: r.httpStatus,
       upstreamRequestId: r.upstreamRequestId,
+      upstreamServiceTier: r.upstreamServiceTier,
       pricing: principal.user.role === 'admin' ? r.pricingSnapshot : publicPricingSnapshot(r.pricingSnapshot),
       reservation:
         principal.user.role === 'admin' ? r.reservationSnapshot : publicPricingSnapshot(r.reservationSnapshot),

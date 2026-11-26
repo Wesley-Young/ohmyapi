@@ -18,7 +18,7 @@ import {
   pricingModes,
 } from '../database/schema/index.ts';
 import type { KeyService } from '../keys/service.ts';
-import { expandRules, type Quantities, quote, type Rule, validateRules } from './rules.ts';
+import { expandRules, fastTokenMultiplier, type Quantities, quote, type Rule, validateRules } from './rules.ts';
 import type { PreviewInput, PriceScope, SavePriceInput } from './schemas.ts';
 import { applySearchDefaults, defaultSearchPrices } from './search-defaults.ts';
 
@@ -73,6 +73,7 @@ const snapshotInput = z.object({
   modelId: z.uuid(),
   rules: z.array(snapshotRule).min(1),
   multiplier: snapshotMoney,
+  fastMultiplier: z.number().int().positive().optional(),
   multiplierSource: z.enum(['model', 'channel']),
   pricingMode: z.enum(pricingModes).default('unified'),
   routing: routingSnapshot.optional(),
@@ -82,6 +83,7 @@ export type LockedPrice = {
   modelId: string;
   rules: Rule[];
   multiplierMicros: bigint;
+  fastMultiplier?: number;
   multiplierSource: 'model' | 'channel';
   pricingMode: PricingMode;
   routing?: z.infer<typeof routingSnapshot>;
@@ -319,6 +321,7 @@ export class PricingService {
       modelId: locked.modelId,
       rules: locked.rules.map((rule) => ({ ...serializeRule(rule), outputKind: rule.outputKind })),
       multiplier: formatMoney(locked.multiplierMicros),
+      fastMultiplier: locked.fastMultiplier,
       multiplierSource: locked.multiplierSource,
       pricingMode: locked.pricingMode,
       routing: locked.routing,
@@ -352,16 +355,19 @@ export class PricingService {
       rules,
       receivedAt,
       multiplierMicros: parseMoney(saved.multiplier),
+      fastMultiplier: saved.fastMultiplier,
       multiplierSource: saved.multiplierSource,
       pricingMode: saved.pricingMode,
       routing: saved.routing,
     };
   }
 
-  calculate(locked: LockedPrice, usage: Quantities) {
+  calculate(locked: LockedPrice, usage: Quantities, upstreamServiceTier?: string | null) {
+    const fastMultiplier = fastTokenMultiplier(upstreamServiceTier, locked.fastMultiplier);
     return {
       currency: this.currency,
-      ...quote(locked.rules, locked.receivedAt, usage, locked.multiplierMicros),
+      ...quote(locked.rules, locked.receivedAt, usage, locked.multiplierMicros, fastMultiplier),
+      fastMultiplier,
       multiplierSource: locked.multiplierSource,
       pricingMode: locked.pricingMode,
       routing: locked.routing,

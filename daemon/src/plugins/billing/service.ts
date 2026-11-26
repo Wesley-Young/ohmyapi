@@ -235,6 +235,7 @@ export class BillingService implements Disposable {
           heartbeatAt: new Date(),
           httpStatus: summary.httpStatus ?? r.httpStatus,
           upstreamRequestId: summary.upstreamRequestId ?? r.upstreamRequestId,
+          upstreamServiceTier: summary.upstreamServiceTier ?? r.upstreamServiceTier,
         })
         .where(eq(requests.id, id));
     });
@@ -254,6 +255,7 @@ export class BillingService implements Disposable {
         const metadata = {
           httpStatus: summary.httpStatus ?? r.httpStatus,
           upstreamRequestId: summary.upstreamRequestId ?? r.upstreamRequestId,
+          upstreamServiceTier: summary.upstreamServiceTier ?? r.upstreamServiceTier,
           errorCode: summary.errorCode ?? null,
           errorMessage: summary.errorMessage ?? r.errorMessage,
           finishedAt: r.finishedAt ?? new Date(),
@@ -377,6 +379,7 @@ export class BillingService implements Disposable {
             : (summary?.usage && summary.usageEstimate) || r.usageEstimate,
         httpStatus: summary?.httpStatus ?? r.httpStatus,
         upstreamRequestId: summary?.upstreamRequestId ?? r.upstreamRequestId,
+        upstreamServiceTier: summary?.upstreamServiceTier ?? r.upstreamServiceTier,
         finishedAt: r.finishedAt ?? new Date(),
         ttftMs: summary?.ttftMs ?? r.ttftMs,
         outputTps: summary?.outputTps ?? r.outputTps,

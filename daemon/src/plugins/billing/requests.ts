@@ -38,6 +38,7 @@ export type BillingSummary = {
   blockSettlement?: boolean;
   httpStatus?: number;
   upstreamRequestId?: string;
+  upstreamServiceTier?: string;
   errorCode?: string;
   errorMessage?: string;
   noExecution: boolean;

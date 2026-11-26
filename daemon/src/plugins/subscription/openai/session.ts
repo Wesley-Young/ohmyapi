@@ -69,16 +69,12 @@ export function prepareSession(
   const turn = turnMetadata(headers.get('x-codex-turn-metadata'));
   if (turn) headers.set('x-codex-turn-metadata', turn);
   const model = text(body.model);
-  if (
-    (!headers.has('x-codex-routing-hint') ||
-      body.model !== parsed.model ||
-      body.service_tier !== parsed.service_tier) &&
-    /^[A-Za-z0-9][A-Za-z0-9_./:-]{0,127}$/.test(model)
-  ) {
-    const tier = text(body.service_tier);
+  headers.delete('x-codex-routing-hint');
+  if (/^[A-Za-z0-9][A-Za-z0-9_./:-]{0,127}$/.test(model)) {
+    const tier = body.service_tier;
     headers.set(
       'x-codex-routing-hint',
-      `model=${model}${['priority', 'flex', 'ultrafast'].includes(tier) ? `;tier=${tier}` : ''}`,
+      `model=${model}${tier === 'priority' || tier === 'flex' ? `;tier=${tier}` : ''}`,
     );
   }
 }

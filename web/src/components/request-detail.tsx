@@ -284,6 +284,16 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                       <Facts
                         items={[
                           { label: '计价规则', value: r.preview.ruleLabel },
+                          ...(r.upstreamServiceTier
+                            ? [
+                                {
+                                  label: '上游服务档位',
+                                  value: r.preview.fastMultiplier
+                                    ? `Fast（Token 单价 ×${r.preview.fastMultiplier}）`
+                                    : r.upstreamServiceTier,
+                                },
+                              ]
+                            : []),
                           { label: '倍率', value: displayMultiplier(r.preview.multiplier) },
                           {
                             label: '倍率来源',

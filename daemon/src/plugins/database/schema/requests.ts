@@ -78,6 +78,7 @@ export const requests = pgTable(
     // Filled during settlement; no prompts, completions, or credentials.
     pricingSnapshot: jsonb('pricing_snapshot').$type<Record<string, unknown>>(),
     upstreamRequestId: text('upstream_request_id'),
+    upstreamServiceTier: text('upstream_service_tier'),
     errorCode: text('error_code'),
     errorMessage: text('error_message'),
     httpStatus: integer('http_status'),
