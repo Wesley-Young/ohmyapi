@@ -23,7 +23,12 @@ export type RequestTarget = {
 };
 
 /** 模型列表中公开的模型信息。 */
-export type ModelInfo = { name: string; createdAt: Date; inputTokenLimit: number; outputTokenLimit: number };
+export type ModelInfo = {
+  name: string;
+  createdAt: Date;
+  inputTokenLimit: number | null;
+  outputTokenLimit: number | null;
+};
 
 /** 构造上游请求时的会话状态。 */
 export type UpstreamContext = {
@@ -59,6 +64,8 @@ export type NormalizedUsage =
       read: bigint;
       write: bigint;
       image: bigint;
+      /** 响应中实际返回的成品图张数。 */
+      generatedImages?: bigint;
       inputIncludesCache: boolean;
       /** 附加到原始用量中的合计数据，便于核对账单。 */
       extraRaw?: Data;
@@ -103,6 +110,8 @@ export interface ApiProtocol {
 
   /** 网关注册的 POST 路由，支持 Hono 路径参数。 */
   readonly routes: readonly string[];
+  /** 接受文件上传的路由及其表单字段解析。 */
+  readonly multipart?: { path: string; parse(form: FormData): Data };
   /** 除 Authorization: Bearer 外接受 API Key 的请求头。 */
   readonly apiKeyHeaders: readonly string[];
   /** 接受 API Key 的查询参数。 */

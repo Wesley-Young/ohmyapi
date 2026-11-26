@@ -15,6 +15,7 @@ type PrepareRequestOptions = {
   foreignHistory: number;
   parsed: Record<string, unknown>;
   bytes: Buffer<ArrayBuffer>;
+  contentType?: string;
   vault: CredentialVault;
   signal: AbortSignal;
   /** 聚合渠道选择订阅成员时已占用的账号并发名额，适配器用它代替重新占用；重复释放没有副作用，网关在请求结束时也会释放。 */
@@ -51,7 +52,7 @@ export interface ChannelAdapter {
 }
 
 const apiAdapter: ChannelAdapter = {
-  prepareRequest({ channel, request, endpoint, target, foreignHistory, parsed, bytes, vault }) {
+  prepareRequest({ channel, request, endpoint, target, foreignHistory, parsed, bytes, contentType, vault }) {
     if (!channel.baseUrl || !channel.credentialEncrypted)
       throw new GatewayError(503, 'channel_unavailable', 'The API channel connection is not configured');
     const { upstream } = protocolFor(endpoint);
@@ -59,7 +60,7 @@ const apiAdapter: ChannelAdapter = {
     const credential = vault.decrypt(channel.credentialEncrypted);
     const headers = upstream.headers(request, credential);
     headers.set('user-agent', 'ohmyapi');
-    headers.set('content-type', 'application/json');
+    headers.set('content-type', contentType ?? 'application/json');
     headers.set('accept', target.streaming ? 'text/event-stream' : 'application/json');
     return { url: upstream.url(channel.baseUrl, target), headers, body };
   },

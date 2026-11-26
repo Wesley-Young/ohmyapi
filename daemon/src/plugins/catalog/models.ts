@@ -1,5 +1,5 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 
 import { AppError } from '../../core/errors.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
@@ -26,37 +26,31 @@ export class ModelCatalog {
             .for('update')
         : [];
       if (input.id && !existing) throw new AppError('not_found', '模型不存在');
+      const outputKind = input.outputKind ?? existing?.outputKind ?? 'text';
+      if (existing && outputKind !== existing.outputKind) {
+        const [rule] = await tx
+          .select({ id: priceRules.id })
+          .from(priceRules)
+          .where(eq(priceRules.modelId, existing.id))
+          .limit(1);
+        if (rule) throw new AppError('conflict', '请先清除原类型的价格规则，再修改模型类型');
+      }
+      const values = {
+        name: input.name,
+        enabled: input.enabled,
+        outputKind,
+        inputTokenLimit: outputKind === 'text' ? input.inputTokenLimit : null,
+        outputTokenLimit: outputKind === 'text' ? input.outputTokenLimit : null,
+      };
       const [duplicate] = await tx
         .select({ id: models.id })
         .from(models)
         .where(and(eq(models.name, input.name), isNull(models.deletedAt)));
       if (duplicate && duplicate.id !== input.id) throw new AppError('conflict', '模型名称已存在');
       const [row] = existing
-        ? await tx
-            .update(models)
-            .set({
-              name: input.name,
-              enabled: input.enabled,
-              inputTokenLimit: input.inputTokenLimit,
-              outputTokenLimit: input.outputTokenLimit,
-            })
-            .where(eq(models.id, existing.id))
-            .returning({ id: models.id })
-        : await tx
-            .insert(models)
-            .values({
-              name: input.name,
-              enabled: input.enabled,
-              inputTokenLimit: input.inputTokenLimit,
-              outputTokenLimit: input.outputTokenLimit,
-            })
-            .returning({ id: models.id });
-      await auditCatalog(tx, actor.id, 'model.save', row.id, {
-        name: input.name,
-        enabled: input.enabled,
-        inputTokenLimit: input.inputTokenLimit,
-        outputTokenLimit: input.outputTokenLimit,
-      });
+        ? await tx.update(models).set(values).where(eq(models.id, existing.id)).returning({ id: models.id })
+        : await tx.insert(models).values(values).returning({ id: models.id });
+      await auditCatalog(tx, actor.id, 'model.save', row.id, values);
       return row;
     });
   }
@@ -77,13 +71,25 @@ export class ModelCatalog {
   async importModels(principal: Principal, input: ImportModelsInput) {
     const prepared = input.models
       .map((entry) => {
-        const rules = expandRules(entry.rules);
+        const outputKind = entry.model.outputKind ?? 'text';
+        if (outputKind === 'image' && entry.preset !== 'none')
+          throw new AppError('bad_request', '图像模型使用按张定价');
+        const rules = expandRules(entry.rules, outputKind);
         try {
-          validateRules(rules);
+          if (rules.length || outputKind !== 'image') validateRules(rules);
         } catch (error) {
           throw new AppError('bad_request', `${entry.model.name}：${(error as Error).message}`);
         }
-        return { ...entry, rules };
+        return {
+          ...entry,
+          model: {
+            ...entry.model,
+            outputKind,
+            inputTokenLimit: outputKind === 'image' ? null : entry.model.inputTokenLimit,
+            outputTokenLimit: outputKind === 'image' ? null : entry.model.outputTokenLimit,
+          },
+          rules,
+        };
       })
       .sort((a, b) => a.model.name.localeCompare(b.model.name));
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
@@ -93,22 +99,23 @@ export class ModelCatalog {
         .onConflictDoUpdate({
           target: models.name,
           targetWhere: isNull(models.deletedAt),
+          setWhere: sql`${models.outputKind} = excluded.output_kind or not exists (select 1 from ${priceRules} where ${priceRules.modelId} = ${models.id})`,
           set: {
+            outputKind: sql`excluded.output_kind`,
             enabled: sql`excluded.enabled`,
             inputTokenLimit: sql`excluded.input_token_limit`,
             outputTokenLimit: sql`excluded.output_token_limit`,
           },
         })
         .returning({ id: models.id, name: models.name });
-      await tx.delete(priceRules).where(
-        inArray(
-          priceRules.modelId,
-          imported.map((model) => model.id),
-        ),
-      );
+      if (imported.length !== prepared.length)
+        throw new AppError('conflict', '已定价模型的类型与导入来源不一致，请先核对原定价');
       for (const model of imported) {
         const entry = prepared.find((item) => item.model.name === model.name) as (typeof prepared)[number];
-        await tx.insert(priceRules).values(entry.rules.map((rule) => ({ ...rule, modelId: model.id })));
+        if (entry.rules.length) {
+          await tx.delete(priceRules).where(eq(priceRules.modelId, model.id));
+          await tx.insert(priceRules).values(entry.rules.map((rule) => ({ ...rule, modelId: model.id })));
+        }
         await auditCatalog(tx, actor.id, 'model.import', model.id, {
           source: 'models.dev',
           providerId: entry.providerId,

@@ -1,6 +1,6 @@
 {
   "name": "@ohmyapi/relay",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Request lifecycle and response relaying for LLM API gateways",
   "type": "module",
   "files": [

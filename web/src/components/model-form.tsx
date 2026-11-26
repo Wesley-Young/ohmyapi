@@ -5,8 +5,9 @@ import { useState } from 'react';
 
 import { refreshCatalog } from '../lib/cache';
 import { formError } from '../lib/format';
+import { type OutputKind, outputKindLabels } from '../lib/pricing';
 import { trpc } from '../lib/trpc';
-import { EnabledField } from './fields';
+import { EnabledField, SelectField } from './fields';
 import { ErrorText, FormDialog, FormInput, PrimaryButton } from './ui';
 
 export function ModelForm({
@@ -18,6 +19,7 @@ export function ModelForm({
   close: () => void;
   onSaved: (id: string) => void;
 }) {
+  const [outputKind, setOutputKind] = useState<OutputKind>(initial?.outputKind ?? 'text');
   const [name, setName] = useState(initial?.name ?? '');
   const [inputTokenLimit, setInputTokenLimit] = useState(String(initial?.inputTokenLimit ?? 1_000_000));
   const [outputTokenLimit, setOutputTokenLimit] = useState(String(initial?.outputTokenLimit ?? 128_000));
@@ -40,31 +42,47 @@ export function ModelForm({
             task.mutate({
               id: initial?.id,
               name,
+              outputKind,
               enabled,
-              inputTokenLimit: Number(inputTokenLimit),
-              outputTokenLimit: Number(outputTokenLimit),
+              ...(outputKind === 'text' && {
+                inputTokenLimit: Number(inputTokenLimit),
+                outputTokenLimit: Number(outputTokenLimit),
+              }),
             });
         }}
       >
         <Stack gap="5">
           <FormInput label="模型名称" value={name} onChange={(e) => setName(e.target.value)} required maxLength={128} />
-          <FormInput
-            label="输入 Token 容量"
-            type="number"
-            min={1}
-            required
-            value={inputTokenLimit}
-            onChange={(e) => setInputTokenLimit(e.target.value)}
-            helper="JSON 正文的字节数也不能超过此值"
+          <SelectField
+            label="输出类型"
+            value={outputKind}
+            disabled={initial?.priced}
+            options={Object.entries(outputKindLabels).map(([id, name]) => ({ id, name }))}
+            onChange={(value) => {
+              if (value === 'text' || value === 'image') setOutputKind(value);
+            }}
           />
-          <FormInput
-            label="输出 Token 上限"
-            type="number"
-            min={1}
-            required
-            value={outputTokenLimit}
-            onChange={(e) => setOutputTokenLimit(e.target.value)}
-          />
+          {outputKind === 'text' && (
+            <>
+              <FormInput
+                label="输入 Token 容量"
+                type="number"
+                min={1}
+                required
+                value={inputTokenLimit}
+                onChange={(e) => setInputTokenLimit(e.target.value)}
+                helper="JSON 正文的字节数也不能超过此值"
+              />
+              <FormInput
+                label="输出 Token 上限"
+                type="number"
+                min={1}
+                required
+                value={outputTokenLimit}
+                onChange={(e) => setOutputTokenLimit(e.target.value)}
+              />
+            </>
+          )}
           <EnabledField value={enabled} onChange={setEnabled} />
           <ErrorText>{formError(task.error)?.message}</ErrorText>
           <HStack>

@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { displayMoney, displayMultiplier, displayRange, formatCount, formError } from '../lib/format';
-import { kinds } from '../lib/pricing';
+import { kinds, priceUnits } from '../lib/pricing';
 import { trpc } from '../lib/trpc';
 import { SelectField } from './fields';
 import { ErrorText, FormDialog, FormInput, PrimaryButton } from './ui';
@@ -13,6 +13,7 @@ const shanghaiNow = () => new Date(Date.now() + 8 * 3600000).toISOString().slice
 const isoShanghai = (value: string) => new Date(`${value}:00+08:00`).toISOString();
 
 const categories = {
+  images: '图像生成',
   input: '输入',
   output: '输出',
   cacheRead: '缓存读',
@@ -25,14 +26,17 @@ const categories = {
 export function PricingPreview({
   modelId,
   showSearch,
+  byImage,
   close,
 }: {
   modelId: string;
   showSearch: boolean;
+  byImage: boolean;
   close: () => void;
 }) {
   const [at, setAt] = useState(shanghaiNow);
   const [counts, setCounts] = useState({
+    generatedImages: '1',
     inputTokens: '0',
     outputTokens: '0',
     cacheReadTokens: '0',
@@ -44,18 +48,20 @@ export function PricingPreview({
   const [multiplier, setMultiplier] = useState('1');
   const catalog = useQuery(trpc.admin.catalog.list.queryOptions());
   const task = useMutation(trpc.admin.pricing.preview.mutationOptions());
-  const fields = [
-    ['inputTokens', '输入 Token'],
-    ['outputTokens', '输出 Token'],
-    ['cacheReadTokens', '缓存读 Token'],
-    ['cacheWriteTokens', '缓存写 Token'],
-    ...(showSearch
-      ? ([
-          ['webSearchCalls', 'Web Search 次数'],
-          ['webSearchPreviewCalls', 'Web Search Preview 次数'],
-        ] as const)
-      : []),
-  ] as const;
+  const fields = byImage
+    ? ([['generatedImages', '出图张数']] as const)
+    : ([
+        ['inputTokens', '输入 Token'],
+        ['outputTokens', '输出 Token'],
+        ['cacheReadTokens', '缓存读 Token'],
+        ['cacheWriteTokens', '缓存写 Token'],
+        ...(showSearch
+          ? ([
+              ['webSearchCalls', 'Web Search 次数'],
+              ['webSearchPreviewCalls', 'Web Search Preview 次数'],
+            ] as const)
+          : []),
+      ] as const);
   const result = task.data;
   return (
     <FormDialog open title="费用试算" onClose={close}>
@@ -70,8 +76,16 @@ export function PricingPreview({
               task.mutate({
                 modelId,
                 at: isoShanghai(at),
-                ...counts,
-                ...(showSearch ? {} : { webSearchCalls: '0', webSearchPreviewCalls: '0' }),
+                ...(byImage
+                  ? { generatedImages: counts.generatedImages }
+                  : {
+                      inputTokens: counts.inputTokens,
+                      outputTokens: counts.outputTokens,
+                      cacheReadTokens: counts.cacheReadTokens,
+                      cacheWriteTokens: counts.cacheWriteTokens,
+                      webSearchCalls: counts.webSearchCalls,
+                      webSearchPreviewCalls: counts.webSearchPreviewCalls,
+                    }),
                 channelId: channelId || undefined,
                 multiplier: channelId ? undefined : multiplier,
               });
@@ -139,8 +153,8 @@ export function PricingPreview({
             </HStack>
             <Text fontSize="sm" color="gray.600" overflowWrap="anywhere">
               命中「{result.ruleLabel}」（{kinds[result.ruleKind]}），倍率{' '}
-              {displayMultiplier(result.multiplier, result.maximum.multiplier)}，上下文{' '}
-              {formatCount(result.contextTokens)} Token
+              {displayMultiplier(result.multiplier, result.maximum.multiplier)}
+              {!byImage && `，上下文 ${formatCount(result.contextTokens)} Token`}
             </Text>
             {result.pricingMode === 'passthrough' && (
               <Text fontSize="xs" color="gray.500">
@@ -151,13 +165,13 @@ export function PricingPreview({
               <Table.Root size="sm" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
                 <Table.Body>
                   {result.items.map((item) => {
-                    const calls = item.unit === 'thousand_calls';
+                    const unit = priceUnits[item.unit];
                     return (
                       <Table.Row key={item.category}>
                         <Table.Cell>{categories[item.category]}</Table.Cell>
                         <Table.Cell textAlign="end" color="gray.600">
-                          {formatCount(item.tokens)} {calls ? '次' : 'Token'} ×{' '}
-                          {item.price ? displayMoney(item.price) : '—'} / {calls ? '千次' : '百万'}
+                          {formatCount(item.tokens)} {unit.quantity} × {item.price ? displayMoney(item.price) : '—'} /{' '}
+                          {unit.price}
                         </Table.Cell>
                         <Table.Cell textAlign="end">
                           {displayRange(

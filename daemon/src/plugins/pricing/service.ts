@@ -31,10 +31,11 @@ const serializeRule = (r: Rule) => ({
   weekdaysMask: r.weekdaysMask,
   startMinute: r.startMinute,
   endMinute: r.endMinute,
-  inputPrice: formatMoney(r.inputPriceMicros),
-  outputPrice: formatMoney(r.outputPriceMicros),
+  inputPrice: r.inputPriceMicros === null ? null : formatMoney(r.inputPriceMicros),
+  outputPrice: r.outputPriceMicros === null ? null : formatMoney(r.outputPriceMicros),
   cacheReadPrice: r.cacheReadPriceMicros === null ? null : formatMoney(r.cacheReadPriceMicros),
   cacheWritePrice: r.cacheWritePriceMicros === null ? null : formatMoney(r.cacheWritePriceMicros),
+  imagePrice: r.imagePriceMicros === null ? null : formatMoney(r.imagePriceMicros),
   webSearchPrice: r.webSearchPriceMicros === null ? null : formatMoney(r.webSearchPriceMicros),
   webSearchPreviewPrice: r.webSearchPreviewPriceMicros === null ? null : formatMoney(r.webSearchPreviewPriceMicros),
 });
@@ -50,6 +51,7 @@ const snapshotCount = z.string().regex(/^(0|[1-9]\d*)$/);
  * 快照来自已保存的规则，已满足互斥和区间约束。
  */
 const snapshotRule = z.object({
+  outputKind: z.enum(['text', 'image']).optional(),
   id: z.uuid(),
   label: z.string(),
   kind: z.enum(priceRuleKind.enumValues),
@@ -58,10 +60,11 @@ const snapshotRule = z.object({
   weekdaysMask: z.number().int().nullable(),
   startMinute: z.number().int().nullable(),
   endMinute: z.number().int().nullable(),
-  inputPrice: snapshotMoney,
-  outputPrice: snapshotMoney,
+  inputPrice: snapshotMoney.nullable(),
+  outputPrice: snapshotMoney.nullable(),
   cacheReadPrice: snapshotMoney.nullable(),
   cacheWritePrice: snapshotMoney.nullable(),
+  imagePrice: snapshotMoney.nullable().default(null),
   webSearchPrice: snapshotMoney.nullable().default(null),
   webSearchPreviewPrice: snapshotMoney.nullable().default(null),
 });
@@ -150,8 +153,9 @@ export class PricingService {
                   return {
                     ...serializeRule(effective),
                     maximum: {
-                      inputPrice: scaledPrice(rule.inputPriceMicros, row.maxMultiplierMicros) as string,
-                      outputPrice: scaledPrice(rule.outputPriceMicros, row.maxMultiplierMicros) as string,
+                      imagePrice: scaledPrice(rule.imagePriceMicros, row.maxMultiplierMicros),
+                      inputPrice: scaledPrice(rule.inputPriceMicros, row.maxMultiplierMicros),
+                      outputPrice: scaledPrice(rule.outputPriceMicros, row.maxMultiplierMicros),
                       cacheReadPrice: scaledPrice(rule.cacheReadPriceMicros, row.maxMultiplierMicros),
                       cacheWritePrice: scaledPrice(rule.cacheWritePriceMicros, row.maxMultiplierMicros),
                       webSearchPrice: scaledPrice(effective.webSearchPriceMicros, row.maxMultiplierMicros),
@@ -160,8 +164,9 @@ export class PricingService {
                         row.maxMultiplierMicros,
                       ),
                     },
-                    inputPrice: scaledPrice(rule.inputPriceMicros, row.multiplierMicros) as string,
-                    outputPrice: scaledPrice(rule.outputPriceMicros, row.multiplierMicros) as string,
+                    imagePrice: scaledPrice(rule.imagePriceMicros, row.multiplierMicros),
+                    inputPrice: scaledPrice(rule.inputPriceMicros, row.multiplierMicros),
+                    outputPrice: scaledPrice(rule.outputPriceMicros, row.multiplierMicros),
                     cacheReadPrice: scaledPrice(rule.cacheReadPriceMicros, row.multiplierMicros),
                     cacheWritePrice: scaledPrice(rule.cacheWritePriceMicros, row.multiplierMicros),
                     webSearchPrice: scaledPrice(effective.webSearchPriceMicros, row.multiplierMicros),
@@ -171,6 +176,7 @@ export class PricingService {
             }));
           return {
             id,
+            outputKind: model.outputKind,
             name: model.modelName,
             inputTokenLimit: model.inputTokenLimit,
             outputTokenLimit: model.outputTokenLimit,
@@ -185,7 +191,7 @@ export class PricingService {
 
   async list(scope: PriceScope) {
     const [model] = await this.db
-      .select({ id: models.id, name: models.name })
+      .select({ id: models.id, name: models.name, outputKind: models.outputKind })
       .from(models)
       .where(and(eq(models.id, scope.modelId), isNull(models.deletedAt)));
     if (!model) throw new AppError('not_found', '模型不存在或已删除');
@@ -204,28 +210,29 @@ export class PricingService {
     );
     return {
       currency: this.currency,
-      searchDefaults: defaultSearchPrices(model.name),
+      outputKind: model.outputKind,
+      searchDefaults: defaultSearchPrices(model.outputKind === 'text' ? model.name : ''),
       rules: rules.map(serializeRule),
     };
   }
 
   async save(principal: Principal, input: SavePriceInput) {
-    const expanded = expandRules(input.rules);
-    if (expanded.length > 200) throw new AppError('bad_request', '拆分跨午夜时段后最多 200 条规则');
-    if (expanded.length) {
-      try {
-        validateRules(expanded);
-      } catch (error) {
-        throw new AppError('bad_request', (error as Error).message);
-      }
-    }
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       const [model] = await tx
-        .select({ id: models.id })
+        .select({ id: models.id, outputKind: models.outputKind })
         .from(models)
         .where(and(eq(models.id, input.modelId), isNull(models.deletedAt)))
         .for('update');
       if (!model) throw new AppError('not_found', '模型不存在');
+      const expanded = expandRules(input.rules, model.outputKind);
+      if (expanded.length > 200) throw new AppError('bad_request', '拆分跨午夜时段后最多 200 条规则');
+      if (expanded.length) {
+        try {
+          validateRules(expanded);
+        } catch (error) {
+          throw new AppError('bad_request', (error as Error).message);
+        }
+      }
       // Replace the complete set atomically; requests read either the old or the new set.
       await tx.delete(priceRules).where(eq(priceRules.modelId, input.modelId));
       if (expanded.length) await tx.insert(priceRules).values(expanded.map((r) => ({ ...r, modelId: input.modelId })));
@@ -310,7 +317,7 @@ export class PricingService {
   snapshot(locked: LockedPrice) {
     return {
       modelId: locked.modelId,
-      rules: locked.rules.map(serializeRule),
+      rules: locked.rules.map((rule) => ({ ...serializeRule(rule), outputKind: rule.outputKind })),
       multiplier: formatMoney(locked.multiplierMicros),
       multiplierSource: locked.multiplierSource,
       pricingMode: locked.pricingMode,
@@ -323,6 +330,7 @@ export class PricingService {
     const saved = snapshotInput.parse(snapshot);
     if (new Date(saved.receivedAt).getTime() !== receivedAt.getTime()) throw new Error('Price snapshot time mismatch');
     const rules: Rule[] = saved.rules.map((r) => ({
+      outputKind: r.outputKind,
       id: r.id,
       label: r.label,
       kind: r.kind,
@@ -331,10 +339,11 @@ export class PricingService {
       weekdaysMask: r.weekdaysMask,
       startMinute: r.startMinute,
       endMinute: r.endMinute,
-      inputPriceMicros: parseMoney(r.inputPrice),
-      outputPriceMicros: parseMoney(r.outputPrice),
+      inputPriceMicros: nullableMoney(r.inputPrice),
+      outputPriceMicros: nullableMoney(r.outputPrice),
       cacheReadPriceMicros: nullableMoney(r.cacheReadPrice),
       cacheWritePriceMicros: nullableMoney(r.cacheWritePrice),
+      imagePriceMicros: nullableMoney(r.imagePrice),
       webSearchPriceMicros: nullableMoney(r.webSearchPrice),
       webSearchPreviewPriceMicros: nullableMoney(r.webSearchPreviewPrice),
     }));
@@ -391,16 +400,22 @@ export class PricingService {
     const locked = await this.lock(input.modelId, at, minimum.multiplierMicros, minimum.multiplierSource);
     if (!locked) throw new AppError('precondition_failed', '模型尚未配置价格');
     locked.pricingMode = pricingMode;
-    const usage = {
-      inputTokens: BigInt(input.inputTokens),
-      outputTokens: BigInt(input.outputTokens),
-      cacheReadTokens: BigInt(input.cacheReadTokens),
-      cacheWriteTokens: BigInt(input.cacheWriteTokens),
-      webSearchCalls: BigInt(input.webSearchCalls),
-      webSearchPreviewCalls: BigInt(input.webSearchPreviewCalls),
-      contextTokens: BigInt(input.inputTokens) + BigInt(input.cacheReadTokens) + BigInt(input.cacheWriteTokens),
-    };
-    if (usage.contextTokens > 9_223_372_036_854_775_807n) throw new AppError('bad_request', '上下文总量超出范围');
+    const imageUsage = 'generatedImages' in input;
+    if ((locked.rules[0].outputKind === 'image') !== imageUsage)
+      throw new AppError('bad_request', '试算用量与模型类型不匹配');
+    const usage = imageUsage
+      ? { generatedImages: BigInt(input.generatedImages) }
+      : {
+          inputTokens: BigInt(input.inputTokens),
+          outputTokens: BigInt(input.outputTokens),
+          cacheReadTokens: BigInt(input.cacheReadTokens),
+          cacheWriteTokens: BigInt(input.cacheWriteTokens),
+          webSearchCalls: BigInt(input.webSearchCalls),
+          webSearchPreviewCalls: BigInt(input.webSearchPreviewCalls),
+          contextTokens: BigInt(input.inputTokens) + BigInt(input.cacheReadTokens) + BigInt(input.cacheWriteTokens),
+        };
+    if (usage.contextTokens !== undefined && usage.contextTokens > 9_223_372_036_854_775_807n)
+      throw new AppError('bad_request', '上下文总量超出范围');
     try {
       return {
         ...this.calculate(locked, usage),

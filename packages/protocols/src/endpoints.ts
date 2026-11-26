@@ -9,6 +9,7 @@ export const endpoints = [
   // TypeSafe System One 决策接口，返回类型化的判断而不是生成文本。
   '/v1/systemone',
   '/v1/decisions',
+  '/v1/images',
 ] as const;
 export type Endpoint = (typeof endpoints)[number];
 
@@ -22,6 +23,7 @@ export const familyEndpoints = {
   gemini: '/v1beta/generateContent',
   systemone: '/v1/systemone',
   decisions: '/v1/decisions',
+  images: '/v1/images',
 } as const satisfies Record<string, Endpoint>;
 export type ProtocolFamily = keyof typeof familyEndpoints;
 export type FamilyEndpoint = (typeof familyEndpoints)[ProtocolFamily];

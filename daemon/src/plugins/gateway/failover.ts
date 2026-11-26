@@ -1,10 +1,12 @@
-import { GatewayError } from '@ohmyapi/protocols';
+import { type Endpoint, GatewayError } from '@ohmyapi/protocols';
 
 /**
  * 上游以这些状态拒绝时没有执行请求，换下一个成员可能成功：鉴权失败、模型不存在、限流和上游故障。
  * 其他 4xx 是请求本身的问题，换成员同样失败。
  */
-export function failoverStatus(status: number) {
+export function failoverStatus(status: number, endpoint?: Endpoint) {
+  // 超时或服务端故障可能发生在出图之后，保留原尝试供核对。
+  if (endpoint === '/v1/images' && (status === 408 || status >= 500)) return false;
   return status === 401 || status === 403 || status === 404 || status === 408 || status === 429 || status >= 500;
 }
 

@@ -2,8 +2,9 @@ import type { ModelInfo } from '@ohmyapi/protocols';
 import { and, eq } from 'drizzle-orm';
 
 import { canUseChannel } from '../catalog/access.ts';
+import { memberSupportsOffering } from '../catalog/offerings.ts';
 import type { Database } from '../database/client.ts';
-import { activeModel } from '../database/query.ts';
+import { activeModel, compatibleModelEndpoint } from '../database/query.ts';
 import {
   apiKeyModelGrants,
   channelEndpointFor,
@@ -44,6 +45,8 @@ export async function availableModels(
         eq(effectiveChannelModels.channelId, identity.channelId),
         endpoint ? eq(effectiveChannelEndpoints.endpoint, channelEndpointFor(endpoint)) : undefined,
         activeModel(),
+        compatibleModelEndpoint(),
+        channel.type === 'aggregate' ? memberSupportsOffering() : undefined,
         identity.key.restrictModels ? eq(apiKeyModelGrants.apiKeyId, identity.key.id) : undefined,
       ),
     )

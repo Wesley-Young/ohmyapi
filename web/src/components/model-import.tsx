@@ -14,13 +14,13 @@ import {
   type SourceModel,
   suggestedPreset,
 } from '../lib/models-dev';
-import { minuteText } from '../lib/pricing';
+import { minuteText, outputKindLabels } from '../lib/pricing';
 import { trpc } from '../lib/trpc';
 import { ModelLabel } from './brand-icon';
 import { SelectField } from './fields';
 import { ErrorText, FormDialog, FormInput, Loading, PageControls, PrimaryButton } from './ui';
 
-type Selection = { source: SourceModel; preset: ImportPreset };
+type Selection = { source: SourceModel; preset: ImportPreset; imagePrice?: string };
 type Result = RouterOutputs['admin']['catalog']['importModels'];
 const pageSize = 50;
 const priceColumns = [
@@ -48,7 +48,7 @@ export function ModelImport({
   const [selection, setSelection] = useState<Selection[]>();
   const [rate, setRate] = useState('1');
   const source = useQuery({
-    queryKey: ['models-dev'],
+    queryKey: ['models-dev', 'v2'],
     queryFn: ({ signal }) => fetchModelsDev(signal),
     staleTime: 5 * 60_000,
     retry: 1,
@@ -85,11 +85,11 @@ export function ModelImport({
   for (const model of rankedModels) {
     if (unpriced.has(model.name) && !defaultSources.has(model.name)) defaultSources.set(model.name, model);
   }
-  const selected =
+  const selected: Selection[] =
     selection ??
     [...defaultSources.values()].slice(0, 100).map((model) => ({
       source: model,
-      preset: suggestedPreset(model.name),
+      preset: suggestedPreset(model),
     }));
   const filtered = rankedModels.filter(
     (model) =>
@@ -104,13 +104,14 @@ export function ModelImport({
   let previewError: string | undefined;
   if (step === 2) {
     try {
-      preview = selected.map((selection) => ({
-        selection,
-        rules: buildImportRules(
-          currency && currency !== 'USD' ? convertPrices(selection.source.prices, rate) : selection.source.prices,
-          selection.preset,
-        ),
-      }));
+      preview = selected.map((selection) => {
+        const prices =
+          currency && currency !== 'USD'
+            ? convertPrices(selection.source.prices, rate)
+            : { ...selection.source.prices };
+        if (selection.imagePrice !== undefined) prices.imagePrice = selection.imagePrice || null;
+        return { selection, rules: buildImportRules(prices, selection.preset, selection.source.outputKind) };
+      });
     } catch (error) {
       previewError = (error as Error).message;
     }
@@ -135,8 +136,9 @@ export function ModelImport({
               model: {
                 name: selection.source.name,
                 enabled: true,
-                inputTokenLimit: selection.source.inputTokenLimit,
-                outputTokenLimit: selection.source.outputTokenLimit,
+                outputKind: selection.source.outputKind,
+                inputTokenLimit: selection.source.inputTokenLimit ?? undefined,
+                outputTokenLimit: selection.source.outputTokenLimit ?? undefined,
               },
               providerId: selection.source.providerId,
               preset: selection.preset,
@@ -181,7 +183,7 @@ export function ModelImport({
               </Grid>
               <HStack justify="space-between" flexWrap="wrap" gap="2">
                 <Text fontSize="xs" color="gray.500">
-                  同名模型只能选择一个供应商；已有模型将覆盖配置与定价。
+                  每个模型可选择一个供应商，同名模型会更新配置。
                 </Text>
                 <HStack>
                   <Button
@@ -240,10 +242,7 @@ export function ModelImport({
                                   onCheckedChange={(event) => {
                                     setSelection((items) =>
                                       event.checked
-                                        ? [
-                                            ...(items ?? selected),
-                                            { source: model, preset: suggestedPreset(model.name) },
-                                          ]
+                                        ? [...(items ?? selected), { source: model, preset: suggestedPreset(model) }]
                                         : (items ?? selected).filter((item) => item.source.key !== model.key),
                                     );
                                   }}
@@ -265,7 +264,7 @@ export function ModelImport({
                                   {(alreadyExists || otherSource) && (
                                     <HStack gap="2">
                                       {unpriced.has(model.name) && <Badge colorPalette="yellow">未定价</Badge>}
-                                      {alreadyExists && <Badge colorPalette="gray">将覆盖</Badge>}
+                                      {alreadyExists && <Badge colorPalette="gray">已有模型</Badge>}
                                       {otherSource && <Badge colorPalette="gray">已选其他来源</Badge>}
                                     </HStack>
                                   )}
@@ -274,6 +273,7 @@ export function ModelImport({
                               <Table.Cell>
                                 <HStack gap="2">
                                   <Badge colorPalette="gray">{model.providerName}</Badge>
+                                  <Badge>{outputKindLabels[model.outputKind]}</Badge>
                                   {model.official && <Badge colorPalette="green">官方</Badge>}
                                 </HStack>
                               </Table.Cell>
@@ -300,15 +300,19 @@ export function ModelImport({
           ) : (
             <>
               <Stack gap="2" fontSize="sm" color="gray.500">
-                <Text>基础价格来自 models.dev，单位为 USD / 百万 Token。下方规则就是将要保存的价格。</Text>
-                {selected.some((item) => existing.has(item.source.name)) && (
-                  <Text>已有模型将覆盖启用状态、Token 上限和全部定价规则。</Text>
+                {selected.some((item) => item.source.outputKind === 'text') && (
+                  <>
+                    <Text>文本模型的基础价格按每百万 Token 计。缺失的缓存单价保留为空。</Text>
+                    <Text>GPT 预设在上下文超过 272k 时，输出按 1.5 倍计价，输入和缓存按 2 倍计价。</Text>
+                    <Text>DeepSeek 预设在上海时间工作日 09:00–12:00、14:00–18:00 按 2 倍计价。</Text>
+                  </>
                 )}
-                <Text>GPT 预设：上下文超过 272k 时，输出 1.5×，输入、缓存读和缓存写 2×。</Text>
-                <Text>
-                  DeepSeek 预设：上海时区周一至周五 09:00–12:00、14:00–18:00，四项价格均为 2×；其余时段使用基础价。
-                </Text>
-                <Text>缺失的缓存价格保留为未配置；金额最多六位小数，超出精度时向上舍入。</Text>
+                {selected.some((item) => item.source.outputKind === 'image') && (
+                  <Text>图像模型仅在来源明确按张计价时填入单价。</Text>
+                )}
+                {selected.some((item) => existing.has(item.source.name)) && (
+                  <Text>导入会启用同名模型。下方有价格的模型将替换原定价规则。</Text>
+                )}
               </Stack>
               <ErrorText>{formError(wallet.error)?.message}</ErrorText>
               {wallet.isPending && <Loading />}
@@ -341,31 +345,58 @@ export function ModelImport({
                         </Heading>
                         <HStack gap="2" flexWrap="wrap">
                           <Badge colorPalette="gray">{selection.source.providerName}</Badge>
-                          {existing.has(selection.source.name) && <Badge colorPalette="gray">将覆盖</Badge>}
-                          <Badge colorPalette="gray">输入容量 {formatCount(selection.source.inputTokenLimit)}</Badge>
-                          <Badge colorPalette="gray">输出上限 {formatCount(selection.source.outputTokenLimit)}</Badge>
+                          {existing.has(selection.source.name) && <Badge colorPalette="gray">已有模型</Badge>}
+                          {selection.source.outputKind === 'text' && (
+                            <>
+                              <Badge colorPalette="gray">
+                                输入容量 {formatCount(selection.source.inputTokenLimit)}
+                              </Badge>
+                              <Badge colorPalette="gray">
+                                输出上限 {formatCount(selection.source.outputTokenLimit)}
+                              </Badge>
+                            </>
+                          )}
                         </HStack>
                       </Stack>
-                      <Box>
-                        <SelectField
-                          label={`${selection.source.name} 规则定价预设`}
-                          value={selection.preset}
+                      {selection.source.outputKind === 'image' ? (
+                        <FormInput
+                          label={`每张单价（${currency ?? 'USD'}）`}
+                          value={selection.imagePrice ?? rules?.[0]?.imagePrice ?? ''}
+                          inputMode="decimal"
                           disabled={task.isPending}
-                          options={Object.entries(importPresets).map(([id, name]) => ({ id, name }))}
-                          onChange={(value) => {
-                            if (!value || task.isPending) return;
-                            task.reset();
-                            setSelection((items) =>
-                              (items ?? selected).map((item) =>
+                          helper="留空可只导入模型，已有定价会保留。"
+                          onChange={(event) =>
+                            setSelection(
+                              selected.map((item) =>
                                 item.source.key === selection.source.key
-                                  ? { ...item, preset: value as ImportPreset }
+                                  ? { ...item, imagePrice: event.target.value }
                                   : item,
                               ),
-                            );
-                          }}
+                            )
+                          }
                         />
-                      </Box>
-                      {rules && (
+                      ) : (
+                        <Box>
+                          <SelectField
+                            label={`${selection.source.name} 规则定价预设`}
+                            value={selection.preset}
+                            disabled={task.isPending}
+                            options={Object.entries(importPresets).map(([id, name]) => ({ id, name }))}
+                            onChange={(value) => {
+                              if (!value || task.isPending) return;
+                              task.reset();
+                              setSelection((items) =>
+                                (items ?? selected).map((item) =>
+                                  item.source.key === selection.source.key
+                                    ? { ...item, preset: value as ImportPreset }
+                                    : item,
+                                ),
+                              );
+                            }}
+                          />
+                        </Box>
+                      )}
+                      {selection.source.outputKind === 'text' && rules && (
                         <Box overflowX="auto">
                           <Table.Root size="sm" whiteSpace="nowrap">
                             <Table.Caption textAlign="start" mt="2">

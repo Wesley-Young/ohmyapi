@@ -1,7 +1,7 @@
 import { type ApiProtocol, GatewayError, protocolFor, valueAt } from '@ohmyapi/protocols';
 
 import type { Endpoint } from '../database/schema/index.ts';
-import { ruleTimeMatcher } from '../pricing/rules.ts';
+import { matchRule, ruleTimeMatcher } from '../pricing/rules.ts';
 import type { LockedPrice } from '../pricing/service.ts';
 import { requestContentBlocks } from './content.ts';
 import { type SearchRequest, searchRequest } from './search.ts';
@@ -13,10 +13,13 @@ function isBillableTool(value: unknown, protocol: ApiProtocol): boolean {
 }
 
 /**
- * 确认结算时能为搜索调用计价：受理时刻生效的规则都需配置本次使用的搜索单价，
- * 避免请求执行后因单价缺失转入人工核对。其余用量的单价由默认规则保证。
+ * 图像按张结算，按零上下文选取规则。搜索请求在上游返回前还无法确定上下文，检查所有可能命中的规则。
  */
-export function assertSearchPriced(price: LockedPrice, search: SearchRequest) {
+export function assertRequestPriced(price: LockedPrice, search: SearchRequest, endpoint: Endpoint) {
+  if ((price.rules[0]?.outputKind === 'image') !== (endpoint === '/v1/images'))
+    throw new GatewayError(400, 'model_endpoint_mismatch', 'The model output type does not support this endpoint');
+  if (endpoint === '/v1/images' && matchRule(price.rules, price.receivedAt, 0n)?.imagePriceMicros == null)
+    throw new GatewayError(503, 'image_price_missing', 'Configure the per-image price before generating images');
   if (!search.kind) return;
   const matchesTime = ruleTimeMatcher(price.receivedAt);
   const missing = price.rules.some(
@@ -28,8 +31,11 @@ export function assertSearchPriced(price: LockedPrice, search: SearchRequest) {
     throw new GatewayError(503, 'search_price_missing', 'Configure the web search price before using search');
 }
 
-export function validateBillableRequest(body: Record<string, unknown>, endpoint: Endpoint, outputLimit: number) {
+export function validateBillableRequest(body: Record<string, unknown>, endpoint: Endpoint, outputLimit: number | null) {
   const protocol = protocolFor(endpoint);
+  // 同步生图已由协议校验 prompt 与 n，准入时按张匹配单价。
+  if (protocol.family === 'images') return undefined;
+  if (outputLimit === null) throw new GatewayError(400, 'invalid_output_limit', 'Text models require an output limit');
   const { fields, required, minimum: suppliedMinimum } = protocol.request.outputLimit;
   const supplied = fields.filter((field) => valueAt(body, field) != null);
   const defaultOutput = !required && supplied.length === 0;

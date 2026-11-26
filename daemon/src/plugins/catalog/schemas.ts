@@ -1,7 +1,13 @@
 import { z } from 'zod';
 
 import { pageInput, searchInput } from '../../core/pagination.ts';
-import { channelEndpointFor, channelTypes, endpoints, pricingModes } from '../database/schema/index.ts';
+import {
+  channelEndpointFor,
+  channelTypes,
+  endpoints,
+  modelOutputKind,
+  pricingModes,
+} from '../database/schema/index.ts';
 import { proxyUrlInput } from '../outbound/schemas.ts';
 import { multiplierInput, ruleInput } from '../pricing/schemas.ts';
 import { subscriptionInput } from '../subscription/schemas.ts';
@@ -93,6 +99,7 @@ export const fetchChannelModelsInput = channelInput
 export const modelInput = z.object({
   id: z.uuid().optional(),
   name: modelName,
+  outputKind: z.enum(modelOutputKind.enumValues).optional(),
   enabled: z.boolean(),
   inputTokenLimit: z.number().int().min(1).default(1_000_000),
   outputTokenLimit: z.number().int().min(1).default(128_000),
@@ -104,7 +111,7 @@ export const importModelsInput = z.object({
         model: modelInput.omit({ id: true }),
         providerId: z.string().min(1).max(128),
         preset: z.enum(['none', 'gpt', 'deepseek']),
-        rules: z.array(ruleInput).min(1).max(3),
+        rules: z.array(ruleInput).max(3),
       }),
     )
     .min(1, '至少选择一个模型')

@@ -14,6 +14,7 @@ export const resolveBillInput = z.object({
       outputTokens: tokenInput,
       cacheReadTokens: tokenInput,
       cacheWriteTokens: tokenInput,
+      generatedImages: tokenInput.optional(),
       webSearchCalls: searchCountInput.default('0'),
       webSearchPreviewCalls: searchCountInput.default('0'),
     })

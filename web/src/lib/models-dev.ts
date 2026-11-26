@@ -3,7 +3,7 @@ import type { RouterInputs } from '@ohmyapi/daemon/trpc';
 type ImportEntry = RouterInputs['admin']['catalog']['importModels']['models'][number];
 export type ImportPreset = ImportEntry['preset'];
 type Rule = ImportEntry['rules'][number];
-type ImportPrices = Pick<Rule, 'inputPrice' | 'outputPrice' | 'cacheReadPrice' | 'cacheWritePrice'>;
+type ImportPrices = Pick<Rule, 'inputPrice' | 'outputPrice' | 'cacheReadPrice' | 'cacheWritePrice' | 'imagePrice'>;
 export type SourceModel = {
   key: string;
   providerId: string;
@@ -11,15 +11,17 @@ export type SourceModel = {
   official: boolean;
   name: string;
   displayName: string;
-  inputTokenLimit: number;
-  outputTokenLimit: number;
   prices: ImportPrices;
-};
+} & (
+  | { outputKind: 'image'; inputTokenLimit: null; outputTokenLimit: null }
+  | { outputKind: 'text'; inputTokenLimit: number; outputTokenLimit: number }
+);
 export const importPresets = { none: '无预设', gpt: 'GPT 预设', deepseek: 'DeepSeek 预设' };
 const maxMicros = 9_223_372_036_854_775_807n;
 
-export function suggestedPreset(name: string): ImportPreset {
-  const normalized = name.toLowerCase();
+export function suggestedPreset(model: SourceModel): ImportPreset {
+  if (model.outputKind === 'image') return 'none';
+  const normalized = model.name.toLowerCase();
   if (normalized.includes('gpt')) return 'gpt';
   if (normalized.includes('deepseek')) return 'deepseek';
   return 'none';
@@ -44,14 +46,19 @@ export function convertPrices(prices: ImportPrices, rate: string): ImportPrices 
   const multiplier = parsePrice(rate);
   if (multiplier === 0n) throw new Error('请输入大于 0 的 USD 换算系数');
   return {
-    inputPrice: scalePrice(prices.inputPrice, multiplier, 1_000_000n) as string,
-    outputPrice: scalePrice(prices.outputPrice, multiplier, 1_000_000n) as string,
+    imagePrice: scalePrice(prices.imagePrice ?? null, multiplier, 1_000_000n),
+    inputPrice: scalePrice(prices.inputPrice, multiplier, 1_000_000n),
+    outputPrice: scalePrice(prices.outputPrice, multiplier, 1_000_000n),
     cacheReadPrice: scalePrice(prices.cacheReadPrice, multiplier, 1_000_000n),
     cacheWritePrice: scalePrice(prices.cacheWritePrice, multiplier, 1_000_000n),
   };
 }
 // Generate once for both preview and submission; fractional micros round up.
-export function buildImportRules(prices: ImportPrices, preset: ImportPreset): Rule[] {
+export function buildImportRules(
+  prices: ImportPrices,
+  preset: ImportPreset,
+  outputKind: SourceModel['outputKind'],
+): Rule[] {
   const base: Rule = {
     ...prices,
     label: '默认价格',
@@ -64,10 +71,11 @@ export function buildImportRules(prices: ImportPrices, preset: ImportPreset): Ru
     webSearchPrice: null,
     webSearchPreviewPrice: null,
   };
+  if (outputKind === 'image') return prices.imagePrice == null ? [] : [base];
   if (preset === 'none') return [base];
   const doubled = {
-    inputPrice: scalePrice(prices.inputPrice, 2n) as string,
-    outputPrice: scalePrice(prices.outputPrice, 2n) as string,
+    inputPrice: scalePrice(prices.inputPrice, 2n),
+    outputPrice: scalePrice(prices.outputPrice, 2n),
     cacheReadPrice: scalePrice(prices.cacheReadPrice, 2n),
     cacheWritePrice: scalePrice(prices.cacheWritePrice, 2n),
   };
@@ -80,7 +88,7 @@ export function buildImportRules(prices: ImportPrices, preset: ImportPreset): Ru
         label: '长上下文（超过 272k）',
         kind: 'context',
         contextMin: '272001',
-        outputPrice: scalePrice(prices.outputPrice, 3n, 2n) as string,
+        outputPrice: scalePrice(prices.outputPrice, 3n, 2n),
       },
     ];
   return [
@@ -103,6 +111,14 @@ function sourcePrice(value: unknown): string | null {
   const divisor = shift < 0 ? 10n ** BigInt(-shift) : 1n;
   return formatPrice(shift >= 0 ? digits * 10n ** BigInt(shift) : (digits + divisor - 1n) / divisor);
 }
+function perImagePrice(output: Record<string, unknown>): string | null {
+  if (output.unit !== 'image') return null;
+  try {
+    return sourcePrice(output.price);
+  } catch {
+    return null;
+  }
+}
 function record(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -124,22 +140,18 @@ const officialProviderAliases: Record<string, string[]> = {
 };
 const modelAlias = (name: string) => name.toLowerCase().split('/').at(-1) ?? '';
 const canonicalPublisher = (model: Record<string, unknown>) =>
-  typeof model.canonical_model_id === 'string' ? model.canonical_model_id.match(/^([a-z0-9-]+)\/.+/)?.[1] : undefined;
+  typeof model.canonical_id === 'string' ? model.canonical_id.match(/^([a-z0-9-]+)\/.+/)?.[1] : undefined;
 
 function officialMatcher(providers: Record<string, unknown>) {
   const publishers = new Map<string, Set<string>>();
-  // Some official entries omit canonical_model_id; other providers can identify
+  // Some official entries omit canonical_id; other providers can identify
   // the same model. Do not infer a publisher when their metadata disagrees.
   for (const provider of Object.values(providers)) {
     for (const raw of Object.values(record(record(provider).models))) {
       const model = record(raw);
       const publisher = canonicalPublisher(model);
       if (!publisher || typeof model.id !== 'string') continue;
-      for (const alias of [
-        model.id.toLowerCase(),
-        modelAlias(model.id),
-        modelAlias(String(model.canonical_model_id)),
-      ]) {
+      for (const alias of [model.id.toLowerCase(), modelAlias(model.id), modelAlias(String(model.canonical_id))]) {
         const owners = publishers.get(alias) ?? new Set<string>();
         owners.add(publisher);
         publishers.set(alias, owners);
@@ -154,7 +166,7 @@ function officialMatcher(providers: Record<string, unknown>) {
 }
 
 export async function fetchModelsDev(signal: AbortSignal): Promise<SourceModel[]> {
-  const response = await fetch('https://models.dev/api.json', {
+  const response = await fetch('https://models.dev/experimental/v2.0/api.json', {
     signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
   });
   if (!response.ok) throw new Error('无法读取 models.dev，请稍后重试');
@@ -169,12 +181,22 @@ export async function fetchModelsDev(signal: AbortSignal): Promise<SourceModel[]
       const model = record(rawModel);
       const name = model.id;
       if (typeof name !== 'string' || name.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9_./:-]*$/.test(name)) continue;
+      if (model.type !== 'image' && model.type !== 'chat' && model.type !== 'decision') continue;
+      const outputKind = model.type === 'image' ? 'image' : 'text';
       const cost = record(model.cost);
+      const textCost = record(cost.text);
+      const input = record(textCost.input);
+      const output = record(textCost.output);
+      const cache = record(input.cache);
+      const imageOutput = record(record(cost.image).output);
       const limit = record(model.limit);
       try {
-        const inputPrice = sourcePrice(cost.input);
-        const outputPrice = sourcePrice(cost.output);
-        if (inputPrice === null || outputPrice === null) continue;
+        const inputPrice =
+          outputKind === 'text' && (!input.unit || input.unit === 'token') ? sourcePrice(input.price) : null;
+        const outputPrice =
+          outputKind === 'text' && (!output.unit || output.unit === 'token') ? sourcePrice(output.price) : null;
+        if (outputKind === 'text' && (inputPrice === null || outputPrice === null)) continue;
+        const cacheWrite = typeof cache.write === 'object' ? Object.values(record(cache.write))[0] : cache.write;
         const key = JSON.stringify([providerId, name]);
         models.set(key, {
           key,
@@ -183,13 +205,19 @@ export async function fetchModelsDev(signal: AbortSignal): Promise<SourceModel[]
           official: isOfficial(providerId, model),
           name,
           displayName: typeof model.name === 'string' && model.name ? model.name.slice(0, 256) : name,
-          inputTokenLimit: capacity(limit.input, capacity(limit.context, 1_000_000)),
-          outputTokenLimit: capacity(limit.output, 128_000),
+          ...(outputKind === 'image'
+            ? { outputKind, inputTokenLimit: null, outputTokenLimit: null }
+            : {
+                outputKind,
+                inputTokenLimit: capacity(limit.input, capacity(limit.context, 1_000_000)),
+                outputTokenLimit: capacity(limit.output, 128_000),
+              }),
           prices: {
             inputPrice,
             outputPrice,
-            cacheReadPrice: sourcePrice(cost.cache_read),
-            cacheWritePrice: sourcePrice(cost.cache_write),
+            imagePrice: outputKind === 'image' ? perImagePrice(imageOutput) : null,
+            cacheReadPrice: outputKind === 'text' ? sourcePrice(cache.read) : null,
+            cacheWritePrice: outputKind === 'text' ? sourcePrice(cacheWrite) : null,
           },
         });
       } catch {

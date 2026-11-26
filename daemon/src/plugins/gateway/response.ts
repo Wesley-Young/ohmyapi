@@ -40,12 +40,14 @@ export function forwardResponse(options: ForwardResponseOptions): Promise<Respon
   const { upstream, collector } = options;
   if (upstream.status < 300 || upstream.status >= 400)
     collector.upstreamId = (upstream.headers.get('x-request-id') ?? upstream.headers.get('request-id'))?.slice(0, 256);
+  const images = options.endpoint === '/v1/images';
+  const json = upstream.headers.get('content-type')?.toLowerCase().split(';')[0].trim() === 'application/json';
   return relayResponse({
     upstream,
     streaming: options.streaming,
     lifecycle: options.lifecycle,
     limits: relayLimits(options.config),
-    observer: collector,
+    observer: images && (!upstream.ok || !json) ? undefined : collector,
     onChunk: options.onCheckpoint,
     terminal: options.stopAtTerminal
       ? () => (collector.failed ? 'failed' : collector.complete ? 'completed' : undefined)
@@ -53,6 +55,10 @@ export function forwardResponse(options: ForwardResponseOptions): Promise<Respon
     onError: options.onError,
     onFinish: (outcome) => {
       const { noExecution, errorCode } = settle(outcome, options);
+      if (images) {
+        if (!outcome.ended) collector.finalUsage = false;
+        if (upstream.status === 408 || upstream.status >= 500) return options.onFinish(undefined, errorCode);
+      }
       return options.onFinish(noExecution, errorCode);
     },
   });

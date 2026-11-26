@@ -16,6 +16,7 @@ export function refreshUser(userId: string) {
 /** 渠道或模型变化后，刷新目录及依赖它的 Key、模型广场和额度数据。 */
 export const refreshCatalog = () =>
   Promise.all([
+    queryClient.invalidateQueries(trpc.admin.pricing.list.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.list.queryFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.openAIQuota.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.claudeQuota.pathFilter()),

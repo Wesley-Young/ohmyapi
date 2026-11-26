@@ -74,7 +74,10 @@ export function requestContent(endpoint: Endpoint, body: Data): ModerationConten
     else if (role === 'user' || role === 'assistant' || role === 'model')
       turns.push({ role: role === 'user' ? 'user' : 'assistant', text: clip(text, turnChars) });
   };
-  if (family === 'chat') {
+  if (family === 'images') {
+    counter.images = list(body.images ?? body.image).length;
+    push('user', body.prompt);
+  } else if (family === 'chat') {
     for (const message of list(body.messages).map(object)) {
       if (!message) continue;
       push(typeof message.role === 'string' ? message.role : undefined, [

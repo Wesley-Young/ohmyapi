@@ -13,6 +13,7 @@ import {
   isZeroMoney,
   localDate,
 } from '../lib/format';
+import { priceUnits } from '../lib/pricing';
 import { trpc } from '../lib/trpc';
 import { ModelLabel } from './brand-icon';
 import { StatusDot } from './channel-icon';
@@ -40,6 +41,7 @@ const attemptStatuses = {
   unknown: { label: '执行结果待核对', color: 'orange.400' },
 } satisfies Record<Detail['attempts'][number]['status'], { label: string; color: string }>;
 const priceCategories: Record<string, string> = {
+  images: '图像生成',
   input: '输入',
   output: '输出',
   cacheRead: '缓存读',
@@ -226,6 +228,16 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                     </Stack>
                   </HStack>
                 </HStack>
+                {r.endpoint === '/v1/images' && r.reservation && (
+                  <Facts
+                    items={[
+                      { label: '请求张数', value: String(r.reservation.requestedImages ?? '—') },
+                      { label: '实际张数', value: r.usage?.generatedImages ?? '待确认' },
+                      { label: '尺寸', value: String(r.reservation.imageSize ?? '上游默认') },
+                      { label: '质量', value: String(r.reservation.imageQuality ?? '上游默认') },
+                    ]}
+                  />
+                )}
                 {r.usageEstimate && (
                   <Notice tone="orange">
                     <Text>客户端断连，用量按上游报告和已收到的内容估算，可能与上游最终账单存在差异。</Text>
@@ -296,10 +308,10 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                               <Table.Row key={i.category}>
                                 <Table.Cell>{priceCategories[i.category] ?? i.category}</Table.Cell>
                                 <Table.Cell textAlign="end">
-                                  {formatCount(i.tokens)} {i.unit === 'thousand_calls' ? '次' : 'Token'}
+                                  {formatCount(i.tokens)} {priceUnits[i.unit].quantity}
                                 </Table.Cell>
                                 <Table.Cell textAlign="end">
-                                  {i.price ?? '—'} / {i.unit === 'thousand_calls' ? '千次' : '百万 Token'}
+                                  {i.price ?? '—'} / {priceUnits[i.unit].price}
                                 </Table.Cell>
                                 <Table.Cell textAlign="end">{displayMoney(i.amount)}</Table.Cell>
                               </Table.Row>

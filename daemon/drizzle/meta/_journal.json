@@ -232,6 +232,13 @@
       "when": 1795661503223,
       "tag": "0032_channel_protocol_families",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795662416398,
+      "tag": "0033_image_generations",
+      "breakpoints": true
     }
   ]
 }

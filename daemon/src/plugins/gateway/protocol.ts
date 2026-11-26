@@ -2,20 +2,39 @@ import { protocolFor, type RequestTarget } from '@ohmyapi/protocols';
 
 import type { Endpoint, ReasoningEffortRule } from '../database/schema/index.ts';
 
-type UpstreamRequest = { target: RequestTarget; parsed: Record<string, unknown>; bytes: Buffer<ArrayBuffer> };
+type UpstreamRequest = {
+  target: RequestTarget;
+  parsed: Record<string, unknown>;
+  bytes: Buffer<ArrayBuffer>;
+  form?: FormData;
+  contentType?: string;
+};
 
 /**
  * 按执行渠道配置的上游名称改写请求，未配置时原样返回。请求体中有模型名时重新序列化，
  * 适配器、计费估算和发往上游的字节都使用改写后的请求。
  */
-export function mapUpstreamModel(
+export async function mapUpstreamModel(
   endpoint: Endpoint,
   request: UpstreamRequest,
   upstreamModel: string | null,
-): UpstreamRequest {
+): Promise<UpstreamRequest> {
   if (upstreamModel === null || upstreamModel === request.target.model) return request;
   const { target, body } = protocolFor(endpoint).withModel(request.target, request.parsed, upstreamModel);
-  return body ? { target, parsed: body, bytes: Buffer.from(JSON.stringify(body)) } : { ...request, target };
+  if (!body) return { ...request, target };
+  if (request.form) {
+    // 每个候选渠道可以映射到不同的上游模型，保留原表单供下一次尝试。
+    const form = new FormData();
+    for (const [name, value] of request.form) form.append(name, name === 'model' ? upstreamModel : value);
+    const encoded = new Response(form);
+    return {
+      target,
+      parsed: body,
+      bytes: Buffer.from(await encoded.arrayBuffer()),
+      contentType: encoded.headers.get('content-type') ?? undefined,
+    };
+  }
+  return { target, parsed: body, bytes: Buffer.from(JSON.stringify(body)) };
 }
 
 /**

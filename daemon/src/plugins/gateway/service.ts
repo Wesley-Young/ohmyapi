@@ -7,7 +7,7 @@ import {
   protocolFor,
   type RequestTarget,
 } from '@ohmyapi/protocols';
-import { errorResponse, RequestLifecycle, readJsonBody, requestNotSent, responseHeaders } from '@ohmyapi/relay';
+import { errorResponse, RequestLifecycle, readProtocolBody, requestNotSent, responseHeaders } from '@ohmyapi/relay';
 import { and, eq, sql } from 'drizzle-orm';
 
 import type { GatewayConfig } from '../../config.ts';
@@ -294,7 +294,8 @@ export class GatewayService implements Disposable {
       const received = await lifecycle.withBodyTimeout(
         this.config.bodyTimeoutMs,
         this.config.bodyIdleTimeoutMs,
-        (progress) => readJsonBody(req, abort.signal, session.bodyStats, progress, this.config.maxBodyBytes),
+        (progress) =>
+          readProtocolBody(protocol, req, abort.signal, session.bodyStats, progress, this.config.maxBodyBytes),
       );
       const { bytes } = received;
       const target = protocol.target(req, received.parsed, params);
@@ -390,13 +391,12 @@ export class GatewayService implements Disposable {
         session.executionChannelId = executionChannel.id;
         session.upstreamModel = upstreamModel ?? undefined;
         let adapter: ChannelAdapter;
-        let outputLimit: number;
         let timeoutMs: number;
         try {
           // 价格、倍率和输出上限按请求的模型；适配器、计费估算和上游收到的是改写为上游名称和渠道推理强度的请求。
           const outgoing = mapReasoningEffort(
             endpoint,
-            mapUpstreamModel(endpoint, { target, parsed, bytes }, upstreamModel),
+            await mapUpstreamModel(endpoint, { ...received, target, parsed }, upstreamModel),
             reasoningEffortRules,
           );
           const attemptId = randomUUID();
@@ -430,12 +430,15 @@ export class GatewayService implements Disposable {
             foreignHistory: foreign,
             parsed: outgoing.parsed,
             bytes: outgoing.bytes,
+            contentType: outgoing.contentType,
             vault: this.vault,
             signal: abort.signal,
             reservation,
           });
           lifecycle.releaseUpstream = releaseBoth(lifecycle.releaseUpstream, prepared.release);
-          outputLimit = prepared.usesModelOutputLimit ? model.outputTokenLimit : requestedOutputLimit;
+          const outputLimit = prepared.usesModelOutputLimit
+            ? (model.outputTokenLimit ?? undefined)
+            : requestedOutputLimit;
           // 渠道规则和适配器（如强制工具调用时移除）都可能改写推理强度，记录实际发往上游的值。
           const reservationInput = {
             requestId: id,
@@ -520,12 +523,12 @@ export class GatewayService implements Disposable {
         else if (channelFaultStatus(upstream.status))
           report.failure('upstream_http_error', retryAfterMs(upstream.headers));
         else report.neutral();
-        if (upstreamFailed && failoverStatus(upstream.status)) {
+        if (upstreamFailed && failoverStatus(upstream.status, endpoint)) {
           const next = failover();
           if (next) {
             // 订阅渠道的错误响应可能包含账号信息，只记录状态。
             let detail = '';
-            if (executionChannel.type === 'api') detail = await errorSnippet(upstream);
+            if (executionChannel.type === 'api' && endpoint !== '/v1/images') detail = await errorSnippet(upstream);
             else await upstream.body?.cancel();
             await switchTo(
               next,
@@ -618,7 +621,7 @@ export class GatewayService implements Disposable {
     session.upstreamModel = upstreamModel ?? undefined;
     const outgoing = mapReasoningEffort(
       endpoint,
-      mapUpstreamModel(endpoint, { target, parsed, bytes }, upstreamModel),
+      await mapUpstreamModel(endpoint, { target, parsed, bytes }, upstreamModel),
       reasoningEffortRules,
     );
     const adapter = await channelAdapter(executionChannel, this.subscriptions);

@@ -7,6 +7,7 @@ import { ErrorText, FormDialog, FormInput, PrimaryButton } from './ui';
 
 export function RuleForm({
   initial,
+  byImage,
   searchDefaults,
   save,
   close,
@@ -14,6 +15,7 @@ export function RuleForm({
   error,
 }: {
   initial: Rule;
+  byImage: boolean;
   searchDefaults: SearchDefaults;
   save: (r: Rule) => void;
   close: () => void;
@@ -55,7 +57,9 @@ export function RuleForm({
           <SelectField
             label="条件类型"
             value={rule.kind}
-            options={Object.entries(kinds).map(([id, name]) => ({ id, name }))}
+            options={Object.entries(kinds)
+              .filter(([id]) => !byImage || id === 'default' || id === 'time')
+              .map(([id, name]) => ({ id, name }))}
             onChange={(v) => {
               if (!v) return;
               const kind = v as Rule['kind'];
@@ -139,27 +143,30 @@ export function RuleForm({
               </Text>
             </>
           )}
-          <Text fontSize="sm" color="gray.500">
-            Token
-            单价按每百万，搜索单价按每千次调用，最多六位小数。缓存价格留空表示未配置，搜索价格留空使用模型默认值，填写 0
-            表示免费。
-          </Text>
+          {!byImage && (
+            <Text fontSize="sm" color="gray.500">
+              Token
+              单价按每百万，搜索单价按每千次调用，最多六位小数。缓存价格留空表示未配置，搜索价格留空使用模型默认值，填写
+              0 表示免费。
+            </Text>
+          )}
           <Grid templateColumns={{ base: '1fr', sm: '1fr 1fr' }} gap="4">
-            {(
-              [
-                ['inputPrice', '普通输入单价'],
-                ['outputPrice', '输出单价'],
-                ['cacheReadPrice', '缓存读取单价'],
-                ['cacheWritePrice', '缓存写入单价'],
-                ['webSearchPrice', 'Web Search / 千次'],
-                ['webSearchPreviewPrice', 'Web Search Preview / 千次'],
-              ] as const
+            {(byImage
+              ? ([['imagePrice', '每张单价']] as const)
+              : ([
+                  ['inputPrice', '普通输入单价'],
+                  ['outputPrice', '输出单价'],
+                  ['cacheReadPrice', '缓存读取单价'],
+                  ['cacheWritePrice', '缓存写入单价'],
+                  ['webSearchPrice', 'Web Search / 千次'],
+                  ['webSearchPreviewPrice', 'Web Search Preview / 千次'],
+                ] as const)
             ).map(([key, label]) => (
               <FormInput
                 key={key}
                 label={label}
                 inputMode="decimal"
-                required={key === 'inputPrice' || key === 'outputPrice'}
+                required={byImage || key === 'inputPrice' || key === 'outputPrice'}
                 value={rule[key] ?? ''}
                 placeholder={
                   key === 'webSearchPrice' || key === 'webSearchPreviewPrice'

@@ -1,6 +1,6 @@
 {
   "name": "@ohmyapi/protocols",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Descriptions of the LLM API protocols served by the ohmyapi gateway",
   "type": "module",
   "files": [

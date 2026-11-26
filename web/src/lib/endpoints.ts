@@ -11,6 +11,7 @@ export const endpointProtocolNames = {
   '/v1beta/generateContent': 'Google Generative AI',
   '/v1/systemone': 'Typesafe System One',
   '/v1/decisions': 'OpenAI Decisions',
+  '/v1/images': 'OpenAI Images',
 } satisfies Record<Endpoint, string>;
 
 export const endpoints = Object.keys(endpointProtocolNames) as Endpoint[];

@@ -86,11 +86,16 @@ export class BillingReview {
       let amount: bigint;
       if (input.action === 'settle_usage') {
         const given = input.usage as NonNullable<typeof input.usage>;
+        if (r.endpoint === '/v1/images' && given.generatedImages === undefined)
+          throw new AppError('bad_request', '请填写确认后的出图张数');
+        if (r.endpoint !== '/v1/images' && BigInt(given.generatedImages ?? 0) !== 0n)
+          throw new AppError('bad_request', '仅图像生成请求支持按张核对');
         const usage: Usage = {
           inputTokens: BigInt(given.inputTokens),
           outputTokens: BigInt(given.outputTokens),
           cacheReadTokens: BigInt(given.cacheReadTokens),
           cacheWriteTokens: BigInt(given.cacheWriteTokens),
+          generatedImages: BigInt(given.generatedImages ?? 0),
           webSearchCalls: BigInt(given.webSearchCalls),
           webSearchPreviewCalls: BigInt(given.webSearchPreviewCalls),
           contextTokens: BigInt(given.inputTokens) + BigInt(given.cacheReadTokens) + BigInt(given.cacheWriteTokens),

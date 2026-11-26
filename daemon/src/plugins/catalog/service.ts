@@ -8,6 +8,7 @@ import { formatMoney, parseMoney } from '../../core/money.ts';
 import type { CredentialVault } from '../../core/vault.ts';
 import type { AuthService, Principal } from '../auth/service.ts';
 import type { Database, Transaction } from '../database/client.ts';
+import { compatibleModelEndpoint } from '../database/query.ts';
 import {
   aggregateChannelMembers,
   channelAvailableModels,
@@ -183,6 +184,7 @@ export class CatalogService {
       models: modelRows.map((m) => ({
         id: m.id,
         name: m.name,
+        outputKind: m.outputKind,
         enabled: m.enabled,
         inputTokenLimit: m.inputTokenLimit,
         outputTokenLimit: m.outputTokenLimit,
@@ -286,9 +288,25 @@ export class CatalogService {
         .where(and(eq(channels.name, input.name), isNull(channels.deletedAt)));
       if (duplicate && duplicate.id !== input.id) throw new AppError('conflict', '渠道名称已存在');
       const names = (input.type === 'aggregate' ? aggregateModels : configuredModels).map((m) => m.name).sort();
-      const resolved = await this.ensureModels(tx, actor.id, names, input.type !== 'aggregate');
+      const resolved = await this.ensureModels(
+        tx,
+        actor.id,
+        names,
+        input.type !== 'aggregate',
+        input.endpoints.length === 1 && input.endpoints[0] === '/v1/images' ? 'image' : 'text',
+      );
       const available = resolved.map((model) => {
         const configured = configuredModels.find((row) => row.name === model.name);
+        if (
+          model.outputKind === 'text' &&
+          input.endpoints.includes('/v1beta/generateContent') &&
+          configured?.upstreamModel &&
+          !isGeminiPathModel(configured.upstreamModel)
+        )
+          throw new AppError(
+            'bad_request',
+            `Gemini 上游模型名只能包含字母、数字、_、- 和 .：${configured.upstreamModel}`,
+          );
         return {
           modelId: model.id,
           multiplier: configured?.multiplier ?? null,
@@ -383,15 +401,6 @@ export class CatalogService {
       throw new AppError('bad_request', '聚合渠道的上游模型名由子渠道配置');
     if (input.type === 'aggregate' && configuredModels.some((model) => model.reasoningEffortRules.length))
       throw new AppError('bad_request', '聚合渠道的推理强度映射由子渠道配置');
-    // Gemini 端点的模型名位于上游路径中。
-    const pathless = input.endpoints.includes('/v1beta/generateContent')
-      ? configuredModels.find((model) => model.upstreamModel !== null && !isGeminiPathModel(model.upstreamModel))
-      : undefined;
-    if (pathless)
-      throw new AppError(
-        'bad_request',
-        `支持 Gemini 端点的渠道，上游模型名只能包含字母、数字、_、- 和 .：${pathless.upstreamModel}`,
-      );
     if (existing && existing.type !== input.type)
       throw new AppError('bad_request', '渠道类型创建后不可更改，请新建渠道');
     if (input.type !== 'aggregate' && (!input.endpoints.length || input.members.length))
@@ -448,41 +457,50 @@ export class CatalogService {
       .for('share');
     if (children.length !== memberIds.length) throw new AppError('bad_request', '子渠道不存在、已删除或属于聚合类型');
     const childModels = await tx
-      .select({ channelId: channelAvailableModels.channelId, id: models.id, name: models.name })
+      .selectDistinct({ id: models.id, name: models.name })
       .from(channelAvailableModels)
       .innerJoin(models, eq(models.id, channelAvailableModels.modelId))
-      .where(and(inArray(channelAvailableModels.channelId, memberIds), isNull(models.deletedAt)));
-    const childEndpoints = await tx
-      .select()
-      .from(channelEndpoints)
-      .where(inArray(channelEndpoints.channelId, memberIds));
-    const serviceable = memberIds.some(
-      (id) =>
-        childModels.some((model) => model.channelId === id) && childEndpoints.some((entry) => entry.channelId === id),
-    );
-    if (enabled && !serviceable) throw new AppError('bad_request', '子渠道需至少提供一个模型和端点');
-    return [...new Map(childModels.map(({ id, name }) => [id, { id, name }])).values()];
+      .innerJoin(channelEndpoints, eq(channelEndpoints.channelId, channelAvailableModels.channelId))
+      .where(
+        and(
+          inArray(channelAvailableModels.channelId, memberIds),
+          isNull(models.deletedAt),
+          compatibleModelEndpoint(channelEndpoints.endpoint),
+        ),
+      );
+    if (enabled && !childModels.length) throw new AppError('bad_request', '子渠道需至少提供一个模型及对应端点');
+    return childModels;
   }
 
   /** 解析模型名称；普通渠道引用的新模型先以默认上限创建占位记录。 */
-  private async ensureModels(tx: Transaction, actorId: string, names: string[], createMissing: boolean) {
+  private async ensureModels(
+    tx: Transaction,
+    actorId: string,
+    names: string[],
+    createMissing: boolean,
+    outputKind: typeof models.$inferSelect.outputKind,
+  ) {
     if (names.length && createMissing) {
+      const limits = {
+        inputTokenLimit: outputKind === 'image' ? null : 1_000_000,
+        outputTokenLimit: outputKind === 'image' ? null : 128_000,
+      };
       const created = await tx
         .insert(models)
-        .values(names.map((name) => ({ name, inputTokenLimit: 1_000_000, outputTokenLimit: 128_000 })))
+        .values(names.map((name) => ({ name, outputKind, ...limits })))
         .onConflictDoNothing({ target: models.name, where: isNull(models.deletedAt) })
         .returning({ id: models.id, name: models.name });
       for (const model of created)
         await auditCatalog(tx, actorId, 'model.placeholder', model.id, {
           name: model.name,
           source: 'channel',
-          inputTokenLimit: 1_000_000,
-          outputTokenLimit: 128_000,
+          outputKind,
+          ...limits,
         });
     }
     const resolved = names.length
       ? await tx
-          .select({ id: models.id, name: models.name })
+          .select({ id: models.id, name: models.name, outputKind: models.outputKind })
           .from(models)
           .where(and(inArray(models.name, names), isNull(models.deletedAt)))
           .orderBy(models.name)

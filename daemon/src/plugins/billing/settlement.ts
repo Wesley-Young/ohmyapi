@@ -13,6 +13,7 @@ export function priceRequestUsage(pricing: PricingService, r: RequestRow, usage:
   if (locked.modelId !== r.modelId) throw new Error('Price snapshot scope mismatch');
   // Decisions 复用模型规则，仅免除输出费用；真实输出用量仍保留在账单明细。
   if (r.endpoint === '/v1/decisions') locked.rules = locked.rules.map((rule) => ({ ...rule, outputPriceMicros: 0n }));
+  if (r.endpoint === '/v1/images') return pricing.calculate(locked, { generatedImages: usage.generatedImages });
   return pricing.calculate(locked, usage);
 }
 

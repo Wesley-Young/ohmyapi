@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
-import { check, integer, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { check, foreignKey, integer, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
-import { models } from './catalog.ts';
+import { modelOutputKind, models } from './catalog.ts';
 import { createdAt, id, micros, tokenCount } from './common.ts';
 
 export const priceRuleKind = pgEnum('price_rule_kind', ['default', 'context', 'time', 'combined']);
@@ -13,6 +13,7 @@ export const priceRules = pgTable(
     modelId: uuid('model_id')
       .notNull()
       .references(() => models.id),
+    outputKind: modelOutputKind('output_kind').default('text').notNull(),
     kind: priceRuleKind('kind').notNull(),
     label: text('label').default('价格规则').notNull(),
     // Context intervals use [min, max), with NULL max meaning no upper bound.
@@ -22,17 +23,29 @@ export const priceRules = pgTable(
     weekdaysMask: integer('weekdays_mask'),
     startMinute: integer('start_minute'),
     endMinute: integer('end_minute'),
-    inputPriceMicros: micros('input_price_micros').notNull(),
-    outputPriceMicros: micros('output_price_micros').notNull(),
+    inputPriceMicros: micros('input_price_micros'),
+    outputPriceMicros: micros('output_price_micros'),
     // NULL means unsupported/unconfigured, not free.
     cacheReadPriceMicros: micros('cache_read_price_micros'),
     cacheWritePriceMicros: micros('cache_write_price_micros'),
+    imagePriceMicros: micros('image_price_micros'),
     // 搜索调用单价按每千次调用，NULL 表示尚未配置。
     webSearchPriceMicros: micros('web_search_price_micros'),
     webSearchPreviewPriceMicros: micros('web_search_preview_price_micros'),
     createdAt: createdAt(),
   },
   (table) => [
+    foreignKey({
+      name: 'price_rules_model_output_kind_fk',
+      columns: [table.modelId, table.outputKind],
+      foreignColumns: [models.id, models.outputKind],
+    }),
+    check(
+      'price_rules_output_kind_shape',
+      sql`(${table.outputKind} = 'text' and ${table.inputPriceMicros} is not null and ${table.outputPriceMicros} is not null and ${table.imagePriceMicros} is null) or
+       (${table.outputKind} = 'image' and ${table.kind} in ('default', 'time') and ${table.imagePriceMicros} is not null and ${table.inputPriceMicros} is null and ${table.outputPriceMicros} is null and ${table.cacheReadPriceMicros} is null and ${table.cacheWritePriceMicros} is null and ${table.webSearchPriceMicros} is null and ${table.webSearchPreviewPriceMicros} is null)`,
+    ),
+    check('price_rules_image_price_nonnegative', sql`${table.imagePriceMicros} >= 0`),
     uniqueIndex('price_rules_default_unique').on(table.modelId).where(sql`${table.kind} = 'default'`),
     check(
       'price_rules_context_shape',

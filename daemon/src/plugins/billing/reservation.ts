@@ -12,7 +12,7 @@ export type ReservationInput = {
   channelId: string;
   price: LockedPrice;
   /** 本次请求采用的输出上限，随价格快照保存。 */
-  outputLimit: number;
+  outputLimit: number | undefined;
   body: Record<string, unknown>;
   endpoint: Endpoint;
   /** 实际执行渠道绑定的订阅账号，与准入一起写入请求记录。 */

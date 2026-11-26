@@ -4,9 +4,10 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Calculator, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
+import { refreshCatalog } from '../lib/cache';
 import { displayMoney, formatCount, formError } from '../lib/format';
 import { dayNames, defaultRule, kinds, minuteText, type Rule } from '../lib/pricing';
-import { queryClient, trpc } from '../lib/trpc';
+import { trpc } from '../lib/trpc';
 import { IconButton } from './icon-button';
 import { PricingPreview } from './pricing-preview';
 import { RuleForm } from './pricing-rule-form';
@@ -55,16 +56,14 @@ export function ModelPricing({
     trpc.admin.pricing.save.mutationOptions({
       onSuccess: async () => {
         setEditingRule(undefined);
-        await Promise.all([
-          queryClient.invalidateQueries(trpc.admin.pricing.list.queryFilter(scope)),
-          queryClient.invalidateQueries(trpc.admin.catalog.list.queryFilter()),
-        ]);
+        await refreshCatalog();
       },
     }),
   );
   const currentRules = data.data?.rules.map(({ id: _id, ...r }) => r) ?? [];
   const searchDefaults = data.data?.searchDefaults;
   // 规则和默认值都没有搜索价格时，不显示搜索相关的列和输入。
+  const hasImages = data.data?.outputKind === 'image';
   const hasSearch =
     !!searchDefaults?.webSearchPrice ||
     !!searchDefaults?.webSearchPreviewPrice ||
@@ -77,7 +76,7 @@ export function ModelPricing({
             定价规则
           </Heading>
           <Text fontSize="xs" color="gray.500">
-            单价 / 百万 Token
+            {hasImages ? '按实际出图张数计费' : 'Token 单价按每百万计'}
           </Text>
         </HStack>
         <HStack gap="2" flexWrap="wrap">
@@ -116,8 +115,11 @@ export function ModelPricing({
               setEditingRule({
                 rule: {
                   ...defaultRule,
-                  kind: currentRules.length ? 'context' : 'default',
-                  contextMin: currentRules.length ? '0' : null,
+                  kind: currentRules.length ? (hasImages ? 'time' : 'context') : 'default',
+                  inputPrice: hasImages ? null : defaultRule.inputPrice,
+                  outputPrice: hasImages ? null : defaultRule.outputPrice,
+                  ...(hasImages && currentRules.length ? { weekdaysMask: 127, startMinute: 0, endMinute: 1440 } : {}),
+                  contextMin: !hasImages && currentRules.length ? '0' : null,
                 },
               });
             }}
@@ -143,13 +145,14 @@ export function ModelPricing({
               <Table.Header>
                 <Table.Row>
                   <Table.ColumnHeader>规则</Table.ColumnHeader>
-                  {['输入', '输出', '缓存读', '缓存写', ...(hasSearch ? ['搜索 / 千次', '预览搜索 / 千次'] : [])].map(
-                    (h) => (
-                      <Table.ColumnHeader key={h} textAlign="end">
-                        {h}
-                      </Table.ColumnHeader>
-                    ),
-                  )}
+                  {[
+                    ...(hasImages ? ['图像 / 张'] : ['输入', '输出', '缓存读', '缓存写']),
+                    ...(hasSearch ? ['搜索 / 千次', '预览搜索 / 千次'] : []),
+                  ].map((h) => (
+                    <Table.ColumnHeader key={h} textAlign="end">
+                      {h}
+                    </Table.ColumnHeader>
+                  ))}
                   <Table.ColumnHeader {...pinnedColumn}>操作</Table.ColumnHeader>
                 </Table.Row>
               </Table.Header>
@@ -171,10 +174,15 @@ export function ModelPricing({
                         {conditionText(r)}
                       </Text>
                     </Table.Cell>
-                    <Table.Cell textAlign="end">{price(r.inputPrice)}</Table.Cell>
-                    <Table.Cell textAlign="end">{price(r.outputPrice)}</Table.Cell>
-                    <Table.Cell textAlign="end">{price(r.cacheReadPrice)}</Table.Cell>
-                    <Table.Cell textAlign="end">{price(r.cacheWritePrice)}</Table.Cell>
+                    {!hasImages && (
+                      <>
+                        <Table.Cell textAlign="end">{price(r.inputPrice)}</Table.Cell>
+                        <Table.Cell textAlign="end">{price(r.outputPrice)}</Table.Cell>
+                        <Table.Cell textAlign="end">{price(r.cacheReadPrice)}</Table.Cell>
+                        <Table.Cell textAlign="end">{price(r.cacheWritePrice)}</Table.Cell>
+                      </>
+                    )}
+                    {hasImages && <Table.Cell textAlign="end">{price(r.imagePrice)}</Table.Cell>}
                     {hasSearch && (
                       <>
                         <Table.Cell textAlign="end">
@@ -223,6 +231,7 @@ export function ModelPricing({
           )}
           {editingRule && (
             <RuleForm
+              byImage={hasImages}
               initial={editingRule.rule}
               searchDefaults={data.data.searchDefaults}
               busy={save.isPending}
@@ -237,7 +246,14 @@ export function ModelPricing({
               }}
             />
           )}
-          {previewing && <PricingPreview modelId={modelId} showSearch={hasSearch} close={() => setPreviewing(false)} />}
+          {previewing && (
+            <PricingPreview
+              modelId={modelId}
+              byImage={hasImages}
+              showSearch={hasSearch}
+              close={() => setPreviewing(false)}
+            />
+          )}
         </>
       ) : null}
     </Stack>

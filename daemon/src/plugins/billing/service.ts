@@ -8,7 +8,7 @@ import { formatMoney } from '../../core/money.ts';
 import type { Database, Transaction } from '../database/client.ts';
 import { requestAttempts, requests, requestUsage, type Usage, wallets } from '../database/schema/index.ts';
 import type { PricingService } from '../pricing/service.ts';
-import { assertSearchPriced } from './admission.ts';
+import { assertRequestPriced } from './admission.ts';
 import { reportedCacheReadTokens } from './cache-usage.ts';
 import {
   type BillingOutcome,
@@ -113,7 +113,7 @@ export class BillingService implements Disposable {
    */
   async reserve(input: ReservationInput) {
     const search = searchRequest(input.body, input.endpoint);
-    assertSearchPriced(input.price, search);
+    assertRequestPriced(input.price, search, input.endpoint);
     // 历史请求可能仍持有预占，可用余额扣除这部分。
     const [wallet] = await this.db
       .select({ balanceMicros: wallets.balanceMicros, reservedMicros: wallets.reservedMicros })
@@ -152,7 +152,13 @@ export class BillingService implements Disposable {
   private reservationSnapshot(input: ReservationInput, search: ReturnType<typeof searchRequest>) {
     return {
       pricing: this.pricing.snapshot(input.price),
-      outputTokenLimit: input.outputLimit,
+      ...(input.endpoint === '/v1/images'
+        ? {
+            requestedImages: input.body.n ?? 1,
+            imageSize: typeof input.body.size === 'string' ? input.body.size.slice(0, 64) : undefined,
+            imageQuality: typeof input.body.quality === 'string' ? input.body.quality.slice(0, 64) : undefined,
+          }
+        : { outputTokenLimit: input.outputLimit }),
       search,
       strategy: 'no_hold_v1' as const,
     };
@@ -178,7 +184,7 @@ export class BillingService implements Disposable {
    */
   async reroute(input: ReservationInput, attemptId: string) {
     const search = searchRequest(input.body, input.endpoint);
-    assertSearchPriced(input.price, search);
+    assertRequestPriced(input.price, search, input.endpoint);
     const [r] = await this.db
       .update(requests)
       .set({

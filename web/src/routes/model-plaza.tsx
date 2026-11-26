@@ -5,10 +5,11 @@ import { useMemo, useState } from 'react';
 import { ChannelVendorIcon } from '../components/brand-icon';
 import { emptyModelFilter, ModelFilter } from '../components/model-filter';
 import { PlazaChannels } from '../components/plaza-channels';
-import { PlazaPriceRow, PlazaPriceTable, PlazaRules } from '../components/plaza-pricing';
+import { PlazaPriceRow, PlazaPriceTables, PlazaRules } from '../components/plaza-pricing';
 import { ErrorText, Loading, Title } from '../components/ui';
 import { ViewSwitch } from '../components/view-switch';
 import { useAuth } from '../lib/auth';
+import { endpointProtocolNames } from '../lib/endpoints';
 import { currencySymbol, displayMultiplier, formatCount, formError } from '../lib/format';
 import { channelVendors, filterModels, sortModelsByBrand } from '../lib/model-brands';
 import { trpc } from '../lib/trpc';
@@ -82,8 +83,8 @@ export default function ModelPlaza() {
         (models.length && view === 'channels' ? (
           <PlazaChannels models={models} symbol={symbol} vendors={vendors.data} />
         ) : models.length ? (
-          <PlazaPriceTable>
-            {models.map((model) => (
+          <PlazaPriceTables entries={models} outputKind={(model) => model.outputKind}>
+            {(model) => (
               <PlazaPriceRow
                 key={model.id}
                 model={model}
@@ -92,10 +93,12 @@ export default function ModelPlaza() {
                 dynamic={model.channels[0]?.rules.some((rule) => rule.kind !== 'default')}
               >
                 <Stack gap="6">
-                  <HStack flexWrap="wrap">
-                    <Badge colorPalette="gray">输入上限 {formatCount(model.inputTokenLimit)} Token</Badge>
-                    <Badge colorPalette="gray">输出上限 {formatCount(model.outputTokenLimit)} Token</Badge>
-                  </HStack>
+                  {model.outputKind === 'text' && model.inputTokenLimit !== null && model.outputTokenLimit !== null && (
+                    <HStack flexWrap="wrap">
+                      <Badge colorPalette="gray">输入上限 {formatCount(model.inputTokenLimit)} Token</Badge>
+                      <Badge colorPalette="gray">输出上限 {formatCount(model.outputTokenLimit)} Token</Badge>
+                    </HStack>
+                  )}
                   {model.channels.map((channel) => (
                     <Stack key={channel.id} gap="3">
                       <HStack flexWrap="wrap">
@@ -105,6 +108,9 @@ export default function ModelPlaza() {
                             {channel.name}
                           </Heading>
                         </HStack>
+                        {channel.endpoints.includes('/v1/images') && (
+                          <Badge>{endpointProtocolNames['/v1/images']}</Badge>
+                        )}
                         <Badge colorPalette="gray">
                           {displayMultiplier(channel.multiplier, channel.maxMultiplier)}
                         </Badge>
@@ -114,13 +120,13 @@ export default function ModelPlaza() {
                           价格区间已包含渠道倍率，实际价格取决于本次请求的适用倍率。
                         </Text>
                       )}
-                      <PlazaRules rules={channel.rules} symbol={symbol} />
+                      <PlazaRules outputKind={model.outputKind} rules={channel.rules} symbol={symbol} />
                     </Stack>
                   ))}
                 </Stack>
               </PlazaPriceRow>
-            ))}
-          </PlazaPriceTable>
+            )}
+          </PlazaPriceTables>
         ) : (
           <Text py="8" color="gray.500" fontSize="sm">
             {available.length

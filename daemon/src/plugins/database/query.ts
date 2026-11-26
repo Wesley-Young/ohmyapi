@@ -2,7 +2,15 @@ import { and, type Column, eq, gt, isNull, like, or, sql } from 'drizzle-orm';
 import type { PgSelect } from 'drizzle-orm/pg-core';
 
 import { type CreatedCursor, pageSize } from '../../core/pagination.ts';
-import { apiKeys, channels, models, subscriptionAccounts, users } from './schema/index.ts';
+import {
+  apiKeys,
+  type channelEndpoints,
+  channels,
+  effectiveChannelEndpoints,
+  models,
+  subscriptionAccounts,
+  users,
+} from './schema/index.ts';
 
 // ---- 可用性条件：软删除、启用状态与有效期 ----
 
@@ -17,6 +25,12 @@ export const activeApiKey = () =>
   );
 
 export const activeChannel = () => and(eq(channels.enabled, true), isNull(channels.deletedAt));
+
+export const compatibleModelEndpoint = (
+  endpoint:
+    | typeof effectiveChannelEndpoints.endpoint
+    | typeof channelEndpoints.endpoint = effectiveChannelEndpoints.endpoint,
+) => sql`(${models.outputKind} = 'image') = (${endpoint} = '/v1/images')`;
 
 export const activeModel = () => and(eq(models.enabled, true), isNull(models.deletedAt));
 

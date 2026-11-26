@@ -1,4 +1,4 @@
-export { readJsonBody } from './body.ts';
+export { readJsonBody, readProtocolBody } from './body.ts';
 export { requestNotSent } from './dispatch.ts';
 export { errorResponse } from './errors.ts';
 export { responseHeaders } from './headers.ts';

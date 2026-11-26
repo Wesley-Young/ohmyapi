@@ -161,6 +161,7 @@ export class KeyService {
         and(
           eq(apiKeys.userId, principal.user.id),
           activeApiKey(),
+          eq(models.outputKind, 'text'),
           inArray(effectiveChannelEndpoints.endpoint, [
             '/v1/chat/completions',
             '/v1/responses',
@@ -189,6 +190,7 @@ export class KeyService {
       }
     >();
     for (const row of rows) {
+      if (row.outputTokenLimit === null) continue;
       let key = options.get(row.keyId);
       if (!key) {
         key = {

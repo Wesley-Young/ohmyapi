@@ -1,16 +1,10 @@
 import { type Endpoint, isGeminiPathModel } from '@ohmyapi/protocols';
-import { and, eq, exists, inArray, sql } from 'drizzle-orm';
+import { and, eq, exists, inArray } from 'drizzle-orm';
 
 import { formatMoney } from '../../core/money.ts';
 import { channelOfferings } from '../catalog/offerings.ts';
 import type { Database } from '../database/client.ts';
-import {
-  channelModelPrices,
-  channels,
-  effectiveChannelEndpoints,
-  models,
-  priceRules,
-} from '../database/schema/index.ts';
+import { effectiveChannelEndpoints, models, priceRules } from '../database/schema/index.ts';
 
 const endpoints = [
   '/v1/responses',
@@ -33,15 +27,6 @@ type Model = {
 };
 
 export async function playgroundOptions(db: Database, user: { id: string; role: string }) {
-  // 聚合渠道的模型和端点各自取并集；对话需要同一成员同时支持二者。透传倍率只计入支持该组合的成员。
-  const compatible = sql`(${channels.type} <> 'aggregate' or exists (
-    select 1 from aggregate_channel_members membership
-    join channels child on child.id = membership.member_channel_id and child.deleted_at is null
-    join channel_available_models cm on cm.channel_id = child.id and cm.model_id = ${models.id}
-    join channel_endpoints ce on ce.channel_id = child.id and ce.endpoint = ${effectiveChannelEndpoints.endpoint}
-    where membership.aggregate_channel_id = ${channels.id}
-      and (${channels.pricingMode} = 'unified' or child.id = ${channelModelPrices.pricingChannelId})
-  ))`;
   const priced = db
     .select({ id: priceRules.id })
     .from(priceRules)
@@ -49,11 +34,12 @@ export async function playgroundOptions(db: Database, user: { id: string; role: 
   const rows = await channelOfferings(
     db,
     user,
-    and(inArray(effectiveChannelEndpoints.endpoint, endpoints), exists(priced), compatible),
+    and(inArray(effectiveChannelEndpoints.endpoint, endpoints), exists(priced)),
   );
   const options = new Map<string, { id: string; name: string; models: Map<string, Model> }>();
   for (const row of rows) {
     if (
+      row.outputTokenLimit === null ||
       !isPlaygroundEndpoint(row.endpoint) ||
       (row.endpoint === '/v1beta/generateContent' && !isGeminiPathModel(row.modelName))
     )

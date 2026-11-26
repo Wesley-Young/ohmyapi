@@ -1,4 +1,5 @@
 import { billingConventions, formatMoney, parseMoney } from '../../core/money.ts';
+import type { ModelOutputKind } from '../database/schema/index.ts';
 import type { RuleInput } from './schemas.ts';
 
 const maxInteger = 9_223_372_036_854_775_807n;
@@ -14,16 +15,19 @@ export type Rule = {
   weekdaysMask: number | null;
   startMinute: number | null;
   endMinute: number | null;
-  inputPriceMicros: bigint;
-  outputPriceMicros: bigint;
+  outputKind?: ModelOutputKind;
+  inputPriceMicros: bigint | null;
+  outputPriceMicros: bigint | null;
   cacheReadPriceMicros: bigint | null;
   cacheWritePriceMicros: bigint | null;
+  imagePriceMicros: bigint | null;
   webSearchPriceMicros: bigint | null;
   webSearchPreviewPriceMicros: bigint | null;
 };
-export function expandRules(inputs: RuleInput[]) {
+export function expandRules(inputs: RuleInput[], outputKind: ModelOutputKind) {
   return inputs.flatMap((r) => {
     const rule = {
+      outputKind,
       label: r.label,
       kind: r.kind,
       contextMin: r.contextMin === null ? null : BigInt(r.contextMin),
@@ -31,10 +35,11 @@ export function expandRules(inputs: RuleInput[]) {
       weekdaysMask: r.weekdaysMask,
       startMinute: r.startMinute,
       endMinute: r.endMinute,
-      inputPriceMicros: parseMoney(r.inputPrice),
-      outputPriceMicros: parseMoney(r.outputPrice),
+      inputPriceMicros: r.inputPrice === null ? null : parseMoney(r.inputPrice),
+      outputPriceMicros: r.outputPrice === null ? null : parseMoney(r.outputPrice),
       cacheReadPriceMicros: r.cacheReadPrice === null ? null : parseMoney(r.cacheReadPrice),
       cacheWritePriceMicros: r.cacheWritePrice === null ? null : parseMoney(r.cacheWritePrice),
+      imagePriceMicros: r.imagePrice === null ? null : parseMoney(r.imagePrice),
       webSearchPriceMicros: r.webSearchPrice === null ? null : parseMoney(r.webSearchPrice),
       webSearchPreviewPriceMicros: r.webSearchPreviewPrice === null ? null : parseMoney(r.webSearchPreviewPrice),
     };
@@ -49,6 +54,24 @@ export function expandRules(inputs: RuleInput[]) {
 }
 export function validateRules(rules: Omit<Rule, 'id'>[]) {
   if (rules.filter((r) => r.kind === 'default').length !== 1) throw new Error('模型定价必须恰好有一条默认规则');
+  for (const r of rules) {
+    if (r.outputKind === 'image') {
+      if (
+        r.imagePriceMicros === null ||
+        r.contextMin !== null ||
+        [
+          r.inputPriceMicros,
+          r.outputPriceMicros,
+          r.cacheReadPriceMicros,
+          r.cacheWritePriceMicros,
+          r.webSearchPriceMicros,
+          r.webSearchPreviewPriceMicros,
+        ].some((v) => v !== null)
+      )
+        throw new Error('图像规则只支持默认价或时段价，须填写每张单价');
+    } else if (r.inputPriceMicros === null || r.outputPriceMicros === null || r.imagePriceMicros !== null)
+      throw new Error('文本规则须填写输入、输出单价，图像单价应留空');
+  }
   for (let i = 0; i < rules.length; i++)
     for (let j = i + 1; j < rules.length; j++) {
       const a = rules[i];
@@ -81,7 +104,7 @@ export function ruleTimeMatcher(at: Date) {
     r.weekdaysMask === null ||
     ((r.weekdaysMask & (1 << day)) !== 0 && minute >= (r.startMinute as number) && minute < (r.endMinute as number));
 }
-export type Quantities = {
+type TokenQuantities = {
   inputTokens: bigint;
   outputTokens: bigint;
   cacheReadTokens: bigint;
@@ -90,6 +113,8 @@ export type Quantities = {
   webSearchCalls: bigint;
   webSearchPreviewCalls: bigint;
 };
+export type Quantities = TokenQuantities | { generatedImages: bigint };
+
 export function matchRule<T extends Rule>(rules: T[], at: Date, contextTokens: bigint): T | undefined {
   const matchesTime = ruleTimeMatcher(at);
   return [...rules]
@@ -112,9 +137,7 @@ export function ruleSignature(
 ) {
   return [r.kind, r.contextMin, r.contextMax, r.weekdaysMask, r.startMinute, r.endMinute].map(String).join('|');
 }
-export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicros: bigint) {
-  const rule = matchRule(rules, at, usage.contextTokens);
-  if (!rule) throw new Error('没有匹配的价格规则');
+function tokenPriceItems(rule: Rule, usage: TokenQuantities) {
   if (
     usage.inputTokens < 0n ||
     usage.outputTokens < 0n ||
@@ -127,7 +150,7 @@ export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicr
     usage.webSearchPreviewCalls > BigInt(maxSearchCalls)
   )
     throw new Error('计费用量无效');
-  const items = [
+  return [
     { category: 'input', tokens: usage.inputTokens, price: rule.inputPriceMicros, unit: 'million_tokens', scale: 1n },
     {
       category: 'output',
@@ -165,7 +188,28 @@ export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicr
       scale: 1000n,
     },
   ] as const;
+}
+
+export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicros: bigint) {
+  const contextTokens = 'inputTokens' in usage ? usage.contextTokens : 0n;
+  const rule = matchRule(rules, at, contextTokens);
+  if (!rule) throw new Error('没有匹配的价格规则');
+  if (!('inputTokens' in usage) && (usage.generatedImages < 0n || rule.imagePriceMicros === null))
+    throw new Error('出图张数无效或图像单价尚未配置');
+  const items =
+    'inputTokens' in usage
+      ? tokenPriceItems(rule, usage)
+      : ([
+          {
+            category: 'images',
+            tokens: usage.generatedImages,
+            price: rule.imagePriceMicros,
+            unit: 'image',
+            scale: 1_000_000n,
+          },
+        ] as const);
   const labels = {
+    images: '图像生成',
     input: '输入',
     output: '输出',
     cacheRead: '缓存读取',
@@ -196,7 +240,7 @@ export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicr
     ruleLabel: rule.label,
     ruleKind: rule.kind,
     multiplier: formatMoney(multiplierMicros),
-    contextTokens: usage.contextTokens.toString(),
+    contextTokens: contextTokens.toString(),
     items: details,
     total: formatMoney(totalMicros),
     totalMicros: totalMicros.toString(),

@@ -38,10 +38,11 @@ export const ruleInput = z
     weekdaysMask: z.number().int().min(1).max(127).nullable(),
     startMinute: z.number().int().min(0).max(1439).nullable(),
     endMinute: z.number().int().min(0).max(1440).nullable(),
-    inputPrice: priceInput,
-    outputPrice: priceInput,
+    inputPrice: priceInput.nullable(),
+    outputPrice: priceInput.nullable(),
     cacheReadPrice: priceInput.nullable(),
     cacheWritePrice: priceInput.nullable(),
+    imagePrice: priceInput.nullable().default(null),
     webSearchPrice: priceInput.nullable().default(null),
     webSearchPreviewPrice: priceInput.nullable().default(null),
   })
@@ -72,17 +73,24 @@ export type RuleInput = z.infer<typeof ruleInput>;
 
 export const priceScope = z.object({ modelId: z.uuid() });
 export const savePriceInput = priceScope.extend({ rules: z.array(ruleInput).max(200) });
-export const previewInput = priceScope.extend({
+const previewScope = priceScope.extend({
   channelId: z.uuid().optional(),
   at: z.iso.datetime({ offset: true }),
-  inputTokens: tokenInput,
-  outputTokens: tokenInput,
-  cacheReadTokens: tokenInput,
-  cacheWriteTokens: tokenInput,
-  webSearchCalls: searchCountInput.default('0'),
-  webSearchPreviewCalls: searchCountInput.default('0'),
   multiplier: multiplierInput.optional(),
 });
+export const previewInput = z.union([
+  previewScope.extend({ generatedImages: tokenInput }).strict(),
+  previewScope
+    .extend({
+      inputTokens: tokenInput,
+      outputTokens: tokenInput,
+      cacheReadTokens: tokenInput,
+      cacheWriteTokens: tokenInput,
+      webSearchCalls: searchCountInput.default('0'),
+      webSearchPreviewCalls: searchCountInput.default('0'),
+    })
+    .strict(),
+]);
 
 export type PriceScope = z.infer<typeof priceScope>;
 export type SavePriceInput = z.infer<typeof savePriceInput>;

@@ -7,7 +7,7 @@ import { displayMultiplier } from '../lib/format';
 import type { ModelVendor } from '../lib/model-brands';
 import { ChannelVendorIcon } from './brand-icon';
 import { ChannelSelect } from './channel-select';
-import { PlazaPriceRow, PlazaPriceTable, PlazaRules } from './plaza-pricing';
+import { PlazaPriceRow, PlazaPriceTables, PlazaRules } from './plaza-pricing';
 
 type Model = RouterOutputs['modelPlaza']['models'][number];
 type Offer = Model['channels'][number];
@@ -41,8 +41,8 @@ function groupByChannel(models: Model[]) {
 
 function ChannelPrices({ channel, symbol }: { channel: Channel; symbol: string }) {
   return (
-    <PlazaPriceTable>
-      {channel.entries.map(({ model, offer }) => {
+    <PlazaPriceTables entries={channel.entries} outputKind={({ model }) => model.outputKind}>
+      {({ model, offer }) => {
         const rule = offer.rules.find((item) => item.kind === 'default');
         return (
           <PlazaPriceRow
@@ -60,12 +60,12 @@ function ChannelPrices({ channel, symbol }: { channel: Channel; symbol: string }
                   <Badge key={endpoint}>{endpointProtocolNames[endpoint]}</Badge>
                 ))}
               </HStack>
-              <PlazaRules rules={offer.rules} symbol={symbol} />
+              <PlazaRules outputKind={model.outputKind} rules={offer.rules} symbol={symbol} />
             </Stack>
           </PlazaPriceRow>
         );
-      })}
-    </PlazaPriceTable>
+      }}
+    </PlazaPriceTables>
   );
 }
 

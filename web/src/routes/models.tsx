@@ -171,16 +171,20 @@ export default function Models() {
                     <StatusDot color={selected.enabled ? 'green.500' : 'gray.300'} ring="transparent" />
                     {selected.enabled ? '启用' : '禁用'}
                   </Metric>
-                  <Metric label="输入容量">
-                    <Text as="span" title={`${formatCount(selected.inputTokenLimit)} Token`}>
-                      {compactCount(selected.inputTokenLimit)} Token
-                    </Text>
-                  </Metric>
-                  <Metric label="输出上限">
-                    <Text as="span" title={`${formatCount(selected.outputTokenLimit)} Token`}>
-                      {compactCount(selected.outputTokenLimit)} Token
-                    </Text>
-                  </Metric>
+                  {selected.inputTokenLimit !== null && selected.outputTokenLimit !== null && (
+                    <>
+                      <Metric label="输入容量">
+                        <Text as="span" title={`${formatCount(selected.inputTokenLimit)} Token`}>
+                          {compactCount(selected.inputTokenLimit)} Token
+                        </Text>
+                      </Metric>
+                      <Metric label="输出上限">
+                        <Text as="span" title={`${formatCount(selected.outputTokenLimit)} Token`}>
+                          {compactCount(selected.outputTokenLimit)} Token
+                        </Text>
+                      </Metric>
+                    </>
+                  )}
                   <Metric label="可用渠道">
                     {
                       catalog.data.channels.filter((channel) =>
@@ -194,8 +198,12 @@ export default function Models() {
                   <ModelPricing
                     key={selected.id}
                     modelId={selected.id}
-                    copyLunaPrice={selected.name === 'codex-auto-review'}
-                    lunaModelId={models.find((model) => model.name === 'gpt-5.6-luna' && model.priced)?.id}
+                    copyLunaPrice={selected.outputKind === 'text' && selected.name === 'codex-auto-review'}
+                    lunaModelId={
+                      models.find(
+                        (model) => model.name === 'gpt-5.6-luna' && model.outputKind === 'text' && model.priced,
+                      )?.id
+                    }
                   />
                 </Box>
               </Stack>

@@ -11,6 +11,7 @@ export function defaultSearchPrices(modelName: string) {
 }
 
 export function applySearchDefaults<T extends Rule>(rule: T, modelName: string): T {
+  if (rule.outputKind === 'image') return rule;
   const defaults = defaultSearchPrices(modelName);
   return {
     ...rule,

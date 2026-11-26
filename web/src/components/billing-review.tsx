@@ -94,6 +94,7 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
   const [reason, setReason] = useState('');
   const [amount, setAmount] = useState('');
   const [usage, setUsage] = useState({
+    generatedImages: r.usage?.generatedImages ?? '',
     inputTokens: r.usage?.inputTokens ?? '0',
     outputTokens: r.usage?.outputTokens ?? '0',
     cacheReadTokens: r.usage?.cacheReadTokens ?? '0',
@@ -121,7 +122,13 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
             action,
             reason,
             amount: action === 'settle_amount' ? amount : undefined,
-            usage: action === 'settle_usage' ? usage : undefined,
+            usage:
+              action === 'settle_usage'
+                ? {
+                    ...usage,
+                    generatedImages: r.endpoint === '/v1/images' ? usage.generatedImages : undefined,
+                  }
+                : undefined,
           });
         }}
       >
@@ -140,15 +147,16 @@ function ResolutionForm({ r, close }: { r: Detail; close: () => void }) {
           />
           {action === 'settle_usage' && (
             <Grid templateColumns={{ base: '1fr', sm: '1fr 1fr' }} gap="4">
-              {(
-                [
-                  ['inputTokens', '普通输入 Token'],
-                  ['outputTokens', '输出 Token'],
-                  ['cacheReadTokens', '缓存读取 Token'],
-                  ['cacheWriteTokens', '缓存写入 Token'],
-                  ['webSearchCalls', 'Web Search 调用次数'],
-                  ['webSearchPreviewCalls', 'Web Search Preview 调用次数'],
-                ] as const
+              {(r.endpoint === '/v1/images'
+                ? ([['generatedImages', '实际出图张数']] as const)
+                : ([
+                    ['inputTokens', '普通输入 Token'],
+                    ['outputTokens', '输出 Token'],
+                    ['cacheReadTokens', '缓存读取 Token'],
+                    ['cacheWriteTokens', '缓存写入 Token'],
+                    ['webSearchCalls', 'Web Search 调用次数'],
+                    ['webSearchPreviewCalls', 'Web Search Preview 调用次数'],
+                  ] as const)
               ).map(([key, label]) => (
                 <FormInput
                   key={key}

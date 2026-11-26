@@ -73,7 +73,7 @@ export class UsageCollector implements ResponseObserver {
   malformed(error: unknown) {
     this.invalid = true;
     this.malformedUsage = true;
-    this.errorMessage = safeErrorMessage(error);
+    this.errorMessage = this.protocol.family === 'images' ? 'Invalid image response JSON' : safeErrorMessage(error);
   }
 
   truncated() {
@@ -221,6 +221,7 @@ export class UsageCollector implements ResponseObserver {
       return;
     }
     this.usage = {
+      generatedImages: normalized.generatedImages ?? 0n,
       inputTokens: inputIncludesCache ? input - read - write : input,
       outputTokens: output,
       cacheReadTokens: read,

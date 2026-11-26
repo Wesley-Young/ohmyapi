@@ -28,7 +28,7 @@ type Channel = typeof channels.$inferSelect;
 
 /** Key 绑定的入口渠道和请求的模型；upstreamModel 和 reasoningEffortRules 是入口渠道为该模型配置的上游名称和推理强度规则。 */
 export type EntryRoute = {
-  model: { id: string; name: string; inputTokenLimit: number; outputTokenLimit: number };
+  model: { id: string; name: string; outputTokenLimit: number | null };
   channel: Channel;
   upstreamModel: string | null;
   reasoningEffortRules: ReasoningEffortRule[];
@@ -213,12 +213,14 @@ export async function resolveEntryRoute(
     .select({
       id: models.id,
       name: models.name,
-      inputTokenLimit: models.inputTokenLimit,
+      outputKind: models.outputKind,
       outputTokenLimit: models.outputTokenLimit,
     })
     .from(models)
     .where(and(eq(models.name, requestedModel), activeModel()));
   if (!model) throw new GatewayError(404, 'model_not_found', 'Unknown or disabled model');
+  if ((model.outputKind === 'image') !== (endpoint === '/v1/images'))
+    throw new GatewayError(400, 'model_endpoint_mismatch', 'The model output type does not support this endpoint');
   details.modelName = model.name;
 
   if (!identity.channelId)

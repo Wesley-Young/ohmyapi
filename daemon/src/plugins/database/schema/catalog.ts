@@ -11,6 +11,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
@@ -19,20 +20,28 @@ import { channelEndpointColumn, createdAt, id } from './common.ts';
 import { apiKeys, users } from './identity.ts';
 import { subscriptionAccounts } from './subscription.ts';
 
+export const modelOutputKind = pgEnum('model_output_kind', ['text', 'image']);
+export type ModelOutputKind = (typeof modelOutputKind.enumValues)[number];
+
 export const models = pgTable(
   'models',
   {
     id: id(),
     name: text('name').notNull(),
     enabled: boolean('enabled').default(true).notNull(),
-    inputTokenLimit: bigint('input_token_limit', { mode: 'number' }).default(1_000_000).notNull(),
-    outputTokenLimit: bigint('output_token_limit', { mode: 'number' }).default(128_000).notNull(),
+    outputKind: modelOutputKind('output_kind').default('text').notNull(),
+    inputTokenLimit: bigint('input_token_limit', { mode: 'number' }).default(1_000_000),
+    outputTokenLimit: bigint('output_token_limit', { mode: 'number' }).default(128_000),
     createdAt: createdAt(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => [
     uniqueIndex('models_name_unique').on(table.name).where(sql`${table.deletedAt} is null`),
-    check('models_token_limits', sql`${table.inputTokenLimit} >= 1 and ${table.outputTokenLimit} >= 1`),
+    unique('models_id_output_kind').on(table.id, table.outputKind),
+    check(
+      'models_token_limits',
+      sql`(${table.outputKind} = 'text' and ${table.inputTokenLimit} is not null and ${table.inputTokenLimit} >= 1 and ${table.outputTokenLimit} is not null and ${table.outputTokenLimit} >= 1) or (${table.outputKind} = 'image' and ${table.inputTokenLimit} is null and ${table.outputTokenLimit} is null)`,
+    ),
   ],
 );
 

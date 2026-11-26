@@ -164,6 +164,7 @@ export type Usage = {
   cacheReadTokens: bigint;
   cacheWriteTokens: bigint;
   contextTokens: bigint;
+  generatedImages: bigint;
   webSearchCalls: bigint;
   webSearchPreviewCalls: bigint;
   rawUsage: Record<string, unknown>;
@@ -181,12 +182,14 @@ export const requestUsage = pgTable(
     cacheReadTokens: tokenCount('cache_read_tokens').default(sql`0`).notNull(),
     cacheWriteTokens: tokenCount('cache_write_tokens').default(sql`0`).notNull(),
     contextTokens: tokenCount('context_tokens').notNull(),
+    generatedImages: tokenCount('generated_images').default(sql`0`).notNull(),
     webSearchCalls: tokenCount('web_search_calls').default(sql`0`).notNull(),
     webSearchPreviewCalls: tokenCount('web_search_preview_calls').default(sql`0`).notNull(),
     rawUsage: jsonb('raw_usage').$type<Record<string, unknown>>().notNull(),
     createdAt: createdAt(),
   },
   (table) => [
+    check('request_usage_images_nonnegative', sql`${table.generatedImages} >= 0`),
     check(
       'request_usage_nonnegative',
       sql`${table.inputTokens} >= 0 and ${table.outputTokens} >= 0 and ${table.cacheReadTokens} >= 0 and ${table.cacheWriteTokens} >= 0`,

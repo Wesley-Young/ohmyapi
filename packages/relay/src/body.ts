@@ -1,4 +1,4 @@
-import { GatewayError } from '@ohmyapi/protocols';
+import { type ApiProtocol, type Data, GatewayError } from '@ohmyapi/protocols';
 
 import { promisify } from 'node:util';
 import { brotliDecompress, gunzip, inflate, zstdDecompress } from 'node:zlib';
@@ -43,22 +43,16 @@ async function decodeBody(raw: NonSharedBuffer, steps: ReturnType<typeof content
   return bytes;
 }
 
-/**
- * 读取 JSON 请求体：按 Content-Encoding 解压（gzip、deflate、br、zstd），限制大小，
- * 响应取消和超时信号，要求请求体为对象。返回解析结果和解压后的字节，这些字节用于原样转发。
- */
-export async function readJsonBody(
+async function readBodyBytes(
   req: Request,
   signal: AbortSignal,
   stats: { bytes: number },
   progress: () => void,
   maxBodyBytes: number,
 ) {
-  if (!req.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
-    throw new GatewayError(415, 'unsupported_media_type', 'Content-Type must be application/json');
   const steps = contentDecoders(req);
   const reader = req.body?.getReader();
-  if (!reader) throw new GatewayError(400, 'invalid_request', 'JSON body is required');
+  if (!reader) throw new GatewayError(400, 'invalid_request', 'A request body is required');
   const cancel = () => {
     void reader.cancel().catch(() => {});
   };
@@ -90,7 +84,20 @@ export async function readJsonBody(
     if (signal.reason === 'body_timeout') throw new GatewayError(408, 'body_timeout', message);
     throw new GatewayError(400, 'request_cancelled', message);
   }
-  const bytes = await decodeBody(Buffer.concat(chunks), steps, maxBodyBytes);
+  return decodeBody(Buffer.concat(chunks), steps, maxBodyBytes);
+}
+
+/** 读取有大小和超时限制的 JSON 对象，并保留解压后的原始字节。 */
+export async function readJsonBody(
+  req: Request,
+  signal: AbortSignal,
+  stats: { bytes: number },
+  progress: () => void,
+  maxBodyBytes: number,
+) {
+  if (!req.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
+    throw new GatewayError(415, 'unsupported_media_type', 'Content-Type must be application/json');
+  const bytes = await readBodyBytes(req, signal, stats, progress, maxBodyBytes);
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(bytes.toString('utf8'));
@@ -101,4 +108,24 @@ export async function readJsonBody(
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new GatewayError(400, 'invalid_request', 'A model name and a boolean stream option are required');
   return { parsed, bytes };
+}
+
+/** 协议声明支持上传时接受 multipart，同时保留原始字节和对应的 boundary。 */
+export async function readProtocolBody(
+  protocol: ApiProtocol,
+  ...args: Parameters<typeof readJsonBody>
+): Promise<{ parsed: Data; bytes: NonSharedBuffer; form?: FormData; contentType?: string }> {
+  const [req] = args;
+  const contentType = req.headers.get('content-type') ?? '';
+  if (contentType.split(';', 1)[0].trim().toLowerCase() !== 'multipart/form-data') return readJsonBody(...args);
+  if (!protocol.multipart || new URL(req.url).pathname !== protocol.multipart.path)
+    throw new GatewayError(415, 'unsupported_media_type', 'This route does not accept multipart/form-data');
+  const bytes = await readBodyBytes(...args);
+  let form: FormData;
+  try {
+    form = await new Response(bytes, { headers: { 'content-type': contentType } }).formData();
+  } catch {
+    throw new GatewayError(400, 'invalid_request', 'Invalid multipart form data');
+  }
+  return { parsed: protocol.multipart.parse(form), bytes, form, contentType };
 }

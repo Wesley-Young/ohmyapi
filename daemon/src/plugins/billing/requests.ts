@@ -89,6 +89,7 @@ export const usageDto = (u: typeof requestUsage.$inferSelect) => ({
   cacheReadTokens: u.cacheReadTokens.toString(),
   cacheWriteTokens: u.cacheWriteTokens.toString(),
   contextTokens: u.contextTokens.toString(),
+  generatedImages: u.generatedImages.toString(),
   webSearchCalls: u.webSearchCalls.toString(),
   webSearchPreviewCalls: u.webSearchPreviewCalls.toString(),
 });
