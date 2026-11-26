@@ -9,6 +9,7 @@ import type { Endpoint, ReasoningEffortRule } from '../database/schema/index.ts'
 import {
   aggregateChannelMembers,
   channelAvailableModels,
+  channelEndpointFor,
   channelEndpoints,
   channels,
   effectiveChannelEndpoints,
@@ -102,7 +103,7 @@ export async function planExecution(
     )
     .innerJoin(
       channelEndpoints,
-      and(eq(channelEndpoints.channelId, channels.id), eq(channelEndpoints.endpoint, endpoint)),
+      and(eq(channelEndpoints.channelId, channels.id), eq(channelEndpoints.endpoint, channelEndpointFor(endpoint))),
     )
     .where(and(eq(aggregateChannelMembers.aggregateChannelId, entry.id), isNull(channels.deletedAt)))
     .orderBy(desc(aggregateChannelMembers.priority), channels.id);
@@ -246,7 +247,7 @@ export async function resolveEntryRoute(
           eq(channels.id, identity.channelId),
           activeChannel(),
           eq(effectiveChannelModels.modelId, model.id),
-          eq(effectiveChannelEndpoints.endpoint, endpoint),
+          eq(effectiveChannelEndpoints.endpoint, channelEndpointFor(endpoint)),
         ),
       ),
   ]);

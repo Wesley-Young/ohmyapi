@@ -4,12 +4,7 @@ import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 
 import type { CredentialVault } from '../../core/vault.ts';
 import type { Database } from '../database/client.ts';
-import {
-  type channels,
-  type Endpoint,
-  type SubscriptionProvider,
-  subscriptionAccounts,
-} from '../database/schema/index.ts';
+import { type channels, type SubscriptionProvider, subscriptionAccounts } from '../database/schema/index.ts';
 import type { ChannelAdapter, SubscriptionChannels } from '../gateway/adapters.ts';
 import type { OutboundHttp } from '../outbound/index.ts';
 import { antigravityAdapter } from './antigravity/adapter.ts';
@@ -64,9 +59,7 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
     throw new GatewayError(503, 'subscription_unavailable', 'Unsupported subscription provider');
   }
 
-  supportsEndpoint(provider: string, endpoint: Endpoint) {
-    return providerSupports(provider, endpoint);
-  }
+  readonly supportsEndpoint = providerSupports;
 
   activeRequests(accountId: string) {
     return this.concurrency.active(accountId);

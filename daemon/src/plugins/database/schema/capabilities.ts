@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { bigint, pgView, text, uuid } from 'drizzle-orm/pg-core';
 
-import { endpoint } from './common.ts';
+import { channelEndpointColumn } from './common.ts';
 
 // 聚合渠道的模型和端点分别取全部成员配置的并集，成员暂时停用或冷却不改变聚合渠道的能力；
 // 某个模型和端点的组合由哪些成员执行，在路由时按成员各自的配置筛选。
@@ -28,7 +28,7 @@ export const effectiveChannelModels = pgView('effective_channel_models', {
 
 export const effectiveChannelEndpoints = pgView('effective_channel_endpoints', {
   channelId: uuid('channel_id').notNull(),
-  endpoint: endpoint('endpoint').notNull(),
+  endpoint: channelEndpointColumn(),
 }).as(sql`
   select ce.channel_id, ce.endpoint
   from channel_endpoints ce join channels c on c.id = ce.channel_id

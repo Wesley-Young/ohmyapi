@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { pageInput, searchInput } from '../../core/pagination.ts';
-import { channelTypes, endpoints, pricingModes } from '../database/schema/index.ts';
+import { channelEndpointFor, channelTypes, endpoints, pricingModes } from '../database/schema/index.ts';
 import { proxyUrlInput } from '../outbound/schemas.ts';
 import { multiplierInput, ruleInput } from '../pricing/schemas.ts';
 import { subscriptionInput } from '../subscription/schemas.ts';
@@ -84,6 +84,7 @@ export const channelInput = z.object({
     .array(z.enum(endpoints))
     .max(endpoints.length)
     .refine((v) => new Set(v).size === v.length)
+    .transform((paths) => [...new Set(paths.map(channelEndpointFor))])
     .default([]),
 });
 export const fetchChannelModelsInput = channelInput

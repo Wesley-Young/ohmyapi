@@ -34,8 +34,7 @@ export function PlaygroundSelector({
   const draftChannel = channels.find((channel) => channel.id === draftChannelId);
   const models = draftChannel?.models.filter((model) => model.name.toLowerCase().includes(search.trim().toLowerCase()));
 
-  const selectionLabel =
-    selectedChannel && selectedModel ? `${selectedChannel.name}/${selectedModel.name}` : undefined;
+  const selectionLabel = selectedChannel && selectedModel ? `${selectedChannel.name}/${selectedModel.name}` : undefined;
 
   return (
     <Popover.Root

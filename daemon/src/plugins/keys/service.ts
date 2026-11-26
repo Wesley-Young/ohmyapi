@@ -1,5 +1,5 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { type Endpoint, endpoints } from '@ohmyapi/protocols';
+import { type FamilyEndpoint, familyEndpoints } from '@ohmyapi/protocols';
 import { and, desc, eq, gt, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AccessEndpoint } from '../../config.ts';
@@ -287,8 +287,8 @@ export class KeyService {
     const usageByKey = new Map(usage.map((row) => [row.keyId, row]));
     // Endpoints the bound channel serves to this user, in gateway order; each export target picks the ones its
     // clients speak.
-    const channelEndpoints = new Map<string, Endpoint[]>();
-    for (const endpoint of endpoints) {
+    const channelEndpoints = new Map<string, FamilyEndpoint[]>();
+    for (const endpoint of Object.values(familyEndpoints)) {
       for (const channelId of new Set(offerings.filter((row) => row.endpoint === endpoint).map((row) => row.channelId)))
         channelEndpoints.set(channelId, [...(channelEndpoints.get(channelId) ?? []), endpoint]);
     }

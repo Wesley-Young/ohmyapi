@@ -54,7 +54,8 @@ export function KeyForm({
       options.push({ id: editing.channelId, name: editing.channelName ?? '原渠道', badge: '不可用' });
     return options;
   }, [channels.data, editing?.channelId, editing?.channelName]);
-  const models = [...(channels.data?.find((channel) => channel.id === channelId)?.models ?? [])];
+  const selectedChannel = channels.data?.find((channel) => channel.id === channelId);
+  const models = [...(selectedChannel?.models ?? [])];
   if (editing && channelId === editing.channelId)
     for (const [index, id] of editing.modelIds.entries())
       if (!models.some((model) => model.id === id)) models.push({ id, name: `${editing.modelNames[index]}（不可用）` });
@@ -118,11 +119,7 @@ export function KeyForm({
             />
             {channelId && (
               <Text fontSize="sm" color="gray.500">
-                支持端点：
-                {channels.data
-                  ?.find((channel) => channel.id === channelId)
-                  ?.endpoints.filter((endpoint) => endpoint !== '/v1/responses/compact')
-                  .join(', ') ?? '—'}
+                支持端点：{selectedChannel?.endpoints.join(', ') ?? '—'}
               </Text>
             )}
             {!channels.isPending && !channels.data?.length && (

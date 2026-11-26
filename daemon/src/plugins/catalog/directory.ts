@@ -9,6 +9,7 @@ import { createdBefore, createdPosition } from '../database/query.ts';
 import {
   aggregateChannelMembers,
   type ChannelType,
+  channelEndpointFor,
   channels,
   effectiveChannelEndpoints,
   endpoints,
@@ -114,7 +115,7 @@ export class ChannelDirectory {
         multiplier: formatMoney(row.multiplierMicros),
         timeoutMs: row.timeoutMs,
         endpoints: endpoints.filter((endpoint) =>
-          scopes.some((scope) => scope.channelId === row.id && scope.endpoint === endpoint),
+          scopes.some((scope) => scope.channelId === row.id && scope.endpoint === channelEndpointFor(endpoint)),
         ),
         createdAt: row.createdAt.toISOString(),
       };

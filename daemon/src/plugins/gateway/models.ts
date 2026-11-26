@@ -6,6 +6,7 @@ import type { Database } from '../database/client.ts';
 import { activeModel } from '../database/query.ts';
 import {
   apiKeyModelGrants,
+  channelEndpointFor,
   type channels,
   type Endpoint,
   effectiveChannelEndpoints,
@@ -41,7 +42,7 @@ export async function availableModels(
     .where(
       and(
         eq(effectiveChannelModels.channelId, identity.channelId),
-        endpoint ? eq(effectiveChannelEndpoints.endpoint, endpoint) : undefined,
+        endpoint ? eq(effectiveChannelEndpoints.endpoint, channelEndpointFor(endpoint)) : undefined,
         activeModel(),
         identity.key.restrictModels ? eq(apiKeyModelGrants.apiKeyId, identity.key.id) : undefined,
       ),

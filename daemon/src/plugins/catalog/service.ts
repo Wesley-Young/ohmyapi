@@ -23,7 +23,7 @@ import {
 } from '../database/schema/index.ts';
 import { channelProxy } from '../outbound/channel-proxy.ts';
 import type { OutboundHttp } from '../outbound/index.ts';
-import { providerSupports } from '../subscription/providers.ts';
+import { providerEndpoints, providerSupports } from '../subscription/providers.ts';
 import type { SubscriptionService } from '../subscription/service.ts';
 import { auditCatalog } from './audit.ts';
 import type { ChannelConcurrency } from './concurrency.ts';
@@ -138,6 +138,7 @@ export class CatalogService {
       ]);
     channelRows.sort(compareChannels);
     return {
+      subscriptionEndpoints: providerEndpoints,
       channels: channelRows.map(({ multiplierMicros, proxyUrlEncrypted, ...c }) => ({
         ...c,
         proxyUrl: proxyUrlEncrypted ? this.vault.decrypt(proxyUrlEncrypted) : null,
@@ -423,7 +424,7 @@ export class CatalogService {
         throw new AppError(
           'bad_request',
           {
-            openai: 'OpenAI 订阅渠道仅支持 Responses 和 compact',
+            openai: 'OpenAI 订阅渠道仅支持 Responses 协议',
             claude: 'Claude 订阅渠道仅支持 Messages',
             antigravity: 'Antigravity 订阅渠道仅支持 Gemini 端点',
           }[provider],

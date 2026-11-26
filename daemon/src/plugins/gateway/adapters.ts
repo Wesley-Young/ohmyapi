@@ -2,7 +2,7 @@ import { GatewayError, protocolFor, type RequestTarget } from '@ohmyapi/protocol
 
 import type { CredentialVault } from '../../core/vault.ts';
 import type { ChannelType, channels } from '../database/schema/catalog.ts';
-import type { Endpoint } from '../database/schema/index.ts';
+import type { Endpoint, SubscriptionProvider } from '../database/schema/index.ts';
 import { type ForwardResponseOptions, forwardResponse } from './response.ts';
 
 type PrepareRequestOptions = {
@@ -37,7 +37,7 @@ export interface SubscriptionChannels {
   /** 为绑定订阅账号的渠道提供对应平台的适配器。 */
   adapterFor(channel: typeof channels.$inferSelect): Promise<ChannelAdapter>;
   /** 订阅平台是否支持该端点，用于聚合渠道选择成员。 */
-  supportsEndpoint(provider: string, endpoint: Endpoint): boolean;
+  supportsEndpoint(provider: SubscriptionProvider, endpoint: Endpoint): boolean;
   /** 订阅账号当前正在执行的请求数。 */
   activeRequests(accountId: string): number;
   /** 未达并发上限时同步占用订阅账号的一个名额，返回释放函数；已满或服务停止时返回 undefined。 */

@@ -6,15 +6,10 @@ import { useState } from 'react';
 
 import { refreshCatalog } from '../lib/cache';
 import { channelTypeLabels } from '../lib/channels';
-import { type Endpoint, endpointProtocolNames, endpoints, responsesEndpoints } from '../lib/endpoints';
+import { type Endpoint, endpointProtocolNames, endpoints } from '../lib/endpoints';
 import { formError } from '../lib/format';
 import { percentToPpm, ppmToPercent } from '../lib/moderation';
-import {
-  isSubscriptionProvider,
-  type SubscriptionProvider,
-  subscriptionEndpoints,
-  subscriptionProviderLabels,
-} from '../lib/subscription';
+import { isSubscriptionProvider, type SubscriptionProvider, subscriptionProviderLabels } from '../lib/subscription';
 import { trpc } from '../lib/trpc';
 import { AggregateMembers, aggregateCapabilities } from './aggregate-members';
 import { ProviderIcon } from './brand-icon';
@@ -42,49 +37,34 @@ const subscriptionPlatforms = Object.keys(subscriptionProviderLabels)
 function EndpointFields({
   value,
   onChange,
-  subscription = false,
-  provider = 'openai',
+  options,
 }: {
   value: Endpoint[];
   onChange: (value: Endpoint[]) => void;
-  subscription?: boolean;
-  provider?: SubscriptionProvider;
+  options: readonly Endpoint[];
 }) {
   return (
     <HStack gap="2" flexWrap="wrap">
-      {endpoints
-        .filter(
-          (endpoint) =>
-            endpoint !== '/v1/responses/compact' &&
-            (!subscription || subscriptionEndpoints[provider].includes(endpoint)),
-        )
-        .map((endpoint) => (
-          <Checkbox.Root
-            key={endpoint}
-            borderWidth="1px"
-            borderColor="gray.200"
-            borderRadius="lg"
-            px="3"
-            py="2"
-            checked={
-              endpoint === '/v1/responses'
-                ? responsesEndpoints.some((item) => value.includes(item))
-                : value.includes(endpoint)
-            }
-            onCheckedChange={(e) => {
-              const group = endpoint === '/v1/responses' ? responsesEndpoints : [endpoint];
-              onChange(
-                e.checked === true ? [...new Set([...value, ...group])] : value.filter((item) => !group.includes(item)),
-              );
-            }}
-          >
-            <Checkbox.HiddenInput data-channel-error={!value.length ? '请选择至少一个端点' : undefined} />
-            <Checkbox.Control />
-            <Checkbox.Label title={endpoint} fontSize="sm">
-              {endpointProtocolNames[endpoint]}
-            </Checkbox.Label>
-          </Checkbox.Root>
-        ))}
+      {options.map((endpoint) => (
+        <Checkbox.Root
+          key={endpoint}
+          borderWidth="1px"
+          borderColor="gray.200"
+          borderRadius="lg"
+          px="3"
+          py="2"
+          checked={value.includes(endpoint)}
+          onCheckedChange={(e) =>
+            onChange(e.checked === true ? [...value, endpoint] : value.filter((item) => item !== endpoint))
+          }
+        >
+          <Checkbox.HiddenInput data-channel-error={!value.length ? '请选择至少一个端点' : undefined} />
+          <Checkbox.Control />
+          <Checkbox.Label title={endpoint} fontSize="sm">
+            {endpointProtocolNames[endpoint]}
+          </Checkbox.Label>
+        </Checkbox.Root>
+      ))}
     </HStack>
   );
 }
@@ -127,11 +107,7 @@ export function ChannelForm({
   const [timeout, setTimeout] = useState(String(initial?.timeoutMs ?? 120000));
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
   const [isPublic, setIsPublic] = useState(initial?.isPublic ?? true);
-  const [scopes, setScopes] = useState<Endpoint[]>(
-    initial?.endpoints.some((endpoint) => responsesEndpoints.includes(endpoint))
-      ? [...new Set([...initial.endpoints, ...responsesEndpoints])]
-      : (initial?.endpoints ?? []),
-  );
+  const [scopes, setScopes] = useState<Endpoint[]>(initial?.endpoints ?? []);
   const [multiplier, setMultiplier] = useState(initial?.multiplier ?? '1');
   const [samplePercent, setSamplePercent] = useState(ppmToPercent(initial?.moderation.samplePpm ?? 0));
   const [dailyFloor, setDailyFloor] = useState(String(initial?.moderation.dailyFloor ?? 0));
@@ -181,9 +157,7 @@ export function ChannelForm({
   );
   const fetching = fetchModels.isPending || fetchSubscriptionModels.isPending;
   const busy = task.isPending || fetching || startOAuth.isPending || renew.isPending || resetCreditBusy;
-  const selectedEndpoints = (type === 'aggregate' ? aggregateEndpoints : scopes).filter(
-    (endpoint) => endpoint !== '/v1/responses/compact',
-  );
+  const selectedEndpoints = type === 'aggregate' ? aggregateEndpoints : scopes;
   const auditSummary =
     [Number(samplePercent) > 0 && `抽样 ${samplePercent}%`, Number(dailyFloor) > 0 && `每天保底 ${dailyFloor} 个会话`]
       .filter(Boolean)
@@ -263,7 +237,7 @@ export function ChannelForm({
                     disabled={busy}
                     onChange={(next) => {
                       setType(next);
-                      setScopes(next === 'subscription' ? [...subscriptionEndpoints[provider]] : []);
+                      setScopes(next === 'subscription' ? [data.subscriptionEndpoints[provider]] : []);
                       setDailyFloor(next === 'subscription' ? '1' : '0');
                       resetModels();
                     }}
@@ -307,7 +281,7 @@ export function ChannelForm({
                         setCredentials('');
                         setCallback('');
                         resetModels();
-                        setScopes([...subscriptionEndpoints[next]]);
+                        setScopes([data.subscriptionEndpoints[next]]);
                       }}
                     />
                   </Field.Root>
@@ -406,8 +380,7 @@ export function ChannelForm({
                 <EndpointFields
                   value={scopes}
                   onChange={setScopes}
-                  subscription={type === 'subscription'}
-                  provider={provider}
+                  options={type === 'subscription' ? [data.subscriptionEndpoints[provider]] : endpoints}
                 />
               )}
             </ChannelDisclosure>

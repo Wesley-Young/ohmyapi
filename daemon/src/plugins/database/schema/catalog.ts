@@ -15,7 +15,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { createdAt, endpoint, id } from './common.ts';
+import { channelEndpointColumn, createdAt, id } from './common.ts';
 import { apiKeys, users } from './identity.ts';
 import { subscriptionAccounts } from './subscription.ts';
 
@@ -105,9 +105,12 @@ export const channelEndpoints = pgTable(
     channelId: uuid('channel_id')
       .notNull()
       .references(() => channels.id),
-    endpoint: endpoint('endpoint').notNull(),
+    endpoint: channelEndpointColumn(),
   },
-  (table) => [primaryKey({ columns: [table.channelId, table.endpoint] })],
+  (table) => [
+    primaryKey({ columns: [table.channelId, table.endpoint] }),
+    check('channel_endpoints_family', sql`${table.endpoint} <> '/v1/responses/compact'`),
+  ],
 );
 
 export const aggregateChannelMembers = pgTable(

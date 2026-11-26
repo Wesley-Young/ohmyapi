@@ -12,9 +12,6 @@ export const endpoints = [
 ] as const;
 export type Endpoint = (typeof endpoints)[number];
 
-/** 同一协议族共享请求和响应结构，例如 Responses 与 compact。 */
-export type ProtocolFamily = 'chat' | 'responses' | 'messages' | 'gemini' | 'systemone' | 'decisions';
-
 /**
  * 每个协议族的主端点。上游服务按协议族提供 API：提供主端点的服务同时提供同族的其他端点，例如 Responses 与 compact。
  */
@@ -25,5 +22,6 @@ export const familyEndpoints = {
   gemini: '/v1beta/generateContent',
   systemone: '/v1/systemone',
   decisions: '/v1/decisions',
-} as const satisfies Record<ProtocolFamily, Endpoint>;
+} as const satisfies Record<string, Endpoint>;
+export type ProtocolFamily = keyof typeof familyEndpoints;
 export type FamilyEndpoint = (typeof familyEndpoints)[ProtocolFamily];
