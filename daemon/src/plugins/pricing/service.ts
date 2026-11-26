@@ -144,6 +144,7 @@ export class PricingService {
               id: row.channelId,
               name: row.channelName,
               isPublic: row.channelIsPublic,
+              channelMultiplier: formatMoney(row.channelMultiplierMicros),
               multiplier: formatMoney(row.multiplierMicros),
               maxMultiplier: formatMoney(row.maxMultiplierMicros),
               pricingMode: row.pricingMode,

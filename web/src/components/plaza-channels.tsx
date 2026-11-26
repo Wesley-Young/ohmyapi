@@ -19,17 +19,18 @@ function groupByChannel(models: Model[]) {
   const channels = new Map<string, Channel>();
   for (const model of models) {
     for (const offer of model.channels) {
+      const passthrough = offer.pricingMode === 'passthrough';
       let channel = channels.get(offer.id);
       if (!channel) {
         channel = {
           id: offer.id,
           name: offer.name,
-          multiplier: offer.multiplier,
-          maxMultiplier: offer.maxMultiplier,
+          multiplier: passthrough ? offer.multiplier : offer.channelMultiplier,
+          maxMultiplier: passthrough ? offer.maxMultiplier : offer.channelMultiplier,
           entries: [],
         };
         channels.set(offer.id, channel);
-      } else {
+      } else if (passthrough) {
         if (Number(offer.multiplier) < Number(channel.multiplier)) channel.multiplier = offer.multiplier;
         if (Number(offer.maxMultiplier) > Number(channel.maxMultiplier)) channel.maxMultiplier = offer.maxMultiplier;
       }
