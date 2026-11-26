@@ -1,13 +1,21 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lt } from 'drizzle-orm';
 
 import { formatMoney } from '../../core/money.ts';
 import { toPage } from '../../core/pagination.ts';
 import { displayUsage } from '../billing/requests.ts';
 import type { Database } from '../database/client.ts';
-import { paginate } from '../database/query.ts';
+import {
+  activeApiKey,
+  activeChannel,
+  activeUser,
+  availableSubscription,
+  containsText,
+  paginate,
+} from '../database/query.ts';
 import { apiKeys, channels, requestAttempts, requests, requestUsage, users } from '../database/schema/index.ts';
 import { type PricingService, publicPricingSnapshot } from '../pricing/service.ts';
+import type { OwnRequestFilters, PlatformRequestFilters } from './schemas.ts';
 
 /** 请求记录列表：用户查看自己的请求，管理员查看全部或待核对的请求。 */
 export class RequestHistory {
@@ -20,17 +28,43 @@ export class RequestHistory {
   }
 
   /** 用户自己的请求，包含所用 API Key 的名称。 */
-  listOwn(userId: string, page: number) {
-    return this.list(userId, page);
+  listOwn(userId: string, filters: OwnRequestFilters) {
+    return this.list(userId, filters);
   }
 
   /** 平台的全部请求；Key 名称由各用户自行设置，平台视图只展示所属用户。 */
-  async listAll(page: number, reviewOnly: boolean) {
-    const { items, ...result } = await this.list(undefined, page, reviewOnly);
+  async listAll(filters: PlatformRequestFilters) {
+    const { items, ...result } = await this.list(undefined, filters);
     return { ...result, items: items.map(({ apiKeyName: _, ...item }) => item) };
   }
 
-  private async list(userId: string | undefined, page: number, reviewOnly = false) {
+  ownFilterOptions(userId: string) {
+    return this.db
+      .select({ id: apiKeys.id, name: apiKeys.name })
+      .from(apiKeys)
+      .where(and(eq(apiKeys.userId, userId), activeApiKey()))
+      .orderBy(apiKeys.name, apiKeys.id);
+  }
+
+  async platformFilterOptions() {
+    const [userOptions, channelOptions] = await Promise.all([
+      this.db
+        .select({ id: users.id, name: users.username })
+        .from(users)
+        .where(activeUser())
+        .orderBy(users.username, users.id),
+      this.db
+        .select({ id: channels.id, name: channels.name })
+        .from(channels)
+        .where(and(activeChannel(), availableSubscription()))
+        .orderBy(channels.name, channels.id),
+    ]);
+    return { users: userOptions, channels: channelOptions };
+  }
+
+  private async list(ownerId: string | undefined, filters: OwnRequestFilters & Partial<PlatformRequestFilters>) {
+    const { page, model, from, until, apiKeyId, channelId, reviewOnly } = filters;
+    const userId = ownerId ?? filters.userId;
     const rows = await paginate(
       this.db
         .select({
@@ -49,6 +83,11 @@ export class RequestHistory {
         .where(
           and(
             userId ? eq(requests.userId, userId) : undefined,
+            apiKeyId ? eq(requests.apiKeyId, apiKeyId) : undefined,
+            channelId ? eq(requests.channelId, channelId) : undefined,
+            from ? gte(requests.receivedAt, new Date(from)) : undefined,
+            until ? lt(requests.receivedAt, new Date(until)) : undefined,
+            containsText(requests.requestedModel, model ?? ''),
             reviewOnly ? and(eq(requests.status, 'needs_review'), eq(requests.billingEnabled, true)) : undefined,
           ),
         )
@@ -58,7 +97,7 @@ export class RequestHistory {
     );
     const { items: pageRows, hasMore } = toPage(rows);
     const attempts =
-      userId === undefined && pageRows.length > 0
+      ownerId === undefined && pageRows.length > 0
         ? await this.db
             .select({
               id: requestAttempts.id,
@@ -102,7 +141,7 @@ export class RequestHistory {
         heldAmount: formatMoney(r.heldMicros),
         chargedAmount: r.chargedMicros === null ? null : formatMoney(r.chargedMicros),
         quotedAmount: r.quotedMicros === null ? null : formatMoney(r.quotedMicros),
-        pricing: userId ? publicPricingSnapshot(r.pricingSnapshot) : r.pricingSnapshot,
+        pricing: ownerId ? publicPricingSnapshot(r.pricingSnapshot) : r.pricingSnapshot,
         streaming: r.streaming,
         httpStatus: r.httpStatus,
         receivedAt: r.receivedAt.toISOString(),

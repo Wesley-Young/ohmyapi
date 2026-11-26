@@ -62,5 +62,7 @@ export function createdBefore(createdAt: Column, id: Column, cursor: CreatedCurs
 
 /** 包含匹配；转义 LIKE 通配符，空字符串不加条件。 */
 export function containsText(column: Column, search: string) {
-  return search ? like(column, `%${search.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`) : undefined;
+  return search
+    ? like(column, `%${search.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`)
+    : undefined;
 }

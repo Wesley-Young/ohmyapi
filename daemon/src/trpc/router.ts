@@ -65,6 +65,7 @@ export function createAppRouter(services: RouterServices) {
     modelPlaza: pricing.modelPlaza,
     wallet: wallet.user,
     requests: requests.user,
+    requestFilterOptions: requests.ownOptions,
     requestDetail: billing.requestDetail,
     admin: {
       ...wallet.platform,
@@ -75,6 +76,7 @@ export function createAppRouter(services: RouterServices) {
         ...catalogAdminRoutes(services.catalog, services.modelCatalog, services.channelGrants),
       },
       requests: requests.admin,
+      requestFilterOptions: requests.platformOptions,
       users: userAdminRoutes(services.users),
       groups: groupAdminRoutes(services.groups),
       wallet: wallet.admin,

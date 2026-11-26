@@ -3,17 +3,24 @@ import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Brain, ClipboardCheck, Eye, Gauge, Package, Pencil } from 'lucide-react';
 import { useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { type SetURLSearchParams, useSearchParams } from 'react-router';
 
 import { BillingAction, BulkZeroBilling } from '../components/billing-review';
 import { ModelLabel } from '../components/brand-icon';
 import { IconButton } from '../components/icon-button';
 import { RequestDetail } from '../components/request-detail';
+import { RequestFilterBar } from '../components/request-filters';
 import { useReviewCount } from '../components/review-badge';
 import { ErrorText, Loading, PageControls, pinnedColumn, Title } from '../components/ui';
 import { ViewSwitch } from '../components/view-switch';
 import { useAuth } from '../lib/auth';
 import { formatSeconds, formError, localDate } from '../lib/format';
+import {
+  type RequestFilters,
+  readRequestFilters,
+  requestTimeBounds,
+  writeRequestFilters,
+} from '../lib/request-filters';
 import { trpc } from '../lib/trpc';
 
 const usageKinds = {
@@ -103,46 +110,21 @@ type View = (typeof views)[number]['value'];
 export default function Requests() {
   const { data: user } = useAuth();
   const [params, setParams] = useSearchParams();
-  const [detailId, setDetailId] = useState<string | undefined>(params.get('request') ?? undefined);
-  const [action, setAction] = useState<{ requestId: string; kind: 'resolve' | 'correct' }>();
-  const [reviewOnly, setReviewOnly] = useState(params.get('reviewOnly') === 'true');
-  const [page, setPage] = useState(0);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [resolvedCount, setResolvedCount] = useState(0);
-  const admin = user?.role === 'admin';
-  // 管理员默认看平台的全部请求；普通用户只有个人视图。
+  const [searchRevision, setSearchRevision] = useState(0);
+  const reviews = useReviewCount(user?.role === 'admin');
+  if (!user) return null;
+  const admin = user.role === 'admin';
   const view: View = admin && params.get('view') !== 'personal' ? 'platform' : 'personal';
+  const filters = readRequestFilters(params, view === 'platform');
+  const reviewing = view === 'platform' && params.get('reviewOnly') === 'true';
   const platform = view === 'platform';
-  const own = useQuery(
-    trpc.requests.queryOptions(
-      { page },
-      {
-        enabled: !platform,
-        refetchInterval: 5000,
-      },
-    ),
-  );
-  const all = useQuery(
-    trpc.admin.requests.queryOptions(
-      { page, reviewOnly },
-      {
-        enabled: platform,
-        refetchInterval: 5000,
-      },
-    ),
-  );
-  const data = platform ? all : own;
-  const reviews = useReviewCount(admin);
-  const reviewing = platform && reviewOnly;
   const switchView = (next: View) => {
-    setParams(next === 'platform' ? {} : { view: next }, { replace: true });
-    setPage(0);
-    setSelectedIds([]);
-    setResolvedCount(0);
+    const search = writeRequestFilters(params, { ...filters, userId: '', channelId: '', apiKeyId: '' });
+    search.delete('reviewOnly');
+    if (next === 'personal') search.set('view', next);
+    else search.delete('view');
+    setParams(search);
   };
-  const selectable = data.data?.items.filter((r) => r.billingEnabled && r.status === 'needs_review') ?? [];
-  const pageIds = selectable.map((r) => r.id);
-  const selectedOnPage = pageIds.filter((id) => selectedIds.includes(id)).length;
   return (
     <Stack gap="7">
       <Title action={admin && <ViewSwitch label="请求视图" items={views} value={view} onChange={switchView} />}>
@@ -155,14 +137,98 @@ export default function Requests() {
             { value: 'all', label: '全部请求' },
             { value: 'review', label: `待核对 (${reviews})` },
           ]}
-          value={reviewOnly ? 'review' : 'all'}
+          value={reviewing ? 'review' : 'all'}
           onChange={(next) => {
-            setReviewOnly(next === 'review');
-            setPage(0);
-            setSelectedIds([]);
+            const search = new URLSearchParams(params);
+            if (next === 'review') search.set('reviewOnly', 'true');
+            else search.delete('reviewOnly');
+            setParams(search);
           }}
         />
       )}
+      <RequestFilterBar
+        applied={filters}
+        platform={platform}
+        onChange={(next) => {
+          const search = writeRequestFilters(params, next);
+          if (search.toString() === params.toString()) setSearchRevision((value) => value + 1);
+          else setParams(search, { replace: true });
+        }}
+      />
+      <RequestList
+        key={JSON.stringify([view, reviewing, filters, searchRevision])}
+        user={user}
+        view={view}
+        filters={filters}
+        reviewing={reviewing}
+        params={params}
+        setParams={setParams}
+      />
+    </Stack>
+  );
+}
+
+function RequestList({
+  user,
+  view,
+  filters,
+  reviewing,
+  params,
+  setParams,
+}: {
+  user: NonNullable<RouterOutputs['auth']['me']>;
+  view: View;
+  filters: RequestFilters;
+  reviewing: boolean;
+  params: URLSearchParams;
+  setParams: SetURLSearchParams;
+}) {
+  const [action, setAction] = useState<{ requestId: string; kind: 'resolve' | 'correct' }>();
+  const [page, setPage] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [resolvedCount, setResolvedCount] = useState(0);
+  const admin = user.role === 'admin';
+  const platform = view === 'platform';
+  const bounds = requestTimeBounds(filters);
+  const common = { page, model: filters.model.trim() || undefined, ...bounds };
+  const detailId = params.get('request');
+  const setDetailId = (id?: string) => {
+    const next = new URLSearchParams(params);
+    if (id) next.set('request', id);
+    else next.delete('request');
+    setParams(next, { replace: true });
+  };
+  const own = useQuery(
+    trpc.requests.queryOptions(
+      { ...common, apiKeyId: filters.apiKeyId || undefined },
+      {
+        enabled: !!bounds && !platform,
+        staleTime: 0,
+        refetchInterval: 5000,
+      },
+    ),
+  );
+  const all = useQuery(
+    trpc.admin.requests.queryOptions(
+      {
+        ...common,
+        userId: filters.userId || undefined,
+        channelId: filters.channelId || undefined,
+        reviewOnly: reviewing,
+      },
+      {
+        enabled: !!bounds && platform,
+        staleTime: 0,
+        refetchInterval: 5000,
+      },
+    ),
+  );
+  const data = platform ? all : own;
+  const selectable = data.data?.items.filter((r) => r.billingEnabled && r.status === 'needs_review') ?? [];
+  const pageIds = selectable.map((r) => r.id);
+  const selectedOnPage = pageIds.filter((id) => selectedIds.includes(id)).length;
+  return (
+    <Stack gap="7">
       {admin && reviewing && (
         <HStack gap="3" flexWrap="wrap">
           <Text fontSize="sm" color="gray.600">
@@ -191,7 +257,9 @@ export default function Requests() {
       {detailId && <RequestDetail requestId={detailId} close={() => setDetailId(undefined)} />}
       {action && <BillingAction requestId={action.requestId} kind={action.kind} close={() => setAction(undefined)} />}
       <ErrorText>{formError(data.error)?.message}</ErrorText>
-      {data.isPending ? (
+      {!bounds ? (
+        <ErrorText>请选择有效的起止日期</ErrorText>
+      ) : data.isPending ? (
         <Loading />
       ) : (
         data.data && (
@@ -359,7 +427,9 @@ export default function Requests() {
             </Box>
             {!data.data.items.length && (
               <Text fontSize="sm" color="gray.500">
-                暂无请求
+                {filters.range !== 'all' || filters.model || filters.userId || filters.channelId || filters.apiKeyId
+                  ? '没有符合筛选条件的请求'
+                  : '暂无请求'}
               </Text>
             )}
             <PageControls page={page} hasMore={data.data.hasMore} onPage={setPage} />
