@@ -2,8 +2,11 @@ import { createColoredLogHandler } from '@fraqjs/color-log';
 import { Logger, type LogLevel } from '@fraqjs/kernel';
 import { DrizzleQueryError } from 'drizzle-orm';
 
-export const logHandler = createColoredLogHandler({ minLevel: 'debug' });
-export const globalLogger = new Logger(logHandler, 'ohmyapi');
+export function createLogger(minLevel: LogLevel) {
+  return new Logger(createColoredLogHandler({ minLevel }), 'ohmyapi');
+}
+
+export const globalLogger = createLogger('info');
 
 export type EventLogger = Pick<Logger, LogLevel>;
 export type LogFields = Record<string, string | number | boolean | null | undefined>;

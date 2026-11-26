@@ -1,9 +1,10 @@
-import { readDatabaseConfig } from '../config.ts';
-import { errorDetails, formatEvent, globalLogger } from '../core/logging.ts';
+import { readDatabaseConfig, readLogLevel } from '../config.ts';
+import { createLogger, errorDetails, formatEvent, globalLogger } from '../core/logging.ts';
 import { createDatabase } from '../plugins/database/client.ts';
 import { initializeDatabase } from './bootstrap.ts';
 
 async function main() {
+  const logger = createLogger(readLogLevel());
   const options = {
     username: process.env.BOOTSTRAP_ADMIN_USERNAME,
     password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
@@ -13,7 +14,7 @@ async function main() {
   const { db, pool } = createDatabase(readDatabaseConfig());
   try {
     const result = await initializeDatabase(db, options);
-    globalLogger.info(
+    logger.info(
       result.created
         ? 'Administrator, wallet, and billing settings initialized'
         : 'Database already initialized; existing credentials preserved',

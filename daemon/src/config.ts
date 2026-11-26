@@ -7,6 +7,14 @@ import { fileURLToPath } from 'node:url';
 
 type Environment = Record<string, string | undefined>;
 
+export function readLogLevel(env: Environment = process.env) {
+  return z
+    .enum(['debug', 'info', 'warn', 'error'], {
+      error: 'LOG_LEVEL must be debug, info, warn or error',
+    })
+    .parse(env.LOG_LEVEL ?? 'info');
+}
+
 function integerSetting(env: Environment, name: string, fallback: number, max: number) {
   const raw = env[name];
   if (raw === undefined) return fallback;
@@ -200,6 +208,7 @@ export function readAccessEndpoints(file: URL = accessEndpointsFile): AccessEndp
 export function loadConfig(env: Environment = process.env) {
   return {
     server: readServerConfig(env),
+    logLevel: readLogLevel(env),
     database: readDatabaseConfig(env),
     currency: readBillingCurrency(env),
     userInitialBalanceMicros: readUserInitialBalance(env),

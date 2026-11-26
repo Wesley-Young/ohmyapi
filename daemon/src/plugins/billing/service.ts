@@ -72,21 +72,17 @@ export class BillingService implements Disposable {
     return this.active.has(id) || this.pending.has(id);
   }
 
-  private logOutcome(outcome: BillingOutcome | undefined) {
-    if (!outcome || outcome.status === 'settling' || outcome.status === 'rejected') return;
+  private logReview(outcome: BillingOutcome | undefined) {
+    if (outcome?.status !== 'needs_review') return;
     const r = outcome.request;
-    this.logger[
-      outcome.errorCode === 'billing_processing_failed' ? 'error' : outcome.status === 'needs_review' ? 'warn' : 'info'
-    ](
-      formatEvent('计费状态变更', {
+    this.logger[outcome.errorCode === 'billing_processing_failed' ? 'error' : 'warn'](
+      formatEvent('计费转入人工核对', {
         requestId: r.id,
         userId: r.userId,
         channelId: r.channelId,
-        status: outcome.status,
         errorCode: outcome.errorCode ?? r.errorCode ?? undefined,
         reservedAmount: formatMoney(r.reservedMicros),
-        heldAmount: formatMoney(outcome.status === 'needs_review' ? r.heldMicros : 0n),
-        chargedAmount: outcome.chargedMicros === undefined ? undefined : formatMoney(outcome.chargedMicros),
+        heldAmount: formatMoney(r.heldMicros),
         currency: this.pricing.currency,
         usageFinal: outcome.usageFinal ?? r.usageFinal,
         usageEstimate: r.usageEstimate,
@@ -97,7 +93,7 @@ export class BillingService implements Disposable {
 
   /** 恢复心跳已超时的遗留请求。 */
   async start() {
-    this.logger.info(formatEvent('计费服务启动', { ownerId: this.ownerId }));
+    this.logger.debug(formatEvent('计费服务启动', { ownerId: this.ownerId }));
     await this.recover(true);
   }
 
@@ -272,7 +268,7 @@ export class BillingService implements Disposable {
           return this.settleLocked(tx, { ...r, ...metadata }, written ?? stored);
         } else if (summary.noExecution) {
           await releaseRequest(tx, { ...r, ...metadata }, undefined, '上游未执行，释放预占');
-          return { request: { ...r, ...metadata }, status: 'released', chargedMicros: 0n };
+          return { request: { ...r, ...metadata }, status: 'released' };
         } else if (summary.noUsageReported && !summary.blockSettlement && !(await this.hasUsage(tx, id))) {
           return this.settleUnreported(tx, { ...r, ...metadata }, summary.errorCode);
         } else {
@@ -283,7 +279,7 @@ export class BillingService implements Disposable {
           };
         }
       });
-      this.logOutcome(outcome);
+      this.logReview(outcome);
       const attempts = this.failures.get(id);
       if (attempts)
         this.logger.info(
@@ -355,7 +351,7 @@ export class BillingService implements Disposable {
       currency: this.pricing.currency,
     };
     await settleRequest(tx, r, 0n, snapshot, undefined, '上游未报告用量，按 0 结算');
-    return { request: r, status: 'settled', chargedMicros: 0n, errorCode } satisfies BillingOutcome;
+    return { request: r, status: 'settled', errorCode } satisfies BillingOutcome;
   }
 
   private async reviewFailed(id: string, summary?: BillingSummary, error?: unknown) {
@@ -386,7 +382,7 @@ export class BillingService implements Disposable {
       });
       return { ...outcome, usageFinal, blockSettlement: summary?.blockSettlement };
     });
-    this.logOutcome(outcome);
+    this.logReview(outcome);
     return outcome;
   }
 
@@ -398,7 +394,7 @@ export class BillingService implements Disposable {
       const [usage] = await tx.select().from(requestUsage).where(eq(requestUsage.requestId, id));
       return this.settleLocked(tx, r, usage);
     });
-    this.logOutcome(outcome);
+    this.logReview(outcome);
     return outcome;
   }
 
@@ -423,7 +419,7 @@ export class BillingService implements Disposable {
       ? { ...priced, source: 'estimated_usage', usageEstimate: r.usageEstimate }
       : priced;
     await settleRequest(tx, r, amount, snapshot, undefined, r.usageEstimate ? '断连估算结算' : '结算');
-    return { request: r, status: 'settled', chargedMicros: amount };
+    return { request: r, status: 'settled' };
   }
 
   /**
@@ -458,7 +454,7 @@ export class BillingService implements Disposable {
             if (!current || !['reserved', 'forwarding'].includes(current.status) || this.isLocal(r.id)) return;
             if (current.status === 'reserved') {
               await releaseRequest(tx, current, undefined, '服务恢复：转发前中断，释放预占');
-              return { request: current, status: 'released', chargedMicros: 0n };
+              return { request: current, status: 'released' };
             } else if (current.usageFinal || current.usageEstimate) {
               return transition(tx, current, 'settling', {
                 errorCode: current.errorCode ?? 'process_interrupted',
@@ -468,7 +464,7 @@ export class BillingService implements Disposable {
               return markNeedsReview(tx, current, 'process_interrupted', { finishedAt: new Date() });
             }
           });
-          this.logOutcome(outcome);
+          this.logReview(outcome);
           outcome = (await this.settleStored(r.id)) ?? outcome;
         }
         this.failures.delete(r.id);
@@ -497,7 +493,7 @@ export class BillingService implements Disposable {
       else if (outcome?.status === 'released') counts.released++;
       else if (outcome?.status === 'needs_review') counts.needsReview++;
     }
-    if (startup || counts.processed)
+    if (counts.processed)
       this.logger[counts.failed ? 'warn' : 'info'](
         formatEvent('计费恢复完成', {
           ownerId: this.ownerId,

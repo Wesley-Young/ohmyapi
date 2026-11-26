@@ -130,7 +130,6 @@ export class GatewayService implements Disposable {
     this.stopping = true;
     this.disposal ??= (async () => {
       const entries = [...this.running.values()];
-      this.logger.info(formatEvent('网关停止转发', { activeRequests: entries.length }));
       for (const e of entries) e.abort.abort('server_shutdown');
       await Promise.allSettled(entries.map((e) => e.done));
     })();
@@ -368,7 +367,7 @@ export class GatewayService implements Disposable {
         };
         const switchTo = async (next: ExecutionRoute, errorCode: string, errorMessage: string) => {
           releaseBoth(reservation, prepared?.release)();
-          this.logger.warn(
+          this.logger.debug(
             formatEvent('网关切换执行渠道', {
               requestId: id,
               channelId: channel.id,

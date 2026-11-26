@@ -232,7 +232,7 @@ export class CatalogService {
       if (error instanceof AppError) throw error;
       throw new AppError('bad_request', '无法获取上游模型，请检查地址、凭据和连接后重试');
     }
-    this.logger.info(
+    this.logger.debug(
       formatEvent('上游模型列表获取完成', {
         actorId: principal.user.id,
         channelId: input.id,

@@ -161,8 +161,6 @@ export const HttpPlugin = definePlugin({
         createContext: async ({ resHeaders }) => {
           const token = getCookie(c, cookieName);
           return {
-            requestId: requestInfo(c.req.raw).requestId,
-            logger: ctx.logger,
             token,
             principal: await ctx.auth.resolve(token),
             setSession: (value: string, expiresAt: Date) =>

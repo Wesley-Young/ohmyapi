@@ -2,13 +2,10 @@ import { initTRPC, type TRPC_ERROR_CODE_KEY, TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { AppError, type AppErrorKind } from '../core/errors.ts';
-import { type EventLogger, formatEvent } from '../core/logging.ts';
 import type { SessionPrincipal } from '../plugins/auth/service.ts';
 
 /** 单次 RPC 请求的上下文；服务实例在创建路由时注入，不经过请求上下文传递。 */
 export interface RpcContext {
-  requestId: string;
-  logger: EventLogger;
   principal: SessionPrincipal | null;
   token?: string;
   setSession(token: string, expiresAt: Date): void;
@@ -56,19 +53,9 @@ export const publicProcedure = t.procedure.use(async ({ next }) => {
   return result;
 });
 
-export const signedInProcedure = publicProcedure.use(({ ctx, next }) => {
+export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
   if (!ctx.principal) throw new TRPCError({ code: 'UNAUTHORIZED', message: '请先登录' });
   return next({ ctx: { ...ctx, principal: ctx.principal } });
-});
-
-/** 已登录用户的过程；变更成功后记录操作日志。 */
-export const protectedProcedure = signedInProcedure.use(async ({ ctx, path, type, next }) => {
-  const result = await next();
-  if (result.ok && type === 'mutation')
-    ctx.logger.info(
-      formatEvent('操作完成', { requestId: ctx.requestId, actorId: ctx.principal.user.id, operation: path }),
-    );
-  return result;
 });
 
 export const adminProcedure = protectedProcedure.use(({ ctx, next }) => {

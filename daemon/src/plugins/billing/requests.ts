@@ -25,7 +25,6 @@ export type BillingOutcome = {
   request: RequestRow;
   status: 'rejected' | 'released' | 'settling' | 'settled' | 'needs_review';
   errorCode?: string;
-  chargedMicros?: bigint;
   usageFinal?: boolean;
   blockSettlement?: boolean;
 };

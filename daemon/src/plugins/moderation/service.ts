@@ -226,7 +226,7 @@ export class ModerationService implements Disposable {
         ),
       )
       .returning({ id: moderationSessions.id });
-    if (rows.length) this.logger.info(formatEvent('内容审计清除过期内容', { count: rows.length }));
+    if (rows.length) this.logger.debug(formatEvent('内容审计清除过期内容', { count: rows.length }));
   }
 
   async list(input: ModerationListInput) {

@@ -221,8 +221,8 @@ export class ForwardBillingSession {
     }
     try {
       if (this.recorded) await billing.finish(id, result);
-    } catch (error) {
-      logger.error(formatEvent('计费收尾未完成', { requestId: id, ...errorDetails(error) }));
+    } catch {
+      // billing.finish 已记录失败原因并安排重试或人工核对。
     }
   }
 
@@ -242,6 +242,24 @@ export class ForwardBillingSession {
       failureDetails,
     } = this;
     const code = result.errorCode;
+    const request = {
+      requestId: id,
+      endpoint,
+      channelId,
+      model: modelName,
+      httpStatus,
+      durationMs: Date.now() - receivedAt.getTime(),
+      attempts: this.attempts > 1 ? this.attempts : undefined,
+    };
+    if (!code && (httpStatus ?? 0) < 400) {
+      logger.debug(
+        formatEvent('网关请求结束', {
+          ...request,
+          executionChannelId: this.executionChannelId !== channelId ? this.executionChannelId : undefined,
+        }),
+      );
+      return;
+    }
     const routineRejection =
       !dispatched &&
       httpStatus !== undefined &&
@@ -249,34 +267,24 @@ export class ForwardBillingSession {
       !['request_too_large', 'body_timeout', 'body_idle_timeout'].includes(code ?? '');
     if (!routineRejection || sampleLog(code ?? 'rejected')) {
       const level =
-        code === 'client_disconnected' || code === 'request_cancelled'
+        code === 'client_disconnected' || code === 'request_cancelled' || code === 'server_shutdown'
           ? 'debug'
-          : code === 'server_shutdown'
-            ? 'info'
-            : (httpStatus ?? 0) >= 500
-              ? 'error'
-              : code || (httpStatus ?? 0) >= 400
-                ? 'warn'
-                : 'info';
+          : (httpStatus ?? 0) >= 500
+            ? 'error'
+            : 'warn';
       logger[level](
         formatEvent('网关请求结束', {
-          requestId: id,
-          endpoint,
+          ...request,
           userId,
-          channelId,
           executionChannelId: this.executionChannelId,
           attemptId: this.attemptId,
-          attempts: this.attempts > 1 ? this.attempts : undefined,
-          model: modelName,
           upstreamModel: this.upstreamModel,
           streaming,
           dispatched,
           recorded,
           unbilled: this.unbilled || undefined,
-          httpStatus,
           upstreamStatus,
           upstreamRequestId: result.upstreamRequestId,
-          durationMs: Date.now() - receivedAt.getTime(),
           bodyBytes: bodyStats.bytes,
           errorCode: code,
           usageFinal: result.usageFinal,

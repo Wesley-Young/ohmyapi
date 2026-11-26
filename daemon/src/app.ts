@@ -1,8 +1,8 @@
+import { createColoredLogHandler } from '@fraqjs/color-log';
 import HonoPlugin from '@fraqjs/plugin-hono';
 
 import type { AppConfig } from './config.ts';
 import { GracefulHttpServer } from './core/http-server.ts';
-import { logHandler } from './core/logging.ts';
 import { AppContext } from './kernel.ts';
 import { AuthPlugin } from './plugins/auth/index.ts';
 import { BillingPlugin } from './plugins/billing/index.ts';
@@ -23,7 +23,7 @@ import { WalletPlugin } from './plugins/wallet/index.ts';
 export function createApp(config: AppConfig) {
   const server = new GracefulHttpServer();
   const ctx = AppContext.create(config);
-  ctx.logBus.on('log', logHandler);
+  ctx.logBus.on('log', createColoredLogHandler({ minLevel: config.logLevel }));
   ctx.install(DatabasePlugin);
   ctx.install(AuthPlugin);
   ctx.install(GroupsPlugin);

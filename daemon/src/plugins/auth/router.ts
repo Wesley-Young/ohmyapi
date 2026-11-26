@@ -1,4 +1,4 @@
-import { adminProcedure, publicProcedure, signedInProcedure } from '../../trpc/procedures.ts';
+import { adminProcedure, protectedProcedure, publicProcedure } from '../../trpc/procedures.ts';
 import { adminTokenIdInput, changePasswordInput, createAdminTokenInput, loginInput } from './schemas.ts';
 import type { AuthService } from './service.ts';
 import type { AdminTokens } from './tokens.ts';
@@ -16,7 +16,7 @@ export function authRoutes(auth: AuthService) {
       ctx.clearSession();
       return { success: true };
     }),
-    changePassword: signedInProcedure.input(changePasswordInput).mutation(async ({ ctx, input }) => {
+    changePassword: protectedProcedure.input(changePasswordInput).mutation(async ({ ctx, input }) => {
       const session = await auth.changePassword(ctx.principal, input.currentPassword, input.newPassword);
       ctx.setSession(session.token, session.expiresAt);
       return { success: true };
