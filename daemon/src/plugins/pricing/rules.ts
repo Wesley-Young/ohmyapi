@@ -190,9 +190,16 @@ function tokenPriceItems(rule: Rule, usage: TokenQuantities) {
   ] as const;
 }
 
-/** 只有上游最终报告 Fast 的请求采用快照中的 Token 倍率。 */
-export function fastTokenMultiplier(serviceTier: string | null | undefined, fastMultiplier?: number) {
-  return serviceTier === 'priority' || serviceTier === 'fast' ? fastMultiplier : undefined;
+export function fastTokenMultiplier(
+  responseTier: string | null | undefined,
+  fastMultiplier?: number,
+  fastRequested?: boolean,
+) {
+  // 旧快照只记录倍率，沿用当时按终止响应判定 Fast 的规则。
+  if (fastRequested === undefined)
+    return responseTier === 'priority' || responseTier === 'fast' ? fastMultiplier : undefined;
+  // Codex OAuth 的 default 也可能表示 Fast。只有明确回报 flex 或 scale 才免除 Fast 加价。
+  return fastRequested && responseTier !== 'flex' && responseTier !== 'scale' ? fastMultiplier : undefined;
 }
 
 export function quote(rules: Rule[], at: Date, usage: Quantities, multiplierMicros: bigint, tokenMultiplier = 1) {

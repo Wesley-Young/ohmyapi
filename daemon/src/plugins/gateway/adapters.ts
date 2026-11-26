@@ -24,8 +24,10 @@ type PrepareRequestOptions = {
 
 type PreparedRequest = {
   billingBody?: Record<string, unknown>;
-  /** 上游确认 Fast 时，输入、输出和缓存 Token 的单价倍率。 */
+  /** Fast 计费时采用的 Token 单价倍率。 */
   fastMultiplier?: number;
+  /** 按适配器改写后的出站请求判断。 */
+  fastRequested?: boolean;
   forwardResponse?: (options: ForwardResponseOptions) => Promise<Response>;
   url: string;
   headers: Headers;

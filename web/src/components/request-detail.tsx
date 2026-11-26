@@ -284,13 +284,14 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                       <Facts
                         items={[
                           { label: '计价规则', value: r.preview.ruleLabel },
-                          ...(r.upstreamServiceTier
+                          ...(r.preview.fastRequested !== undefined || r.upstreamServiceTier
                             ? [
+                                { label: '上游返回档位', value: r.upstreamServiceTier ?? '未报告' },
                                 {
-                                  label: '上游服务档位',
+                                  label: '计费档位',
                                   value: r.preview.fastMultiplier
                                     ? `Fast（Token 单价 ×${r.preview.fastMultiplier}）`
-                                    : r.upstreamServiceTier,
+                                    : '标准',
                                 },
                               ]
                             : []),

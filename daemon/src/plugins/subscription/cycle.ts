@@ -25,6 +25,7 @@ const ceilMicros = (numerator: bigint) =>
 export async function estimateCycleUsage(db: Database, accountId: string, start: Date, end: Date) {
   const ruleId = sql<string | null>`${requests.pricingSnapshot}->>'ruleId'`;
   const fastMultiplier = sql<number | null>`(${requests.reservationSnapshot}->'pricing'->>'fastMultiplier')::integer`;
+  const fastRequested = sql<boolean | null>`(${requests.reservationSnapshot}->'pricing'->>'fastRequested')::boolean`;
   const confirmed = sql<boolean>`(${requests.status} = 'settled' and ${requests.usageFinal})`;
   // 快照没有命中规则的请求逐条返回，按请求时间和上下文长度匹配当前规则。
   const single = sql<string | null>`case when ${requests.pricingSnapshot}->>'ruleId' is null then ${requests.id} end`;
@@ -34,6 +35,7 @@ export async function estimateCycleUsage(db: Database, accountId: string, start:
       ruleId,
       serviceTier: requests.upstreamServiceTier,
       fastMultiplier,
+      fastRequested,
       confirmed,
       single,
       requests: sql<number>`count(*)::integer`,
@@ -52,7 +54,7 @@ export async function estimateCycleUsage(db: Database, accountId: string, start:
     .where(
       and(eq(requests.subscriptionAccountId, accountId), gte(requests.receivedAt, start), lt(requests.receivedAt, end)),
     )
-    .groupBy(requests.modelId, ruleId, requests.upstreamServiceTier, fastMultiplier, confirmed, single);
+    .groupBy(requests.modelId, ruleId, requests.upstreamServiceTier, fastMultiplier, fastRequested, confirmed, single);
 
   const modelIds = [...new Set(groups.flatMap((g) => (g.modelId ? [g.modelId] : [])))];
   const samples = new Map<string, string>();
@@ -131,7 +133,9 @@ export async function estimateCycleUsage(db: Database, accountId: string, start:
     } else {
       rule = matchRule(rules, new Date(Number(g.receivedAtMs)), BigInt(g.contextTokens)) ?? defaultRule;
     }
-    const tokenMultiplier = BigInt(fastTokenMultiplier(g.serviceTier, g.fastMultiplier ?? undefined) ?? 1);
+    const tokenMultiplier = BigInt(
+      fastTokenMultiplier(g.serviceTier, g.fastMultiplier ?? undefined, g.fastRequested ?? undefined) ?? 1,
+    );
     let numerator = 0n;
     let unpriced = !rule;
     if (rule)

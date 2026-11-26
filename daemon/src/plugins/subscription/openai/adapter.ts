@@ -34,6 +34,7 @@ export function openAIAdapter(service: SubscriptionRuntime): ChannelAdapter {
         // Codex 不接受请求中的输出上限，按模型上限预占。
         usesModelOutputLimit: true,
         fastMultiplier: 2,
+        fastRequested: body.service_tier === 'priority',
         onResponse: (response) =>
           service.reportStatus(id, response.status, response.headers, lease.credentials.accessToken),
       };

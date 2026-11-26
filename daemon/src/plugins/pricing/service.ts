@@ -74,6 +74,7 @@ const snapshotInput = z.object({
   rules: z.array(snapshotRule).min(1),
   multiplier: snapshotMoney,
   fastMultiplier: z.number().int().positive().optional(),
+  fastRequested: z.boolean().optional(),
   multiplierSource: z.enum(['model', 'channel']),
   pricingMode: z.enum(pricingModes).default('unified'),
   routing: routingSnapshot.optional(),
@@ -84,6 +85,7 @@ export type LockedPrice = {
   rules: Rule[];
   multiplierMicros: bigint;
   fastMultiplier?: number;
+  fastRequested?: boolean;
   multiplierSource: 'model' | 'channel';
   pricingMode: PricingMode;
   routing?: z.infer<typeof routingSnapshot>;
@@ -323,6 +325,7 @@ export class PricingService {
       rules: locked.rules.map((rule) => ({ ...serializeRule(rule), outputKind: rule.outputKind })),
       multiplier: formatMoney(locked.multiplierMicros),
       fastMultiplier: locked.fastMultiplier,
+      fastRequested: locked.fastRequested,
       multiplierSource: locked.multiplierSource,
       pricingMode: locked.pricingMode,
       routing: locked.routing,
@@ -357,6 +360,7 @@ export class PricingService {
       receivedAt,
       multiplierMicros: parseMoney(saved.multiplier),
       fastMultiplier: saved.fastMultiplier,
+      fastRequested: saved.fastRequested,
       multiplierSource: saved.multiplierSource,
       pricingMode: saved.pricingMode,
       routing: saved.routing,
@@ -364,11 +368,12 @@ export class PricingService {
   }
 
   calculate(locked: LockedPrice, usage: Quantities, upstreamServiceTier?: string | null) {
-    const fastMultiplier = fastTokenMultiplier(upstreamServiceTier, locked.fastMultiplier);
+    const fastMultiplier = fastTokenMultiplier(upstreamServiceTier, locked.fastMultiplier, locked.fastRequested);
     return {
       currency: this.currency,
       ...quote(locked.rules, locked.receivedAt, usage, locked.multiplierMicros, fastMultiplier),
       fastMultiplier,
+      fastRequested: locked.fastRequested,
       multiplierSource: locked.multiplierSource,
       pricingMode: locked.pricingMode,
       routing: locked.routing,

@@ -448,7 +448,7 @@ export class GatewayService implements Disposable {
             channelId: channel.id,
             subscriptionAccountId: executionChannel.subscriptionAccountId,
             reasoningEffort: reasoningEffort(endpoint, prepared.billingBody ?? outgoing.parsed),
-            price: { ...lockedPrice, fastMultiplier: prepared.fastMultiplier },
+            price: { ...lockedPrice, fastMultiplier: prepared.fastMultiplier, fastRequested: prepared.fastRequested },
             outputLimit,
             body: prepared.billingBody ?? outgoing.parsed,
             endpoint,
