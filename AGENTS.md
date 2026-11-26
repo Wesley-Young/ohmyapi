@@ -14,7 +14,7 @@
 - 模块内文件：`index.ts` 装配插件，`service.ts` 是主 service，`schemas.ts` 是 RPC 输入校验，`router.ts` 是 tRPC 路由，`api.ts` 是公开 API（`/api/v1`）路由。主 service 命名为 `XxxService`，拆出的 service 用名词命名。
 - 公开 API 用 `@hono/zod-openapi` 定义，由 `daemon/src/openapi/router.ts` 汇总；响应 schema 显式声明，只返回公开的字段。文档元数据用 zod 的 `.meta()`，不用 `.openapi()`（在 `@hono/zod-openapi` 加载前创建的 schema 没有这个方法）。通用约定写在 `docs/api/README.md`。文档和接口描述用肯定句写清行为和约定。
 - `daemon/src/core/` 只放与应用无关的基础代码。
-- daemon 不构建，开发和生产都由 Node 的 type stripping 直接运行源码：只用可擦除的 TypeScript 语法（`erasableSyntaxOnly`），类型导入写 `import type`，相对导入写 `.ts` 后缀。tsc 只做类型检查，部署时先通过类型检查再启动。
+- daemon 不构建，开发和生产都由 Node 的 type stripping 直接运行源码：只用可擦除的 TypeScript 语法（`erasableSyntaxOnly`），类型导入写 `import type`，相对导入写 `.ts` 后缀。全量类型检查由 CI 执行。
 - 配置在启动时由 `loadConfig()` 读取一次，插件通过 `ctx.config` 使用，不直接读 `process.env`。
 - 模块间依赖单向，没有循环，由 Biome 的 `noImportCycles` 和 `noRestrictedImports` 检查。
 - 业务代码抛 `AppError`，不依赖 tRPC 和公开 API 的传输层。网关通过 `SubscriptionChannels` 接口使用订阅渠道。

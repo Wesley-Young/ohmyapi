@@ -24,11 +24,9 @@ try {
   process.env.NODE_ENV = 'production';
   validateProductionConfig();
 
-  // Type checking and the web build need development dependencies.
+  // 前端构建需要开发依赖。
   const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
   await run(pnpm, ['install', '--frozen-lockfile', '--prod=false']);
-  // The daemon runs from source without a build, so type errors are caught here instead.
-  await run(pnpm, ['typecheck']);
   await run(pnpm, ['build']);
   const daemon = (script) => run(process.execPath, ['--conditions=@ohmyapi/source', `daemon/src/cli/${script}`]);
   await daemon('migrate.ts');

@@ -6,7 +6,6 @@ ENV CI=true
 RUN npm install --global pnpm@12.4.2
 COPY . .
 RUN pnpm install --frozen-lockfile --prod=false
-RUN pnpm typecheck
 RUN pnpm build
 
 FROM node:26.3.0-bookworm-slim AS runtime
