@@ -103,15 +103,18 @@ export class SearchUsageCollector {
     this.setCount(kind, Number(previous) + 1);
   }
 
-  /** 按不同的非空查询计数；请求未声明搜索工具时无法计价。 */
+  /**
+   * 响应内容报告的查询和调用都是网页搜索。请求未声明搜索工具时上游同样会执行搜索并收费，按网页搜索计价。
+   */
+  private get activityKind(): SearchKind {
+    return this.request.kind ?? 'webSearch';
+  }
+
+  /** 按不同的非空查询计数。 */
   private observeActivity({ queries, calls, unknownCosts }: SearchActivity) {
     if (unknownCosts) this.unknownCosts = true;
     if (this.invalid || (!queries.length && !calls)) return;
-    const kind = this.request.kind;
-    if (!kind) {
-      this.unknownCosts = true;
-      return;
-    }
+    const kind = this.activityKind;
     if (this.queryCalls + calls > maxSearchCalls) {
       this.invalid = true;
       return;
@@ -206,7 +209,9 @@ export class SearchUsageCollector {
     }
     if (features.serverTools) this.setCount('webSearch', this.searchResults.size);
     // 缺少查询报告的搜索调用至少按一次查询估算。
-    if (this.request.kind && this.queryCalls > this.queries.size) this.setCount(this.request.kind, this.queryCalls);
-    return this.request.kind || this.serverSearch || this.searchResults.size ? 'observed' : 'none';
+    if (this.queryCalls > this.queries.size) this.setCount(this.activityKind, this.queryCalls);
+    return this.request.kind || this.serverSearch || this.searchResults.size || this.queryCalls || this.queries.size
+      ? 'observed'
+      : 'none';
   }
 }
