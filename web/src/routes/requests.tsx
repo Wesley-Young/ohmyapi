@@ -53,8 +53,8 @@ type RequestItem = RouterOutputs['requests']['items'][number] | RouterOutputs['a
 /** 网关测量的输出速度；流式请求只统计首个内容之后的生成阶段。 */
 function outputRate(r: RequestItem) {
   if (r.outputTps !== null) return r.outputTps;
-  // 有 TTFT 但没有速度时，网关判断生成窗口过短，不再回退到总耗时估算。
-  if (r.ttftMs !== null || !r.usage || r.durationMs === null || r.durationMs <= 0) return undefined;
+  // 流式请求只显示网关测得的内容输出速度。
+  if (r.streaming || r.ttftMs !== null || !r.usage || r.durationMs === null || r.durationMs <= 0) return undefined;
   // 旧记录没有测量值，沿用输出 ÷ 总耗时。
   return (Number(r.usage.outputTokens) / r.durationMs) * 1000;
 }

@@ -1,4 +1,3 @@
-import { protocolFor } from '@ohmyapi/protocols';
 import { eq } from 'drizzle-orm';
 
 import type { GatewayConfig } from '../../config.ts';
@@ -118,24 +117,24 @@ export class ForwardBillingSession {
     };
   }
 
-  /**
-   * 流式请求的 TTFT 为网关收到请求到首个非空生成内容的时间；TPS 只统计首个内容之后的生成阶段。
-   * 上游报告了推理 Token 但流中没有完整推理文本时，推理发生在首个内容之前，不计入 TPS 分子。
-   */
+  /** TTFT 从网关收到请求算到首块内容，流式 TPS 按首末内容块之间的输出量和耗时计算。 */
   private timing(): { ttftMs?: number; outputTps?: number } {
     const { collector, streaming } = this;
-    const now = Date.now();
     const start = this.options.receivedAt.getTime();
-    const first = streaming ? collector.estimate.firstOutputAt : undefined;
-    const ttftMs = first === undefined ? undefined : Math.max(0, first - start);
+    const { firstOutputAt, lastOutputAt } = collector.estimate;
+    const ttftMs = streaming && firstOutputAt !== undefined ? Math.max(0, firstOutputAt - start) : undefined;
     const usage = collector.usage;
     if (!usage || !this.dispatched) return { ttftMs };
-    let tokens = Number(usage.outputTokens);
-    if (streaming && !collector.estimate.reasoningStreamed) {
-      const reasoning = protocolFor(this.options.endpoint).reasoningTokens(usage.rawUsage);
-      if (typeof reasoning === 'number' && reasoning > 0) tokens = Math.max(0, tokens - reasoning);
+    let windowMs: number;
+    let tokens: number;
+    if (streaming) {
+      if (firstOutputAt === undefined || lastOutputAt === undefined) return { ttftMs };
+      windowMs = lastOutputAt - firstOutputAt;
+      tokens = collector.tokensAfterFirst(usage);
+    } else {
+      windowMs = Date.now() - start;
+      tokens = Number(usage.outputTokens);
     }
-    const windowMs = streaming ? (first === undefined ? 0 : now - first) : now - start;
     // 内容被缓冲后一次性到达时窗口过短，速度没有意义。
     if (windowMs < 100 || !Number.isFinite(tokens)) return { ttftMs };
     return { ttftMs, outputTps: (tokens / windowMs) * 1000 };

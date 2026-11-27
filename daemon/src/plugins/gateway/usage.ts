@@ -52,6 +52,7 @@ export class UsageCollector implements ResponseObserver {
   output?: OutputSink;
   private reportedUsage: ObjectValue = {};
   private reportedOutput?: bigint;
+  private firstOutputUsage?: Pick<Usage, 'outputTokens' | 'rawUsage'>;
   private malformedUsage = false;
   private readonly search = new SearchUsageCollector();
   private readonly endpoint: Endpoint;
@@ -153,7 +154,7 @@ export class UsageCollector implements ResponseObserver {
     this.events++;
     this.lastEventKeys = Object.keys(data).slice(0, 10);
     const { reader } = this;
-    this.estimate.observe(this.protocol, data);
+    const firstContent = this.estimate.observe(this.protocol, data);
     if (this.output) this.protocol.observeOutput(data, this.output);
     const envelope = reader.envelope(data);
     if (data.error || data.type === 'error' || reader.failed?.(data, envelope)) this.failed = true;
@@ -189,8 +190,28 @@ export class UsageCollector implements ResponseObserver {
     }
     this.search.observe(this.protocol.responseFeatures, data, envelope, usage, final);
     this.syncSearchUsage();
-    if (usage) this.normalize(reader.merge(this.reportedUsage, usage));
+    if (usage) {
+      const outputTokens = this.normalize(reader.merge(this.reportedUsage, usage));
+      // 仅采信首个内容事件自身携带的输出用量，跳过开始事件和尾部的用量报告。
+      if (
+        firstContent &&
+        outputTokens !== undefined &&
+        (usage[reader.outputKey] !== undefined || this.protocol.reasoningTokens(usage) !== undefined)
+      ) {
+        this.firstOutputUsage = { outputTokens, rawUsage: this.reportedUsage };
+      }
+    }
     if (this.usage && !this.invalid && reader.finalizes(data, final, usage !== undefined)) this.finalUsage = true;
+  }
+
+  /** 首块之后的流式输出量。首块缺少有效计数时按一个 Token 估算。 */
+  tokensAfterFirst(usage: Usage) {
+    const streamedTokens = ({ outputTokens, rawUsage }: Pick<Usage, 'outputTokens' | 'rawUsage'>) => {
+      const reasoning = this.estimate.reasoningStreamed ? 0 : this.protocol.reasoningTokens(rawUsage);
+      return Math.max(0, Number(outputTokens) - (typeof reasoning === 'number' && reasoning > 0 ? reasoning : 0));
+    };
+    const first = this.firstOutputUsage ? streamedTokens(this.firstOutputUsage) : 0;
+    return Math.max(0, streamedTokens(usage) - Math.max(1, first));
   }
 
   /** 上游响应的结构摘要：事件数、是否收到结束事件和最后一个事件的顶层字段，不含内容。 */
@@ -227,7 +248,7 @@ export class UsageCollector implements ResponseObserver {
     this.invalid = this.search.invalid;
     if (input === undefined || output === undefined) {
       this.usage = undefined;
-      return;
+      return output;
     }
     this.usage = {
       generatedImages: normalized.generatedImages ?? 0n,
@@ -240,6 +261,7 @@ export class UsageCollector implements ResponseObserver {
       webSearchPreviewCalls: this.search.webSearchPreviewCalls,
       rawUsage: normalized.extraRaw ? { ...usageNumbers(raw), ...normalized.extraRaw } : usageNumbers(raw),
     };
+    return output;
   }
 
   private rejectUsage() {
