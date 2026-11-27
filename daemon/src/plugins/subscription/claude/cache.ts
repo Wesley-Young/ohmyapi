@@ -26,7 +26,8 @@ export function prepareCache(body: Data, explicit: boolean) {
     }
   }
   const messageBlocks = messages.flatMap((m) => objects(m.content));
-  const cached = (blocks: Data[]) => blocks.filter((b) => b.cache_control !== undefined);
+  // cache_control 为 null 时不是断点，不占用断点数量。
+  const cached = (blocks: Data[]) => blocks.filter((b) => b.cache_control != null);
   const sys = cached(system),
     tool = cached(tools),
     msg = cached(messageBlocks);

@@ -4,6 +4,10 @@ import type { Data, RequestTarget } from './types.ts';
 export const object = (value: unknown): Data | undefined =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Data) : undefined;
 
+/** 去掉值为 null 的字段。上游用 null 表示没有报告，合并流式用量时不能覆盖此前报告的值。 */
+export const reportedFields = (value: unknown): Data =>
+  Object.fromEntries(Object.entries(object(value) ?? {}).filter(([, item]) => item !== null));
+
 /** 按点分隔的路径读取嵌套字段。 */
 export function valueAt(body: Data, path: string): unknown {
   let value: unknown = body;

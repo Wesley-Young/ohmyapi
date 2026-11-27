@@ -7,6 +7,7 @@ import {
   isFunctionTool,
   messageObjects,
   object,
+  reportedFields,
   versionedUrl,
   withBodyModel,
 } from '../util.ts';
@@ -52,8 +53,9 @@ class MessagesUsageReader implements UsageReader {
     return complete && (!this.summaryRequested || this.compaction !== undefined);
   }
 
+  // message_delta 可能以 null 省略 message_start 已报告的输入和缓存用量。
   merge(previous: Data, next: Data) {
-    return { ...previous, ...next };
+    return { ...previous, ...reportedFields(next) };
   }
 
   // 压缩轮次可能在请求中途发生，顶层用量无法反映摘要消耗。
@@ -70,15 +72,16 @@ class MessagesUsageReader implements UsageReader {
     const output = reportedOutput === undefined ? undefined : reportedOutput + (compaction?.output ?? 0n);
     const details = object(raw.input_tokens_details);
     const unknownCosts = this.unknownIterations || hasUnpricedMedia(raw, details);
-    const reportedRead = raw.cache_read_input_tokens === undefined ? 0n : count(raw.cache_read_input_tokens);
-    const reportedWrite = raw.cache_creation_input_tokens === undefined ? 0n : count(raw.cache_creation_input_tokens);
+    // 缓存字段可以为 null，与省略相同按 0 计。
+    const reportedRead = raw.cache_read_input_tokens == null ? 0n : count(raw.cache_read_input_tokens);
+    const reportedWrite = raw.cache_creation_input_tokens == null ? 0n : count(raw.cache_creation_input_tokens);
     const read = reportedRead === undefined ? undefined : reportedRead + (compaction?.read ?? 0n);
     const write = reportedWrite === undefined ? undefined : reportedWrite + (compaction?.write ?? 0n);
-    const image = details?.image_tokens === undefined ? 0n : count(details.image_tokens);
+    const image = details?.image_tokens == null ? 0n : count(details.image_tokens);
     if (
       this.iterationsInvalid ||
-      (raw.input_tokens !== undefined && input === undefined) ||
-      (raw.output_tokens !== undefined && output === undefined) ||
+      (raw.input_tokens != null && input === undefined) ||
+      (raw.output_tokens != null && output === undefined) ||
       read === undefined ||
       write === undefined ||
       image === undefined

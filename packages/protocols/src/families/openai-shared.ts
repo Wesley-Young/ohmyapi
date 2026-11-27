@@ -1,5 +1,5 @@
 import type { Data, ErrorDetails, NormalizedUsage, UsageReader } from '../types.ts';
-import { count, hasUnpricedMedia, object } from '../util.ts';
+import { count, hasUnpricedMedia, object, reportedFields } from '../util.ts';
 
 /** OpenAI 格式的错误响应体。 */
 export const openAIErrorBody = ({ type, code, message }: ErrorDetails) => ({
@@ -16,12 +16,13 @@ export function openAIUsage(raw: Data, inputKey: string, outputKey: string, deta
   const output = count(raw[outputKey]);
   const details = object(raw[detailsKey]);
   const unknownCosts = hasUnpricedMedia(raw, details);
-  const read = details?.cached_tokens === undefined ? 0n : count(details.cached_tokens);
-  const write = details?.cache_write_tokens === undefined ? 0n : count(details.cache_write_tokens);
-  const image = details?.image_tokens === undefined ? 0n : count(details.image_tokens);
+  // 上游省略或以 null 表示没有报告的字段，缓存和图像明细按 0 计。
+  const read = details?.cached_tokens == null ? 0n : count(details.cached_tokens);
+  const write = details?.cache_write_tokens == null ? 0n : count(details.cache_write_tokens);
+  const image = details?.image_tokens == null ? 0n : count(details.image_tokens);
   if (
-    (raw[inputKey] !== undefined && input === undefined) ||
-    (raw[outputKey] !== undefined && output === undefined) ||
+    (raw[inputKey] != null && input === undefined) ||
+    (raw[outputKey] != null && output === undefined) ||
     read === undefined ||
     write === undefined ||
     image === undefined
@@ -30,11 +31,11 @@ export function openAIUsage(raw: Data, inputKey: string, outputKey: string, deta
   return { valid: true, unknownCosts, input, output, read, write, image, inputIncludesCache: true };
 }
 
-/** 流式事件只报告部分 details 时保留此前的明细。 */
+/** 流式事件只报告部分 details 或以 null 省略字段时保留此前的明细。 */
 export const mergeDetails =
   (detailsKey: string): UsageReader['merge'] =>
   (previous, next) => ({
     ...previous,
-    ...next,
-    [detailsKey]: { ...object(previous[detailsKey]), ...object(next[detailsKey]) },
+    ...reportedFields(next),
+    [detailsKey]: { ...object(previous[detailsKey]), ...reportedFields(next[detailsKey]) },
   });

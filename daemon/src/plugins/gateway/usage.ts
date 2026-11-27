@@ -196,7 +196,7 @@ export class UsageCollector implements ResponseObserver {
       if (
         firstContent &&
         outputTokens !== undefined &&
-        (usage[reader.outputKey] !== undefined || this.protocol.reasoningTokens(usage) !== undefined)
+        (usage[reader.outputKey] != null || this.protocol.reasoningTokens(usage) != null)
       ) {
         this.firstOutputUsage = { outputTokens, rawUsage: this.reportedUsage };
       }

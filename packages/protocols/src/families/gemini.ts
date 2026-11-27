@@ -143,15 +143,15 @@ function rpcStatus(status: number) {
 
 const generationConfig = (body: Data) => object(body.generationConfig);
 
-/** usageMetadata 中按模态拆分的 Token 数；格式错误时返回 undefined。 */
+/** usageMetadata 中按模态拆分的 Token 数；省略或为 null 时为空，格式错误时返回 undefined。 */
 function modalityCounts(value: unknown): Record<string, bigint> | undefined {
-  if (value === undefined) return {};
+  if (value == null) return {};
   if (!Array.isArray(value) || value.length > 32) return undefined;
   const result: Record<string, bigint> = {};
   for (const entry of value) {
     const item = object(entry);
     const modality = item?.modality;
-    const tokens = item?.tokenCount === undefined ? 0n : count(item.tokenCount);
+    const tokens = item?.tokenCount == null ? 0n : count(item.tokenCount);
     if (typeof modality !== 'string' || !/^[A-Z_]{1,32}$/.test(modality) || tokens === undefined) return undefined;
     result[modality] = (result[modality] ?? 0n) + tokens;
   }
@@ -161,9 +161,9 @@ function modalityCounts(value: unknown): Record<string, bigint> | undefined {
 const numbers = (counts: Record<string, bigint>) =>
   Object.fromEntries(Object.entries(counts).map(([key, value]) => [key, Number(value)]));
 
-/** Gemini 省略为 0 的用量字段；promptTokenCount 已包含缓存命中的 Token，思考 Token 按输出计费。 */
+/** Gemini 省略为 0 的用量字段，兼容服务以 null 表示省略；promptTokenCount 已包含缓存命中的 Token，思考 Token 按输出计费。 */
 function normalizeUsage(raw: Data): NormalizedUsage {
-  const optional = (value: unknown) => (value === undefined ? 0n : count(value));
+  const optional = (value: unknown) => (value == null ? 0n : count(value));
   const prompt = count(raw.promptTokenCount);
   const candidates = optional(raw.candidatesTokenCount);
   const thoughts = optional(raw.thoughtsTokenCount);
@@ -172,7 +172,7 @@ function normalizeUsage(raw: Data): NormalizedUsage {
   const promptDetails = modalityCounts(raw.promptTokensDetails);
   const candidateDetails = modalityCounts(raw.candidatesTokensDetails);
   if (
-    (raw.promptTokenCount !== undefined && prompt === undefined) ||
+    (raw.promptTokenCount != null && prompt === undefined) ||
     candidates === undefined ||
     thoughts === undefined ||
     cached === undefined ||
@@ -263,15 +263,16 @@ function searchActivity(data: Data): SearchActivity | undefined {
   for (const value of candidatesOf(data)) {
     const candidate = object(value);
     if (!candidate) continue;
-    if (candidate.groundingMetadata !== undefined) {
+    // 字段为 null 与省略相同，表示没有执行搜索。
+    if (candidate.groundingMetadata != null) {
       found = true;
       const grounding = object(candidate.groundingMetadata);
       const queries = grounding?.webSearchQueries;
       // 格式错误时加入非字符串的值，由调用方判定为无效。
       if (Array.isArray(queries)) activity.queries.push(...queries);
-      else if (!grounding || queries !== undefined) activity.queries.push(null);
+      else if (!grounding || queries != null) activity.queries.push(null);
       const images = grounding?.imageSearchQueries;
-      if (images !== undefined && (!Array.isArray(images) || images.length > 0)) activity.unknownCosts = true;
+      if (images != null && (!Array.isArray(images) || images.length > 0)) activity.unknownCosts = true;
     }
     const parts = object(candidate.content)?.parts;
     for (const item of Array.isArray(parts) ? parts : []) {

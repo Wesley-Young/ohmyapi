@@ -1,6 +1,6 @@
 import { GatewayError } from '../errors.ts';
 import type { ApiProtocol, UsageReader } from '../types.ts';
-import { count, versionedUrl, withBodyModel } from '../util.ts';
+import { count, reportedFields, versionedUrl, withBodyModel } from '../util.ts';
 import { bearerHeaders, openAIErrorBody } from './openai-shared.ts';
 
 const path = '/v1/systemone';
@@ -19,14 +19,11 @@ const usageReader: UsageReader = {
   terminal: () => false,
   finalizes: (_data, complete, hasUsage) => hasUsage && complete,
   completesOnDone: true,
-  merge: (previous, next) => ({ ...previous, ...next }),
+  merge: (previous, next) => ({ ...previous, ...reportedFields(next) }),
   normalize(raw) {
     const input = count(raw.input_tokens);
     const output = count(raw.output_tokens);
-    if (
-      (raw.input_tokens !== undefined && input === undefined) ||
-      (raw.output_tokens !== undefined && output === undefined)
-    )
+    if ((raw.input_tokens != null && input === undefined) || (raw.output_tokens != null && output === undefined))
       return { valid: false, unknownCosts: false };
     return {
       valid: true,

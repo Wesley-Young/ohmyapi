@@ -187,12 +187,13 @@ export class SearchUsageCollector {
         if (value !== 0 && value != null) this.unknownCosts = true;
       }
     }
+    // 计数为 null 与省略相同，表示这个事件没有报告搜索次数。
     const vendor = object(object(envelope.tool_usage)?.web_search);
-    const reportedCount =
-      server && Object.hasOwn(server, 'web_search_requests') ? server.web_search_requests : vendor?.num_requests;
-    if (reportedCount !== undefined) {
+    const serverCount = server?.web_search_requests;
+    const reportedCount = serverCount ?? vendor?.num_requests;
+    if (reportedCount != null) {
       this.reported = true;
-      if (server && Object.hasOwn(server, 'web_search_requests')) this.serverSearchReported = true;
+      if (serverCount != null) this.serverSearchReported = true;
       this.setCount(this.request.kind ?? 'webSearch', reportedCount);
     } else if (usage && this.request.implicit && !this.reported) {
       this.setCount(this.request.kind as SearchKind, 1);
