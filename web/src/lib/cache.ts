@@ -57,5 +57,17 @@ export const refreshRequestBilling = (userId: string, requestId: string) =>
     queryClient.invalidateQueries(trpc.admin.reviewCount.queryFilter()),
   ]);
 
+/** 批量核对后，刷新涉及用户的余额、请求列表与详情、对账、统计与待核对计数。 */
+export const refreshBatchBilling = (userIds: string[]) =>
+  Promise.all([
+    ...userIds.map(refreshUser),
+    queryClient.invalidateQueries(trpc.requests.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.requests.pathFilter()),
+    queryClient.invalidateQueries(trpc.requestDetail.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.billing.reconcile.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.stats.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.reviewCount.queryFilter()),
+  ]);
+
 /** 确认预警或修改审核设置后，刷新审计列表、预警计数和设置。 */
 export const refreshModeration = () => queryClient.invalidateQueries(trpc.admin.moderation.pathFilter());

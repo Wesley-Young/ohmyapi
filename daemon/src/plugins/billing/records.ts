@@ -8,9 +8,8 @@ import type { Database } from '../database/client.ts';
 import { requestAttempts, requests, requestUsage, users, walletLedger, wallets } from '../database/schema/index.ts';
 import { type PricingService, publicPricingSnapshot } from '../pricing/service.ts';
 import { ledgerAmounts } from '../wallet/ledger.ts';
-import { cacheReadForDisplay } from './cache-usage.ts';
 import { displayUsage } from './requests.ts';
-import { type PricedUsage, priceRequestUsage } from './settlement.ts';
+import { type PricedUsage, priceRecordedUsage } from './settlement.ts';
 
 /** 账单查询：请求的计费明细与钱包对账。 */
 export class BillingRecords {
@@ -47,16 +46,12 @@ export class BillingRecords {
       .orderBy(walletLedger.createdAt, walletLedger.id);
     let preview: PricedUsage | undefined;
     let previewError: string | undefined;
-    const cacheRead = usage
-      ? cacheReadForDisplay(r.endpoint, r.usageFinal, usage.rawUsage, usage.cacheReadTokens)
-      : null;
-    if (usage && cacheRead === null) previewError = '缓存用量未知，请依据上游账单核对，不能按零缓存计算费用';
-    if (r.billingEnabled && usage && cacheRead !== null)
-      try {
-        preview = await priceRequestUsage(this.pricing, r, usage);
-      } catch {
-        previewError = '保存的用量或价格不足以自动计算，请依据上游账单人工核对';
-      }
+    const recorded = usage ? priceRecordedUsage(this.pricing, r, usage) : undefined;
+    if (recorded?.problem === 'cache_unknown') previewError = '缓存用量未知，请依据上游账单核对，不能按零缓存计算费用';
+    else if (r.billingEnabled && recorded) {
+      preview = recorded.priced;
+      if (recorded.problem) previewError = '保存的用量或价格不足以自动计算，请依据上游账单人工核对';
+    }
     return {
       id: r.id,
       userId: r.userId,

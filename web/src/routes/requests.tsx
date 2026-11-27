@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp, Brain, ClipboardCheck, Eye, Gauge, Package, Pencil 
 import { useState } from 'react';
 import { type SetURLSearchParams, useSearchParams } from 'react-router';
 
-import { BillingAction, BulkZeroBilling } from '../components/billing-review';
+import { BillingAction, BulkBilling } from '../components/billing-review';
 import { ModelLabel } from '../components/brand-icon';
 import { IconButton } from '../components/icon-button';
 import { RequestDetail } from '../components/request-detail';
@@ -186,7 +186,7 @@ function RequestList({
   const [action, setAction] = useState<{ requestId: string; kind: 'resolve' | 'correct' }>();
   const [page, setPage] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [resolvedCount, setResolvedCount] = useState(0);
+  const [resolved, setResolved] = useState<{ usage: number; zero: number; manual: number }>();
   const admin = user.role === 'admin';
   const platform = view === 'platform';
   const bounds = requestTimeBounds(filters);
@@ -234,12 +234,12 @@ function RequestList({
           <Text fontSize="sm" color="gray.600">
             已选 {selectedIds.length} / 100
           </Text>
-          <BulkZeroBilling
+          <BulkBilling
             key={user.id}
             requestIds={selectedIds}
-            onSuccess={(count) => {
+            onSuccess={(result) => {
               setSelectedIds([]);
-              setResolvedCount(count);
+              setResolved(result);
             }}
           />
           {selectedIds.length > 0 && (
@@ -247,9 +247,10 @@ function RequestList({
               清空选择
             </Button>
           )}
-          {resolvedCount > 0 && (
+          {resolved && (
             <Text fontSize="sm" color="gray.600" role="status">
-              已将 {resolvedCount} 个请求按 0 结算
+              已按用量结算 {resolved.usage} 个，按 0 结算 {resolved.zero} 个
+              {resolved.manual > 0 && `，${resolved.manual} 个需逐条核对`}
             </Text>
           )}
         </HStack>
@@ -285,7 +286,7 @@ function RequestList({
                               selectedIds.length + pageIds.length - selectedOnPage > 100)
                           }
                           onCheckedChange={(event) => {
-                            setResolvedCount(0);
+                            setResolved(undefined);
                             setSelectedIds((ids) =>
                               event.checked === true
                                 ? [...new Set([...ids, ...pageIds])].slice(0, 100)
@@ -325,7 +326,7 @@ function RequestList({
                               (!r.billingEnabled || r.status !== 'needs_review' || selectedIds.length >= 100)
                             }
                             onCheckedChange={(event) => {
-                              setResolvedCount(0);
+                              setResolved(undefined);
                               setSelectedIds((ids) =>
                                 event.checked === true
                                   ? [...new Set([...ids, r.id])].slice(0, 100)

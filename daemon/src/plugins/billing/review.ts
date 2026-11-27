@@ -10,8 +10,8 @@ import { requests, requestUsage, type Usage, wallets } from '../database/schema/
 import type { PricingService } from '../pricing/service.ts';
 import { lockWallet, postLedgerEntry } from '../wallet/ledger.ts';
 import { lockRequest, usageDto, writeUsage } from './requests.ts';
-import type { CorrectBillInput, ResolveBillInput, ResolveZeroBillsInput } from './schemas.ts';
-import { priceRequestUsage, releaseRequest, settleRequest } from './settlement.ts';
+import type { BatchRequestsInput, CorrectBillInput, ResolveBatchInput, ResolveBillInput } from './schemas.ts';
+import { priceRecordedUsage, priceRequestUsage, releaseRequest, settleRequest } from './settlement.ts';
 
 import { randomUUID } from 'node:crypto';
 
@@ -37,34 +37,76 @@ export class BillingReview {
     );
   }
 
-  async resolveZero(principal: Principal, input: ResolveZeroBillsInput) {
+  /** 批量核对前的分类预览，与 resolveBatch 使用同一规则。 */
+  async batchPlan(principal: Principal, input: BatchRequestsInput) {
+    return this.auth.authorized(principal, { admin: true }, async (tx) => {
+      const plans = await this.planBatch(tx, input.requestIds, false);
+      const byUsage = plans.filter((p) => p.plan === 'usage');
+      return {
+        currency: this.pricing.currency,
+        usage: {
+          count: byUsage.length,
+          amount: formatMoney(byUsage.reduce((sum, p) => sum + BigInt(p.priced?.totalMicros ?? 0), 0n)),
+        },
+        zero: plans.filter((p) => p.plan === 'zero').length,
+        manual: plans.filter((p) => p.plan === 'manual').length,
+        stale: input.requestIds.length - plans.length + plans.filter((p) => p.plan === 'stale').length,
+      };
+    });
+  }
+
+  /**
+   * 批量核对：用量可以自动计价的按记录的用量结算，没有用量记录的按 0 结算，
+   * 缓存用量未知或价格无法计算的保持待核对，由管理员逐条处理。
+   */
+  async resolveBatch(principal: Principal, input: ResolveBatchInput) {
     const ids = [...input.requestIds].sort();
     return this.auth.authorized(principal, { admin: true }, async (tx, actor) => {
       // 按固定顺序锁定请求和钱包，整批结算在同一事务中完成。
-      const rows = await tx.select().from(requests).where(inArray(requests.id, ids)).orderBy(requests.id).for('update');
-      const userIds = [...new Set(rows.map((r) => r.userId))].sort();
+      const plans = await this.planBatch(tx, ids, true);
+      if (plans.length !== ids.length || plans.some((p) => p.plan === 'stale'))
+        throw new AppError('conflict', '部分请求已发生状态变化，请刷新后重新选择待核对请求');
+      const settled = plans.filter((p) => p.plan !== 'manual');
+      const userIds = [...new Set(settled.map((p) => p.r.userId))].sort();
       if (userIds.length)
         await tx.select().from(wallets).where(inArray(wallets.userId, userIds)).orderBy(wallets.userId).for('update');
-      for (const id of ids)
+      for (const { r, plan } of settled)
         await this.resolveInTransaction(
           tx,
           actor.id,
-          {
-            requestId: id,
-            action: 'settle_amount',
-            amount: '0',
-            reason: input.reason,
-          },
+          plan === 'usage'
+            ? { requestId: r.id, action: 'settle_recorded', reason: input.reason }
+            : { requestId: r.id, action: 'settle_amount', amount: '0', reason: input.reason },
           ids,
         );
-      return { success: true, count: ids.length, userIds };
+      return {
+        success: true,
+        usage: settled.filter((p) => p.plan === 'usage').length,
+        zero: settled.filter((p) => p.plan === 'zero').length,
+        manual: plans.length - settled.length,
+        userIds,
+      };
+    });
+  }
+
+  private async planBatch(tx: Transaction, ids: string[], lock: boolean) {
+    const query = tx.select().from(requests).where(inArray(requests.id, ids)).orderBy(requests.id);
+    const rows = await (lock ? query.for('update') : query);
+    const usages = await tx.select().from(requestUsage).where(inArray(requestUsage.requestId, ids));
+    const usageById = new Map(usages.map((u) => [u.requestId, u]));
+    return rows.map((r) => {
+      if (!r.billingEnabled || r.status !== 'needs_review') return { r, plan: 'stale' as const };
+      const usage = usageById.get(r.id);
+      if (!usage) return { r, plan: 'zero' as const };
+      const { priced } = priceRecordedUsage(this.pricing, r, usage);
+      return priced ? { r, plan: 'usage' as const, priced } : { r, plan: 'manual' as const };
     });
   }
 
   private async resolveInTransaction(
     tx: Transaction,
     actorId: string,
-    input: ResolveBillInput,
+    input: ResolveBillInput | { requestId: string; action: 'settle_recorded'; reason: string },
     batchRequestIds?: string[],
   ) {
     const payload = {
@@ -113,6 +155,12 @@ export class BillingReview {
         }
         amount = BigInt(snapshot.totalMicros as string);
         await writeUsage(tx, r.id, usage);
+        await tx.update(requests).set({ usageFinal: true, usageEstimate: null }).where(eq(requests.id, r.id));
+      } else if (input.action === 'settle_recorded') {
+        const recorded = originalUsage ? priceRecordedUsage(this.pricing, r, originalUsage) : undefined;
+        if (!recorded?.priced) throw new AppError('conflict', `请求 ${r.id} 的用量无法自动计价，请逐条核对`);
+        snapshot = { ...recorded.priced, source: 'administrator_recorded_usage', reason: input.reason };
+        amount = BigInt(recorded.priced.totalMicros);
         await tx.update(requests).set({ usageFinal: true, usageEstimate: null }).where(eq(requests.id, r.id));
       } else {
         amount = parseMoney(input.amount as string);

@@ -5,6 +5,7 @@ import type { Transaction } from '../database/client.ts';
 import { requests, type Usage } from '../database/schema/index.ts';
 import type { PricingService } from '../pricing/service.ts';
 import { lockWallet, postLedgerEntry } from '../wallet/ledger.ts';
+import { cacheReadForDisplay } from './cache-usage.ts';
 import type { RequestRow } from './requests.ts';
 
 /** 按请求受理时锁定的价格快照计算费用。 */
@@ -18,6 +19,24 @@ export function priceRequestUsage(pricing: PricingService, r: RequestRow, usage:
 }
 
 export type PricedUsage = ReturnType<typeof priceRequestUsage>;
+
+/**
+ * 按保存的用量自动计价。缓存用量未确认时不按零缓存计算，返回 cache_unknown；
+ * 保存的用量或价格快照无法计算时返回 unpriceable。两种情况都需要依据上游账单人工核对。
+ */
+export function priceRecordedUsage(
+  pricing: PricingService,
+  r: RequestRow,
+  usage: Usage,
+): { priced: PricedUsage; problem?: undefined } | { priced?: undefined; problem: 'cache_unknown' | 'unpriceable' } {
+  if (cacheReadForDisplay(r.endpoint, r.usageFinal, usage.rawUsage, usage.cacheReadTokens) === null)
+    return { problem: 'cache_unknown' };
+  try {
+    return { priced: priceRequestUsage(pricing, r, usage) };
+  } catch {
+    return { problem: 'unpriceable' };
+  }
+}
 
 /** 释放请求的全部预占，不扣费。 */
 export async function releaseRequest(tx: Transaction, r: RequestRow, actorId: string | undefined, reason: string) {

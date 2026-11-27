@@ -3,89 +3,118 @@ import type { RouterInputs, RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { refreshRequestBilling, refreshUser } from '../lib/cache';
-import { formError } from '../lib/format';
+import { refreshBatchBilling, refreshRequestBilling } from '../lib/cache';
+import { displayAmount, formError } from '../lib/format';
 import { queryClient, trpc } from '../lib/trpc';
 import { SelectField } from './fields';
-import { ErrorText, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
+import { ErrorText, Facts, FormDialog, FormInput, Loading, PrimaryButton } from './ui';
 
 type Detail = RouterOutputs['requestDetail'];
 type Resolution = RouterInputs['admin']['billing']['resolve'];
 
-export function BulkZeroBilling({
+type BatchResult = RouterOutputs['admin']['billing']['resolveBatch'];
+
+/** 批量核对：服务端按保存的用量分类，弹窗先展示分类数量，确认后结算。 */
+export function BulkBilling({
   requestIds,
   onSuccess,
 }: {
   requestIds: string[];
-  onSuccess: (count: number) => void;
+  onSuccess: (result: BatchResult) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [ids, setIds] = useState<string[]>([]);
-  const [reason, setReason] = useState('管理员批量确认按 0 计费');
+  const [ids, setIds] = useState<string[]>();
+  return (
+    <>
+      <PrimaryButton size="sm" disabled={!requestIds.length} onClick={() => setIds([...requestIds])}>
+        批量结算
+      </PrimaryButton>
+      {ids && (
+        <BulkBillingDialog
+          ids={ids}
+          close={() => setIds(undefined)}
+          onSuccess={(result) => {
+            onSuccess(result);
+            setIds(undefined);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function BulkBillingDialog({
+  ids,
+  close,
+  onSuccess,
+}: {
+  ids: string[];
+  close: () => void;
+  onSuccess: (result: BatchResult) => void;
+}) {
+  const [reason, setReason] = useState('管理员批量核对');
+  const plan = useQuery(trpc.admin.billing.batchPlan.queryOptions({ requestIds: ids }, { staleTime: 0 }));
   const task = useMutation(
-    trpc.admin.billing.resolveZero.mutationOptions({
+    trpc.admin.billing.resolveBatch.mutationOptions({
       // 部分请求可能已被其他人处理，刷新列表后重新选择。
       onError: () => void queryClient.invalidateQueries(trpc.admin.requests.pathFilter()),
       onSuccess: async (result) => {
-        onSuccess(result.count);
-        await Promise.all([
-          ...result.userIds.map(refreshUser),
-          queryClient.invalidateQueries(trpc.requests.pathFilter()),
-          queryClient.invalidateQueries(trpc.admin.requests.pathFilter()),
-          queryClient.invalidateQueries(trpc.requestDetail.pathFilter()),
-          queryClient.invalidateQueries(trpc.admin.billing.reconcile.pathFilter()),
-          queryClient.invalidateQueries(trpc.admin.stats.pathFilter()),
-          queryClient.invalidateQueries(trpc.admin.reviewCount.queryFilter()),
-        ]);
-        setOpen(false);
+        await refreshBatchBilling(result.userIds);
+        onSuccess(result);
       },
     }),
   );
+  const p = plan.data;
+  const count = p ? p.usage.count + p.zero : 0;
   return (
-    <>
-      <PrimaryButton
-        size="sm"
-        disabled={!requestIds.length}
-        onClick={() => {
-          setIds([...requestIds]);
-          task.reset();
-          setOpen(true);
+    <FormDialog open title="批量结算" busy={task.isPending} onClose={close}>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (task.isPending) return;
+          task.mutate({ requestIds: ids, reason });
         }}
       >
-        全部按 0 计费
-      </PrimaryButton>
-      {open && (
-        <FormDialog open title="批量按 0 计费" busy={task.isPending} onClose={() => setOpen(false)}>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (task.isPending) return;
-              task.mutate({ requestIds: ids, reason });
-            }}
-          >
-            <Stack gap="5">
-              <FormInput
-                label="核对依据"
-                value={reason}
-                required
-                maxLength={500}
-                disabled={task.isPending}
-                onChange={(event) => setReason(event.target.value)}
-              />
-              <ErrorText>{formError(task.error)?.message}</ErrorText>
-              <HStack>
-                <PrimaryButton type="submit" loading={task.isPending} disabled={!ids.length}>
-                  确认按 0 计费 ({ids.length})
-                </PrimaryButton>
-                <Button variant="ghost" disabled={task.isPending} onClick={() => setOpen(false)}>
-                  关闭
-                </Button>
-              </HStack>
-            </Stack>
-          </form>
-        </FormDialog>
-      )}
-    </>
+        <Stack gap="5">
+          {plan.isPending && <Loading />}
+          <ErrorText>{formError(plan.error)?.message}</ErrorText>
+          {p && (
+            <Facts
+              items={[
+                {
+                  label: '按记录用量结算',
+                  value: `${p.usage.count} 个，共 ${displayAmount(p.usage.amount, p.currency)}`,
+                },
+                { label: '无用量，按 0 结算', value: `${p.zero} 个` },
+                { label: '需逐条核对', value: `${p.manual} 个` },
+              ]}
+            />
+          )}
+          {!!p?.manual && (
+            <Text fontSize="sm" color="gray.500">
+              缓存用量未知或无法计价的请求保持待核对。
+            </Text>
+          )}
+          {!!p?.stale && <ErrorText>{p.stale} 个请求已发生状态变化，请关闭后重新选择</ErrorText>}
+          <FormInput
+            label="核对依据"
+            value={reason}
+            required
+            maxLength={500}
+            disabled={task.isPending}
+            onChange={(event) => setReason(event.target.value)}
+          />
+          <ErrorText>{formError(task.error)?.message}</ErrorText>
+          <HStack>
+            <PrimaryButton type="submit" loading={task.isPending} disabled={!count || !!p?.stale}>
+              确认结算 ({count})
+            </PrimaryButton>
+            <Button variant="ghost" disabled={task.isPending} onClick={close}>
+              关闭
+            </Button>
+          </HStack>
+        </Stack>
+      </form>
+    </FormDialog>
   );
 }
 
