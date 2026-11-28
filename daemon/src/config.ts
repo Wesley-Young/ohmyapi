@@ -75,14 +75,13 @@ function readSessionConfig(env: Environment) {
   const raw = env.SESSION_COOKIE_SECURE;
   if (raw !== undefined && raw !== 'true' && raw !== 'false')
     throw new Error('SESSION_COOKIE_SECURE must be true or false');
-  let origin: string | undefined;
-  if (env.APP_ORIGIN) {
-    const url = new URL(env.APP_ORIGIN);
-    if (!['http:', 'https:'].includes(url.protocol) || url.origin !== env.APP_ORIGIN)
-      throw new Error('APP_ORIGIN must be an HTTP(S) origin without a trailing slash');
-    origin = url.origin;
+  const origins = env.APP_ORIGIN ? env.APP_ORIGIN.split(',').map((origin) => origin.trim()) : [];
+  for (const origin of origins) {
+    const url = URL.parse(origin);
+    if (!url || !['http:', 'https:'].includes(url.protocol) || url.origin !== origin)
+      throw new Error('Each APP_ORIGIN entry must be an HTTP(S) origin without a trailing slash');
   }
-  return { secure: raw === undefined ? env.NODE_ENV === 'production' : raw === 'true', origin };
+  return { secure: raw === undefined ? env.NODE_ENV === 'production' : raw === 'true', origins };
 }
 
 function readEncryptionKey(env: Environment) {
@@ -225,8 +224,8 @@ export type AppConfig = ReturnType<typeof loadConfig>;
 
 export function validateProductionConfig(env: Environment = process.env) {
   const { session } = loadConfig(env);
-  if (!session.origin) throw new Error('APP_ORIGIN is required for production deployment');
-  if (session.origin.startsWith('http:') && session.secure) {
+  if (!session.origins.length) throw new Error('APP_ORIGIN is required for production deployment');
+  if (session.secure && session.origins.some((origin) => origin.startsWith('http:'))) {
     throw new Error('HTTP deployments require SESSION_COOKIE_SECURE=false');
   }
 }

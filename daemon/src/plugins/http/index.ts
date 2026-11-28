@@ -105,8 +105,8 @@ export const HttpPlugin = definePlugin({
       c.header('Cache-Control', 'no-store');
       if (c.req.method === 'POST') {
         const origin = c.req.header('Origin');
-        const expectedOrigin = sessionConfig.origin ?? new URL(c.req.url).origin;
-        if (c.req.header('X-Ohmyapi-Request') !== '1' || (origin && origin !== expectedOrigin))
+        const allowedOrigins = sessionConfig.origins.length ? sessionConfig.origins : [new URL(c.req.url).origin];
+        if (c.req.header('X-Ohmyapi-Request') !== '1' || (origin && !allowedOrigins.includes(origin)))
           return c.json({ error: 'Forbidden' }, 403);
       }
       await next();
