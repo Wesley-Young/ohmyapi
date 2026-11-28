@@ -13,6 +13,11 @@ type Channel = RouterOutputs['admin']['catalog']['list']['channels'][number];
 
 export const coolingDown = (until: string | null) => !!until && Date.parse(until) > Date.now();
 
+export function subscriptionErrorLabel(code: string) {
+  if (code === 'subscription_api_key_invalid') return '请更换 API Key';
+  return code === 'subscription_refresh_uncertain' ? '需重新导入凭据' : '需要重新授权';
+}
+
 /** 渠道的健康状态，以类型图标上的状态点表示。 */
 export function channelStatus(c: Channel): { color: string; label: string } {
   if (!c.enabled) return { color: 'gray.300', label: '已禁用' };
@@ -20,7 +25,7 @@ export function channelStatus(c: Channel): { color: string; label: string } {
   if (sub?.errorCode)
     return {
       color: 'red.500',
-      label: sub.errorCode === 'subscription_refresh_uncertain' ? '需重新导入凭据' : '需要重新授权',
+      label: subscriptionErrorLabel(sub.errorCode),
     };
   if (sub && (coolingDown(sub.cooldownUntil) || Object.values(sub.modelCooldowns).some(coolingDown)))
     return { color: 'orange.400', label: '冷却中' };

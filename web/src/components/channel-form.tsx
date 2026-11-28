@@ -88,7 +88,7 @@ export function ChannelForm({
   const [maximum, setMaximum] = useState(String(initial?.subscription?.maxConcurrent ?? 5));
   const [channelMaximum, setChannelMaximum] = useState(String(initial?.maxConcurrent ?? ''));
   const [provider, setProvider] = useState<SubscriptionProvider>(initial?.subscription?.provider ?? 'openai');
-  const [mode, setMode] = useState<SubscriptionAccessMode>('oauth');
+  const [mode, setMode] = useState<SubscriptionAccessMode>(provider === 'zhipu' ? 'import' : 'oauth');
   const [credentials, setCredentials] = useState('');
   const [callback, setCallback] = useState('');
   const [resetCreditBusy, setResetCreditBusy] = useState(false);
@@ -237,7 +237,7 @@ export function ChannelForm({
                     disabled={busy}
                     onChange={(next) => {
                       setType(next);
-                      setScopes(next === 'subscription' ? [data.subscriptionEndpoints[provider]] : []);
+                      setScopes(next === 'subscription' ? data.subscriptionEndpoints[provider] : []);
                       setDailyFloor(next === 'subscription' ? '1' : '0');
                       resetModels();
                     }}
@@ -266,7 +266,14 @@ export function ChannelForm({
                   </Field.Root>
                 ) : (
                   <Field.Root
-                    css={{ '& [data-scope=segment-group][data-part=item]': { px: { base: '1.5', sm: '4' } } }}
+                    css={{
+                      '& [data-scope=segment-group][data-part=root]': {
+                        display: { base: 'grid', sm: 'inline-flex' },
+                        gridTemplateColumns: 'repeat(2, auto)',
+                        borderRadius: { base: 'xl', sm: 'full' },
+                      },
+                      '& [data-scope=segment-group][data-part=item]': { px: { base: '2', sm: '4' } },
+                    }}
                   >
                     <Field.Label>订阅平台</Field.Label>
                     <ViewSwitch
@@ -276,12 +283,12 @@ export function ChannelForm({
                       disabled={!!initial || busy}
                       onChange={(next) => {
                         setProvider(next);
-                        setMode('oauth');
+                        setMode(next === 'zhipu' ? 'import' : 'oauth');
                         startOAuth.reset();
                         setCredentials('');
                         setCallback('');
                         resetModels();
-                        setScopes([data.subscriptionEndpoints[next]]);
+                        setScopes(data.subscriptionEndpoints[next]);
                       }}
                     />
                   </Field.Root>
@@ -380,7 +387,7 @@ export function ChannelForm({
                 <EndpointFields
                   value={scopes}
                   onChange={setScopes}
-                  options={type === 'subscription' ? [data.subscriptionEndpoints[provider]] : endpoints}
+                  options={type === 'subscription' ? data.subscriptionEndpoints[provider] : endpoints}
                 />
               )}
             </ChannelDisclosure>
@@ -415,21 +422,24 @@ export function ChannelForm({
               models={data.models}
               disabled={busy}
               fetching={fetching}
-              onFetch={() =>
-                type === 'subscription'
-                  ? fetchSubscriptionModels.mutate({
-                      channelId: initial?.id,
-                      provider,
-                      proxyUrl: proxyInput,
-                      credentials: mode === 'import' ? credentials || undefined : undefined,
-                      callbackUrl: mode === 'oauth' ? callback || undefined : undefined,
-                    })
-                  : fetchModels.mutate({
-                      id: initial?.id,
-                      baseUrl,
-                      credential: credential || undefined,
-                      proxyUrl: proxyInput,
-                    })
+              onFetch={
+                type === 'subscription' && provider === 'zhipu'
+                  ? undefined
+                  : () =>
+                      type === 'subscription'
+                        ? fetchSubscriptionModels.mutate({
+                            channelId: initial?.id,
+                            provider,
+                            proxyUrl: proxyInput,
+                            credentials: mode === 'import' ? credentials || undefined : undefined,
+                            callbackUrl: mode === 'oauth' ? callback || undefined : undefined,
+                          })
+                        : fetchModels.mutate({
+                            id: initial?.id,
+                            baseUrl,
+                            credential: credential || undefined,
+                            proxyUrl: proxyInput,
+                          })
               }
               fetchError={formError(fetchModels.error ?? fetchSubscriptionModels.error)?.message}
               fetchNotice={fetchNotice}
@@ -543,7 +553,7 @@ export function ChannelForm({
             </ChannelDisclosure>
           </Stack>
         ),
-        maintenance: initial?.subscription && (
+        maintenance: initial?.subscription && provider !== 'zhipu' && (
           <SubscriptionAccount
             channel={initial}
             subscription={initial.subscription}

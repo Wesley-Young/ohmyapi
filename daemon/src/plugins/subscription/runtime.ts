@@ -4,7 +4,7 @@ import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 
 import type { CredentialVault } from '../../core/vault.ts';
 import type { Database } from '../database/client.ts';
-import { type channels, type SubscriptionProvider, subscriptionAccounts } from '../database/schema/index.ts';
+import { channels, type SubscriptionProvider, subscriptionAccounts } from '../database/schema/index.ts';
 import type { ChannelAdapter, SubscriptionChannels } from '../gateway/adapters.ts';
 import type { OutboundHttp } from '../outbound/index.ts';
 import { antigravityAdapter } from './antigravity/adapter.ts';
@@ -22,6 +22,7 @@ import { openAIAdapter } from './openai/adapter.ts';
 import { credentialsSchema } from './openai/credentials.ts';
 import { OpenAITokens } from './openai/tokens.ts';
 import { providerSupports } from './providers.ts';
+import { zhipuAdapter } from './zhipu/adapter.ts';
 
 /**
  * 订阅渠道的运行时：为网关提供适配器，管理账号并发、令牌和会话，并根据上游响应记录限流与失效。
@@ -53,6 +54,7 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
     if (!channel.subscriptionAccountId)
       throw new GatewayError(503, 'subscription_unavailable', 'Bind a subscription account first');
     const provider = await this.provider(channel.subscriptionAccountId);
+    if (provider === 'zhipu') return zhipuAdapter(this);
     if (provider === 'claude') return claudeAdapter(this);
     if (provider === 'openai') return openAIAdapter(this);
     if (provider === 'antigravity') return antigravityAdapter(this);
@@ -76,6 +78,36 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
     if (!row) throw new GatewayError(503, 'subscription_unavailable', 'The subscription account is unavailable');
     return row.provider;
+  }
+
+  async zhipuAccount(id: string) {
+    const [account] = await this.db
+      .select({
+        encrypted: subscriptionAccounts.credentialEncrypted,
+        proxy: channels.proxyUrlEncrypted,
+        maximum: subscriptionAccounts.maxConcurrent,
+        cooldownUntil: subscriptionAccounts.cooldownUntil,
+        errorCode: subscriptionAccounts.errorCode,
+      })
+      .from(subscriptionAccounts)
+      .innerJoin(channels, eq(channels.subscriptionAccountId, subscriptionAccounts.id))
+      .where(
+        and(
+          eq(subscriptionAccounts.id, id),
+          eq(subscriptionAccounts.provider, 'zhipu'),
+          eq(subscriptionAccounts.enabled, true),
+          isNull(subscriptionAccounts.deletedAt),
+          isNull(channels.deletedAt),
+        ),
+      );
+    if (this.stopped || !account)
+      throw new GatewayError(503, 'subscription_unavailable', 'The Zhipu subscription account is unavailable');
+    const { apiKey } = JSON.parse(this.vault.decrypt(account.encrypted)) as { apiKey: string };
+    return {
+      ...account,
+      apiKey,
+      request: this.outbound.forProxy(account.proxy ? this.vault.decrypt(account.proxy) : null),
+    };
   }
 
   /** reservation 是网关选择渠道时已占用的并发名额，传入时不再重复占用。 */
@@ -287,22 +319,31 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
       credentialsSchema.parse(JSON.parse(this.vault.decrypt(current.credentialEncrypted))).accessToken !== accessToken
     )
       return;
+    return this.reportCredentialStatus(
+      id,
+      current.credentialEncrypted,
+      status,
+      headers,
+      'subscription_reauthorization_required',
+    );
+  }
+
+  async reportCredentialStatus(id: string, encrypted: string, status: number, headers: Headers, invalidCode: string) {
+    if (status !== 401 && status !== 429) return;
     const raw = headers.get('retry-after');
     const seconds = raw && /^\d+$/.test(raw) ? Number(raw) : raw ? (Date.parse(raw) - Date.now()) / 1000 : 60;
     await this.db
       .update(subscriptionAccounts)
       .set(
         status === 401
-          ? { errorCode: 'subscription_reauthorization_required' }
+          ? { errorCode: invalidCode }
           : {
               cooldownUntil: new Date(
                 Date.now() + (Number.isFinite(seconds) ? Math.max(1, Math.min(seconds, 86400)) : 60) * 1000,
               ),
             },
       )
-      .where(
-        and(eq(subscriptionAccounts.id, id), eq(subscriptionAccounts.credentialEncrypted, current.credentialEncrypted)),
-      );
+      .where(and(eq(subscriptionAccounts.id, id), eq(subscriptionAccounts.credentialEncrypted, encrypted)));
   }
 
   /** 提前刷新即将过期的订阅令牌。 */
@@ -335,6 +376,7 @@ export class SubscriptionRuntime implements Disposable, SubscriptionChannels {
 
   /** 各订阅平台的令牌管理。 */
   tokensFor(provider: SubscriptionProvider): { get(id: string, force?: boolean): Promise<unknown> } {
+    if (provider === 'zhipu') throw new Error('智谱订阅使用静态 API Key');
     return provider === 'claude'
       ? this.claudeTokens
       : provider === 'antigravity'

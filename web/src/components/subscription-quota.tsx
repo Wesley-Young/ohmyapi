@@ -16,6 +16,7 @@ type Quota = RouterOutputs['admin']['catalog']['openAIQuota'];
 // Antigravity 以 Gemini 额度池作为账号额度，结构与其他平台一致；周期详情中有说明。
 const quotaEndpoints = {
   openai: { query: trpc.admin.catalog.openAIQuota, refresh: trpc.admin.catalog.refreshOpenAIQuota },
+  zhipu: { query: trpc.admin.catalog.zhipuQuota, refresh: trpc.admin.catalog.refreshZhipuQuota },
   claude: { query: trpc.admin.catalog.claudeQuota, refresh: trpc.admin.catalog.refreshClaudeQuota },
   antigravity: { query: trpc.admin.catalog.antigravityQuota, refresh: trpc.admin.catalog.refreshAntigravityQuota },
 } satisfies Record<SubscriptionProvider, unknown>;
@@ -118,10 +119,11 @@ export function SubscriptionQuota({
   const [showingCycle, setShowingCycle] = useState(false);
   // 周期起点依赖上游 7d 重置时间，额度就绪后再估算费用。
   const cycle = useQuery(subscriptionCycleQuery(channelId, !!data?.sevenDay && !refresh.isPending));
+  const authorizationHint = provider === 'zhipu' ? '请更换 API Key' : '需要重新授权';
   const unavailable = !enabled
     ? '渠道已禁用'
     : reauthorizationRequired
-      ? '需要重新授权'
+      ? authorizationHint
       : query.isError
         ? '额度获取失败，将自动重试'
         : query.isPending
@@ -131,7 +133,7 @@ export function SubscriptionQuota({
   const refreshTitle = !enabled
     ? '渠道已禁用'
     : reauthorizationRequired
-      ? '需要重新授权'
+      ? authorizationHint
       : refreshFailed
         ? '刷新失败，点击重试'
         : query.isError

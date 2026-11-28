@@ -56,7 +56,7 @@ export class OpenAITokens {
           .from(subscriptionAccounts)
           .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)))
           .for('update');
-        if (!row?.enabled)
+        if (!row?.expiresAt || !row.enabled || row.provider !== 'openai')
           throw new GatewayError(503, 'subscription_unavailable', 'The subscription account is unavailable');
         encrypted = row.credentialEncrypted;
         const credentials = credentialsSchema.parse(JSON.parse(this.vault.decrypt(encrypted)));

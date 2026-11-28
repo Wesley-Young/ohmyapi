@@ -34,6 +34,7 @@ export function SubscriptionAccount({
   onRefresh: () => void;
   onResetCreditBusyChange: (busy: boolean) => void;
 }) {
+  if (!subscription.expiresAt) return null;
   return (
     <Stack gap="3">
       <Text fontSize="sm" color="gray.500">
@@ -92,6 +93,20 @@ export function SubscriptionAccess({
   oauthPending: boolean;
   onStartOAuth: () => void;
 }) {
+  if (provider === 'zhipu')
+    return (
+      <FormInput
+        label={editing ? '替换 API Key（留空保留现有 Key）' : 'GLM Coding Plan API Key'}
+        type="password"
+        autoComplete="new-password"
+        spellCheck={false}
+        required={!editing}
+        maxLength={4096}
+        disabled={busy}
+        value={credentials}
+        onChange={(event) => onCredentialsChange(event.target.value)}
+      />
+    );
   return (
     <>
       <Field.Root>

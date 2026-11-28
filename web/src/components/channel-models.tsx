@@ -321,7 +321,7 @@ export function ChannelModels({
   models: CatalogModel[];
   disabled: boolean;
   fetching: boolean;
-  onFetch: () => void;
+  onFetch?: () => void;
   fetchError?: string;
   fetchNotice?: string;
   /** 从上游拉取后的导入列表。 */
@@ -400,17 +400,19 @@ export function ChannelModels({
             ({value.length})
           </Text>
         </Text>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled && !fetching}
-          loading={fetching}
-          onClick={onFetch}
-        >
-          <Download size={15} aria-hidden="true" />
-          从上游拉取
-        </Button>
+        {onFetch && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled && !fetching}
+            loading={fetching}
+            onClick={onFetch}
+          >
+            <Download size={15} aria-hidden="true" />
+            从上游拉取
+          </Button>
+        )}
       </HStack>
       <ErrorText>{fetchError}</ErrorText>
       {fetchNotice && (

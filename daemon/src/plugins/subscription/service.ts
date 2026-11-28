@@ -30,6 +30,7 @@ import { credentialsSchema, type OpenAICredentials, parseCredentials } from './o
 import { OpenAIOAuth } from './openai/oauth.ts';
 import { OpenAIQuota } from './openai/quota.ts';
 import { OpenAIResetCredits } from './openai/reset-credits.ts';
+import type { SubscriptionQuota } from './plan.ts';
 import type { SubscriptionRuntime } from './runtime.ts';
 import type {
   ConsumeResetCreditInput,
@@ -37,6 +38,11 @@ import type {
   FetchSubscriptionModelsInput,
   SetCycleResetInput,
 } from './schemas.ts';
+import { ZhipuQuota } from './zhipu/quota.ts';
+
+import { createHash } from 'node:crypto';
+
+type ZhipuCredentials = { apiKey: string; accountId: string; userId: string };
 
 /** 订阅账号管理：接入与授权、额度和重置卡查询、周期用量，以及拉取可用模型。 */
 export class SubscriptionService implements Disposable {
@@ -45,6 +51,7 @@ export class SubscriptionService implements Disposable {
   private readonly claudeOAuth = new ClaudeOAuth();
   private readonly antigravityOAuth = new AntigravityOAuth();
   private readonly antigravityQuota = new AntigravityQuota();
+  private readonly zhipuQuota = new ZhipuQuota();
   private readonly openaiQuota = new OpenAIQuota();
   private readonly claudeQuota = new ClaudeQuota();
   private readonly openaiResetCredits = new OpenAIResetCredits();
@@ -82,6 +89,7 @@ export class SubscriptionService implements Disposable {
   }
 
   accountEmail(encrypted: string, provider = 'openai'): string | null {
+    if (provider === 'zhipu') return null;
     try {
       // 已保存的旧凭据可从 access_token 读取邮箱，后续刷新会写入 email。
       const raw = JSON.parse(this.vault.decrypt(encrypted));
@@ -99,12 +107,14 @@ export class SubscriptionService implements Disposable {
   }
 
   private oauthFor(provider: SubscriptionProvider) {
+    if (provider === 'zhipu') throw new AppError('bad_request', '智谱订阅使用 API Key');
     return provider === 'claude' ? this.claudeOAuth : provider === 'antigravity' ? this.antigravityOAuth : this.oauth;
   }
 
   private invalidateQuota(id: string) {
     this.openaiQuota.invalidate(id);
     this.claudeQuota.invalidate(id);
+    this.zhipuQuota.invalidate(id);
     this.antigravityQuota.invalidate(id);
     // 更换凭据后账号可用的模型可能变化。
     this.runtime.antigravityModels.invalidate(id);
@@ -116,6 +126,21 @@ export class SubscriptionService implements Disposable {
 
   async prepareCredentials(principal: Principal, input: CredentialInput, proxyUrl: string | null) {
     await this.auth.authorized(principal, { admin: true }, async () => {});
+    if (input.provider === 'zhipu') {
+      if (input.callbackUrl) throw new AppError('bad_request', '智谱订阅使用 API Key');
+      if (input.credentials === undefined) return;
+      const apiKey = input.credentials.trim();
+      if (!/^[!-~]{1,4096}$/.test(apiKey)) throw new AppError('bad_request', '请输入有效的智谱 API Key');
+      return {
+        apiKey,
+        accountId: createHash('sha256').update(apiKey).digest('hex'),
+        userId: '',
+      } satisfies ZhipuCredentials;
+    }
+    return this.prepareOAuthCredentials(principal, input, proxyUrl);
+  }
+
+  private async prepareOAuthCredentials(principal: Principal, input: CredentialInput, proxyUrl: string | null) {
     if (input.callbackUrl) {
       try {
         return await this.oauthFor(input.provider).complete(
@@ -168,7 +193,7 @@ export class SubscriptionService implements Disposable {
   async saveAccount(
     tx: Transaction,
     input: { id?: string; name: string; enabled: boolean; maxConcurrent: number; provider: SubscriptionProvider },
-    credentials?: OpenAICredentials | ClaudeCredentials | AntigravityCredentials,
+    credentials?: OpenAICredentials | ClaudeCredentials | AntigravityCredentials | ZhipuCredentials,
   ) {
     const [existing] = input.id
       ? await tx
@@ -180,15 +205,15 @@ export class SubscriptionService implements Disposable {
     if (existing && existing.provider !== input.provider)
       throw new AppError('bad_request', '订阅平台不可更改，请新建渠道');
     if (input.id && !existing) throw new AppError('not_found', '订阅账号不存在');
-    if (!existing && !credentials) throw new AppError('bad_request', '请导入凭据或完成授权');
     if (
       existing &&
       credentials &&
+      !('apiKey' in credentials) &&
       (existing.accountId !== credentials.accountId || existing.userId !== credentials.userId)
     )
       throw new AppError('bad_request', '新凭据属于其他账号，请新建订阅渠道');
     if (credentials) {
-      if (existing) {
+      if (existing && !('apiKey' in credentials)) {
         const raw = JSON.parse(this.vault.decrypt(existing.credentialEncrypted));
         const saved =
           existing.provider === 'claude'
@@ -229,36 +254,29 @@ export class SubscriptionService implements Disposable {
       provider: input.provider,
       enabled: input.enabled,
       maxConcurrent: input.maxConcurrent,
-      ...(credentials
-        ? {
-            accountId: credentials.accountId,
-            userId: credentials.userId,
-            credentialEncrypted: this.vault.encrypt(JSON.stringify(credentials)),
-            expiresAt: new Date(credentials.expiresAt),
-            errorCode: null,
-            cooldownUntil: null,
-            modelCooldowns: {},
-          }
-        : {}),
+    };
+    const secret = credentials && {
+      accountId: credentials.accountId,
+      userId: credentials.userId,
+      credentialEncrypted: this.vault.encrypt(JSON.stringify(credentials)),
+      expiresAt: 'apiKey' in credentials ? null : new Date(credentials.expiresAt),
+      errorCode: null,
+      cooldownUntil: null,
+      modelCooldowns: {},
     };
     let row: { id: string };
     if (existing) {
       [row] = await tx
         .update(subscriptionAccounts)
-        .set(values)
+        .set({ ...values, ...secret })
         .where(eq(subscriptionAccounts.id, existing.id))
         .returning({ id: subscriptionAccounts.id });
     } else {
-      if (!credentials) throw new AppError('bad_request', '请导入凭据或完成授权');
+      if (!secret)
+        throw new AppError('bad_request', input.provider === 'zhipu' ? '请填写智谱 API Key' : '请导入凭据或完成授权');
       const [created] = await tx
         .insert(subscriptionAccounts)
-        .values({
-          ...values,
-          accountId: credentials.accountId,
-          userId: credentials.userId,
-          credentialEncrypted: this.vault.encrypt(JSON.stringify(credentials)),
-          expiresAt: new Date(credentials.expiresAt),
-        })
+        .values({ ...values, ...secret })
         .onConflictDoNothing()
         .returning({ id: subscriptionAccounts.id });
       if (!created) throw new AppError('conflict', '该订阅账号已存在，请编辑对应订阅渠道');
@@ -300,8 +318,10 @@ export class SubscriptionService implements Disposable {
 
   async refresh(principal: Principal, channelId: string) {
     const id = await this.accountForChannel(principal, channelId);
+    const provider = await this.runtime.provider(id);
+    if (provider === 'zhipu') throw new AppError('bad_request', '请在渠道接入设置中更换智谱 API Key');
     try {
-      await this.runtime.tokensFor(await this.runtime.provider(id)).get(id, true);
+      await this.runtime.tokensFor(provider).get(id, true);
       this.invalidateQuota(id);
     } catch {
       throw new AppError('bad_request', '刷新失败，请检查账号状态或重新授权');
@@ -309,29 +329,43 @@ export class SubscriptionService implements Disposable {
     return { success: true };
   }
 
-  async openAIQuota(principal: Principal, channelId: string, force = false) {
+  async openAIQuota(principal: Principal, channelId: string, force = false): Promise<SubscriptionQuota> {
     const id = await this.providerAccountForChannel(principal, channelId, 'openai');
     return this.openaiQuota.get(this.runtime.tokens, id, force);
   }
 
-  async claudeUsage(principal: Principal, channelId: string, force = false) {
+  async claudeUsage(principal: Principal, channelId: string, force = false): Promise<SubscriptionQuota> {
     const id = await this.providerAccountForChannel(principal, channelId, 'claude');
     return this.claudeQuota.get(this.runtime.claudeTokens, id, force);
   }
 
-  async antigravityUsage(principal: Principal, channelId: string, force = false) {
+  async antigravityUsage(principal: Principal, channelId: string, force = false): Promise<SubscriptionQuota> {
     const id = await this.providerAccountForChannel(principal, channelId, 'antigravity');
     return this.antigravityQuota.get(this.runtime.antigravityTokens, id, force);
+  }
+
+  async zhipuUsage(principal: Principal, channelId: string, force = false): Promise<SubscriptionQuota> {
+    const id = await this.providerAccountForChannel(principal, channelId, 'zhipu');
+    return this.zhipuQuota.get(this.runtime, id, force);
+  }
+
+  private accountQuota(provider: SubscriptionProvider, id: string) {
+    switch (provider) {
+      case 'zhipu':
+        return this.zhipuQuota.get(this.runtime, id);
+      case 'claude':
+        return this.claudeQuota.get(this.runtime.claudeTokens, id);
+      case 'antigravity':
+        return this.antigravityQuota.get(this.runtime.antigravityTokens, id);
+      case 'openai':
+        return this.openaiQuota.get(this.runtime.tokens, id);
+    }
   }
 
   /** 按渠道的订阅平台查询额度窗口；Antigravity 返回 Gemini 额度池的窗口。 */
   async quota(principal: Principal, channelId: string) {
     const { id, provider } = await this.enabledAccountForChannel(principal, channelId);
-    const quota = await (provider === 'claude'
-      ? this.claudeQuota.get(this.runtime.claudeTokens, id)
-      : provider === 'antigravity'
-        ? this.antigravityQuota.get(this.runtime.antigravityTokens, id)
-        : this.openaiQuota.get(this.runtime.tokens, id));
+    const quota = await this.accountQuota(provider, id);
     return {
       provider,
       plan: quota.plan,
@@ -389,12 +423,7 @@ export class SubscriptionService implements Disposable {
       .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)));
     if (!account?.enabled) throw new AppError('bad_request', '渠道未启用或已删除');
     // Antigravity 以 Gemini 额度池作为账号额度；第三方模型的额度池很少使用，不单独计算。
-    const quota = await (account.provider === 'claude'
-      ? this.claudeQuota.get(this.runtime.claudeTokens, id)
-      : account.provider === 'antigravity'
-        ? this.antigravityQuota.get(this.runtime.antigravityTokens, id)
-        : this.openaiQuota.get(this.runtime.tokens, id)
-    ).catch(() => null);
+    const quota = await this.accountQuota(account.provider, id).catch(() => null);
     const now = new Date();
     const week = 7 * 24 * 60 * 60 * 1000;
     const resetsAt = quota?.sevenDay?.resetsAt ? new Date(quota.sevenDay.resetsAt) : null;
@@ -458,7 +487,8 @@ export class SubscriptionService implements Disposable {
     if (provider !== input.provider) throw new AppError('bad_request', '订阅平台与已保存渠道不匹配');
     const proxyUrl = await channelProxy(this.auth, this.vault, principal, input.channelId, input.proxyUrl);
     const request = this.outbound.forProxy(proxyUrl);
-    const provided = await this.prepareCredentials(principal, input, proxyUrl);
+    if (provider === 'zhipu') throw new AppError('bad_request', '请手动添加智谱订阅模型');
+    const provided = await this.prepareOAuthCredentials(principal, input, proxyUrl);
     if (!provided && !id) throw new AppError('bad_request', '请先导入凭据或完成 OAuth 授权，再拉取模型');
     if (provided && new Date(provided.expiresAt).getTime() <= Date.now())
       throw new AppError('bad_request', '凭据已过期，请重新授权或导入新凭据');
@@ -537,6 +567,7 @@ export class SubscriptionService implements Disposable {
     this.antigravityOAuth.dispose();
     this.openaiQuota.dispose();
     this.claudeQuota.dispose();
+    this.zhipuQuota.dispose();
     this.antigravityQuota.dispose();
   }
 }

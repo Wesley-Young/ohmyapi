@@ -23,6 +23,12 @@ export function subscriptionAdminRoutes(subscription: SubscriptionService) {
     openAIQuota: adminProcedure
       .input(subscriptionChannelInput)
       .query(({ ctx, input }) => subscription.openAIQuota(ctx.principal, input.channelId)),
+    refreshZhipuQuota: adminProcedure
+      .input(subscriptionChannelInput)
+      .mutation(({ ctx, input }) => subscription.zhipuUsage(ctx.principal, input.channelId, true)),
+    zhipuQuota: adminProcedure
+      .input(subscriptionChannelInput)
+      .query(({ ctx, input }) => subscription.zhipuUsage(ctx.principal, input.channelId)),
     refreshClaudeQuota: adminProcedure
       .input(subscriptionChannelInput)
       .mutation(({ ctx, input }) => subscription.claudeUsage(ctx.principal, input.channelId, true)),

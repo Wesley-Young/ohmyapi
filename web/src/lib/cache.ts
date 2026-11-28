@@ -20,6 +20,8 @@ export const refreshCatalog = () =>
     queryClient.invalidateQueries(trpc.admin.catalog.list.queryFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.openAIQuota.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.claudeQuota.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.catalog.zhipuQuota.pathFilter()),
+    queryClient.invalidateQueries(trpc.admin.catalog.subscriptionCycleUsage.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.antigravityQuota.pathFilter()),
     queryClient.invalidateQueries(trpc.admin.catalog.openAIResetCredits.pathFilter()),
     queryClient.invalidateQueries(trpc.keys.models.queryFilter()),

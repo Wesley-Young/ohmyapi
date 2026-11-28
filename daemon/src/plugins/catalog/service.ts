@@ -149,7 +149,7 @@ export class CatalogService {
               provider: c.subscription.provider,
               email: this.subscription.accountEmail(c.subscription.credentialEncrypted, c.subscription.provider),
               maxConcurrent: c.subscription.maxConcurrent,
-              expiresAt: c.subscription.expiresAt.toISOString(),
+              expiresAt: c.subscription.expiresAt?.toISOString() ?? null,
               errorCode: c.subscription.errorCode,
               cooldownUntil: c.subscription.cooldownUntil?.toISOString() ?? null,
               modelCooldowns: c.subscription.modelCooldowns,
@@ -435,6 +435,7 @@ export class CatalogService {
           {
             openai: 'OpenAI 订阅渠道仅支持 Responses 协议',
             claude: 'Claude 订阅渠道仅支持 Messages',
+            zhipu: '智谱订阅渠道支持 Responses、Chat Completions 和 Messages',
             antigravity: 'Antigravity 订阅渠道仅支持 Gemini 端点',
           }[provider],
         );

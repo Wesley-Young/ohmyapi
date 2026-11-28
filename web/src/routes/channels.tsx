@@ -1,6 +1,6 @@
 import { Badge, Box, Grid, Heading, HStack, Link, Menu, Portal, Stack, Switch, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
 import {
   ArrowLeftRight,
   ChevronRight,
@@ -21,7 +21,7 @@ import { ChannelUsersDialog } from '../components/channel-grants';
 import { ChannelIcon, StatusDot } from '../components/channel-icon';
 import { IconButton, Tooltip } from '../components/icon-button';
 import { PlanBadge } from '../components/plan-badge';
-import { SubscriptionQuota } from '../components/subscription-quota';
+import { SubscriptionQuota, subscriptionQuotaQuery } from '../components/subscription-quota';
 import {
   Attribute,
   ConfirmAction,
@@ -33,7 +33,13 @@ import {
   Title,
 } from '../components/ui';
 import { refreshCatalog } from '../lib/cache';
-import { type ChannelType, channelStatus, channelTypeLabels, coolingDown } from '../lib/channels';
+import {
+  type ChannelType,
+  channelStatus,
+  channelTypeLabels,
+  coolingDown,
+  subscriptionErrorLabel,
+} from '../lib/channels';
 import { displayAmount, displayMultiplier, formError, localDateTime } from '../lib/format';
 import { ppmToPercent } from '../lib/moderation';
 import { brandColor, textColor } from '../lib/theme';
@@ -57,7 +63,7 @@ function channelNotices(c: Channel) {
     notices.push({
       key: 'error',
       tone: 'red',
-      text: sub.errorCode === 'subscription_refresh_uncertain' ? '需重新导入凭据' : '需要重新授权',
+      text: subscriptionErrorLabel(sub.errorCode),
     });
   if (sub.cooldownUntil && coolingDown(sub.cooldownUntil))
     notices.push({ key: 'cooldown', tone: 'orange', text: `限流冷却中，${localDateTime(sub.cooldownUntil)} 恢复` });
@@ -289,7 +295,19 @@ function ChannelCard({
 }) {
   const notices = channelNotices(c);
   const setEnabled = useMutation(trpc.admin.catalog.setChannelEnabled.mutationOptions({ onSuccess: refreshCatalog }));
-  const subtitle = c.subscription ? (c.subscription.email ?? '（未获取邮箱）') : c.baseUrl;
+  const subscription = c.subscription;
+  const quotaOptions: ReturnType<typeof subscriptionQuotaQuery>[] =
+    subscription && c.enabled && !subscription.errorCode
+      ? [subscriptionQuotaQuery(subscription.provider, c.id, true)]
+      : [];
+  const [quotaQuery] = useQueries({ queries: quotaOptions });
+  const quota = quotaQuery?.data;
+  const subtitle =
+    subscription?.provider === 'zhipu'
+      ? quota?.email
+      : subscription
+        ? (subscription.email ?? '（未获取邮箱）')
+        : c.baseUrl;
   return (
     <Box
       as="article"
@@ -322,12 +340,8 @@ function ChannelCard({
             >
               {c.name}
             </NameAction>
-            {c.subscription && (
-              <PlanBadge
-                provider={c.subscription.provider}
-                channelId={c.id}
-                enabled={c.enabled && !c.subscription.errorCode}
-              />
+            {subscription && quota?.plan && (
+              <PlanBadge provider={subscription.provider} plan={quota.plan} tokenPlan={quota.tokenPlan} />
             )}
             <ChannelAttributes channel={c} modelNames={modelNames} />
           </HStack>

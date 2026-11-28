@@ -1,3 +1,14 @@
+type QuotaWindow = { usedPercent: number; resetsAt: string | null };
+
+export interface SubscriptionQuota {
+  fiveHour: QuotaWindow | null;
+  sevenDay: QuotaWindow | null;
+  fetchedAt: string;
+  plan: string | null;
+  email?: string | null;
+  tokenPlan?: boolean;
+}
+
 /** 订阅套餐只缓存在内存中；值为 null 表示已查询但上游未提供。 */
 export type PlanCache = Map<string, string | null>;
 

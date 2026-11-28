@@ -74,6 +74,7 @@ const providerIcons = {
   openai: OpenAI,
   claude: Claude,
   antigravity: Antigravity,
+  zhipu: Zhipu,
 } satisfies Record<SubscriptionProvider, Icon>;
 
 /** 模型厂商图标；无法识别时不渲染。图标是装饰，名称由相邻文本提供。 */

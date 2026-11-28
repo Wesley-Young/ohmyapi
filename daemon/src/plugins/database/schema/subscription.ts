@@ -3,7 +3,7 @@ import { boolean, check, integer, jsonb, pgTable, text, timestamp, uniqueIndex }
 
 import { createdAt, id } from './common.ts';
 
-export const subscriptionProviders = ['openai', 'claude', 'antigravity'] as const;
+export const subscriptionProviders = ['openai', 'claude', 'antigravity', 'zhipu'] as const;
 export type SubscriptionProvider = (typeof subscriptionProviders)[number];
 
 export const subscriptionAccounts = pgTable(
@@ -15,7 +15,7 @@ export const subscriptionAccounts = pgTable(
     accountId: text('account_id').notNull(),
     userId: text('user_id').default('').notNull(),
     credentialEncrypted: text('credential_encrypted').notNull(),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
     enabled: boolean('enabled').default(true).notNull(),
     maxConcurrent: integer('max_concurrent').default(5).notNull(),
     errorCode: text('error_code'),
@@ -30,7 +30,8 @@ export const subscriptionAccounts = pgTable(
     uniqueIndex('subscription_accounts_identity_unique')
       .on(table.provider, table.accountId, table.userId)
       .where(sql`${table.deletedAt} is null`),
-    check('subscription_accounts_provider', sql`${table.provider} in ('openai', 'claude', 'antigravity')`),
+    check('subscription_accounts_provider', sql`${table.provider} in ('openai', 'claude', 'antigravity', 'zhipu')`),
+    check('subscription_accounts_expiration', sql`(${table.provider} = 'zhipu') = (${table.expiresAt} is null)`),
     check('subscription_accounts_concurrency', sql`${table.maxConcurrent} between 1 and 100`),
   ],
 );

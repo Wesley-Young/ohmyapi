@@ -1,10 +1,8 @@
 import { Badge, type BadgeProps } from '@chakra-ui/react';
-import { useQuery } from '@tanstack/react-query';
 import { Crown } from 'lucide-react';
 
 import type { SubscriptionProvider } from '../lib/subscription';
 import { Tooltip } from './icon-button';
-import { subscriptionQuotaQuery } from './subscription-quota';
 
 type Tier = 'free' | 'standard' | 'premium' | 'luxury' | 'flagship' | 'organization';
 
@@ -58,8 +56,24 @@ const antigravityPlans: Record<string, { label: string; tier: Tier }> = {
   'standard-tier': { label: 'Standard', tier: 'organization' },
 };
 
+const zhipuPlans: Record<string, { label: string; tier: Tier }> = {
+  lite: { label: 'Lite', tier: 'standard' },
+  pro: { label: 'Pro', tier: 'premium' },
+  max: { label: 'Max', tier: 'luxury' },
+};
+
 /** 识别不出的套餐原样显示为灰色。 */
-function planInfo(provider: SubscriptionProvider, raw: string): { label: string; tier: Tier } {
+function planInfo(provider: SubscriptionProvider, raw: string, tokenPlan: boolean): { label: string; tier: Tier } {
+  if (provider === 'zhipu') {
+    const normalized = raw.toLowerCase().replace(/[\s_-]+/g, '');
+    const match = /^(v[23])?(lite|pro|max)(v[23])?$/.exec(normalized);
+    if (!match) return { label: raw, tier: 'free' };
+    const [, prefix, name, suffix] = match;
+    const plan = zhipuPlans[name];
+    const version = prefix ?? suffix;
+    const v2 = version ? version === 'v2' : tokenPlan;
+    return v2 ? { ...plan, label: `V2 ${plan.label}` } : plan;
+  }
   if (provider === 'antigravity') return antigravityPlans[raw] ?? { label: raw, tier: 'free' };
   if (provider === 'openai') return openAIPlans[raw.replace(/[\s_-]+/g, '')] ?? { label: raw, tier: 'free' };
   // Max 的倍数只出现在 rate_limit_tier（如 default_claude_max_5x），按数字归档以兼容新倍数。
@@ -70,19 +84,14 @@ function planInfo(provider: SubscriptionProvider, raw: string): { label: string;
 
 export function PlanBadge({
   provider,
-  channelId,
-  enabled,
+  plan,
+  tokenPlan = false,
 }: {
   provider: SubscriptionProvider;
-  channelId: string;
-  enabled: boolean;
+  plan: string;
+  tokenPlan?: boolean;
 }) {
-  const plan = useQuery(subscriptionQuotaQuery(provider, channelId, enabled)).data?.plan;
-  return plan ? <PlanLabel provider={provider} plan={plan} /> : null;
-}
-
-function PlanLabel({ provider, plan }: { provider: SubscriptionProvider; plan: string }) {
-  const { label, tier } = planInfo(provider, plan);
+  const { label, tier } = planInfo(provider, plan, tokenPlan);
   return (
     <Tooltip content={`上游套餐标识：${plan}`}>
       <Badge {...tierStyles[tier]}>

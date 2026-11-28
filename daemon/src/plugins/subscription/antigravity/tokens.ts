@@ -56,7 +56,7 @@ export class AntigravityTokens {
         .from(subscriptionAccounts)
         .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)))
         .for('update');
-      if (!row?.enabled || row.provider !== 'antigravity')
+      if (!row?.expiresAt || !row.enabled || row.provider !== 'antigravity')
         throw new GatewayError(503, 'subscription_unavailable', 'The Antigravity account is unavailable');
       if (row.errorCode) throw new GatewayError(401, row.errorCode, 'Authorize the Antigravity account again');
       const current = antigravityCredentialsSchema.parse(JSON.parse(this.vault.decrypt(row.credentialEncrypted)));

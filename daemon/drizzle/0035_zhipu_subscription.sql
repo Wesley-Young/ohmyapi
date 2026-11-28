@@ -1,0 +1,4 @@
+ALTER TABLE "subscription_accounts" DROP CONSTRAINT "subscription_accounts_provider";--> statement-breakpoint
+ALTER TABLE "subscription_accounts" ALTER COLUMN "expires_at" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "subscription_accounts" ADD CONSTRAINT "subscription_accounts_expiration" CHECK (("subscription_accounts"."provider" = 'zhipu') = ("subscription_accounts"."expires_at" is null));--> statement-breakpoint
+ALTER TABLE "subscription_accounts" ADD CONSTRAINT "subscription_accounts_provider" CHECK ("subscription_accounts"."provider" in ('openai', 'claude', 'antigravity', 'zhipu'));

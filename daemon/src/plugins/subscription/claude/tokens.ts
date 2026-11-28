@@ -55,7 +55,7 @@ export class ClaudeTokens {
         .from(subscriptionAccounts)
         .where(and(eq(subscriptionAccounts.id, id), isNull(subscriptionAccounts.deletedAt)))
         .for('update');
-      if (!row?.enabled || row.provider !== 'claude')
+      if (!row?.expiresAt || !row.enabled || row.provider !== 'claude')
         throw new GatewayError(503, 'subscription_unavailable', 'The Claude account is unavailable');
       if (row.errorCode) throw new GatewayError(401, row.errorCode, 'Import current Claude credentials');
       const blocked = this.blocked.get(id);

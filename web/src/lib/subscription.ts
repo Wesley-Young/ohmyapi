@@ -8,6 +8,7 @@ export type SubscriptionProvider = NonNullable<
 export const subscriptionProviderLabels = {
   openai: 'OpenAI',
   claude: 'Claude',
+  zhipu: '智谱',
   antigravity: 'Antigravity',
 } satisfies Record<SubscriptionProvider, string>;
 
@@ -22,7 +23,7 @@ export const subscriptionAccessHints = {
     callback: 'localhost:51121/oauth-callback',
     credentials: '粘贴 CPA Antigravity 凭据 JSON（需要 refresh_token）；账号和项目通过出站代理查询',
   },
-} satisfies Record<SubscriptionProvider, { callback: string; credentials: string }>;
+} satisfies Record<Exclude<SubscriptionProvider, 'zhipu'>, { callback: string; credentials: string }>;
 
 export const isSubscriptionProvider = (value: string): value is SubscriptionProvider =>
   Object.hasOwn(subscriptionProviderLabels, value);
