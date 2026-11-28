@@ -1,5 +1,6 @@
 import { serviceToken } from '@fraqjs/kernel';
-import { and, asc, desc, eq, gte, inArray, lt } from 'drizzle-orm';
+import { familyEndpoints } from '@ohmyapi/protocols';
+import { and, asc, desc, eq, gte, inArray, lt, notInArray } from 'drizzle-orm';
 
 import { formatMoney } from '../../core/money.ts';
 import { toPage } from '../../core/pagination.ts';
@@ -16,6 +17,8 @@ import {
 import { apiKeys, channels, requestAttempts, requests, requestUsage, users } from '../database/schema/index.ts';
 import { type PricingService, publicPricingSnapshot } from '../pricing/service.ts';
 import type { OwnRequestFilters, PlatformRequestFilters } from './schemas.ts';
+
+const decisionEndpoints = [familyEndpoints.systemone, familyEndpoints.decisions];
 
 /** 请求记录列表：用户查看自己的请求，管理员查看全部或待核对的请求。 */
 export class RequestHistory {
@@ -63,7 +66,7 @@ export class RequestHistory {
   }
 
   private async list(ownerId: string | undefined, filters: OwnRequestFilters & Partial<PlatformRequestFilters>) {
-    const { page, model, from, until, apiKeyId, channelId, reviewOnly } = filters;
+    const { page, group, model, from, until, apiKeyId, channelId, reviewOnly } = filters;
     const userId = ownerId ?? filters.userId;
     const rows = await paginate(
       this.db
@@ -82,6 +85,8 @@ export class RequestHistory {
         .leftJoin(requestUsage, eq(requests.id, requestUsage.requestId))
         .where(
           and(
+            group === 'regular' ? notInArray(requests.endpoint, decisionEndpoints) : undefined,
+            group === 'decisions' ? inArray(requests.endpoint, decisionEndpoints) : undefined,
             userId ? eq(requests.userId, userId) : undefined,
             apiKeyId ? eq(requests.apiKeyId, apiKeyId) : undefined,
             channelId ? eq(requests.channelId, channelId) : undefined,

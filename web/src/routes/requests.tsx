@@ -1,8 +1,20 @@
-import { Badge, Box, Button, Checkbox, HStack, ProgressCircle, Stack, Table, Text } from '@chakra-ui/react';
+import {
+  Badge,
+  Box,
+  Button,
+  Checkbox,
+  HStack,
+  Menu,
+  Portal,
+  ProgressCircle,
+  Stack,
+  Table,
+  Text,
+} from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Brain, ClipboardCheck, Eye, Gauge, Package, Pencil } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowDown, ArrowUp, Brain, ChevronDown, ClipboardCheck, Eye, Gauge, Package, Pencil } from 'lucide-react';
+import { Fragment, useState } from 'react';
 import { type SetURLSearchParams, useSearchParams } from 'react-router';
 
 import { BillingAction, BulkBilling } from '../components/billing-review';
@@ -17,7 +29,9 @@ import { useAuth } from '../lib/auth';
 import { formatSeconds, formError, localDate } from '../lib/format';
 import {
   type RequestFilters,
+  type RequestSection,
   readRequestFilters,
+  requestSections,
   requestTimeBounds,
   writeRequestFilters,
 } from '../lib/request-filters';
@@ -107,16 +121,75 @@ const views = [
 ] as const;
 type View = (typeof views)[number]['value'];
 
+function RequestListMenu({
+  section,
+  platform,
+  onChange,
+}: {
+  section: RequestSection;
+  platform: boolean;
+  onChange: (section: RequestSection) => void;
+}) {
+  const reviews = useReviewCount(platform);
+  const sections: RequestSection[] = platform ? ['regular', 'decisions', 'review'] : ['regular', 'decisions'];
+  return (
+    <Menu.Root positioning={{ placement: 'bottom-start' }}>
+      <Menu.Trigger asChild>
+        <Button
+          type="button"
+          variant="plain"
+          p="0"
+          h="auto"
+          gap="1.5"
+          font="inherit"
+          letterSpacing="inherit"
+          color="inherit"
+          aria-label={`切换请求列表，当前为${requestSections[section]}`}
+        >
+          {requestSections[section]}
+          <ChevronDown size={18} color="var(--chakra-colors-gray-500)" aria-hidden="true" />
+        </Button>
+      </Menu.Trigger>
+      <Portal>
+        <Menu.Positioner>
+          <Menu.Content>
+            <Menu.RadioItemGroup
+              value={section}
+              onValueChange={({ value }) => {
+                const next = sections.find((item) => item === value);
+                if (next) onChange(next);
+              }}
+            >
+              {sections.map((item) => (
+                <Fragment key={item}>
+                  {item === 'review' && <Menu.Separator />}
+                  <Menu.RadioItem value={item}>
+                    <Menu.ItemText>{requestSections[item]}</Menu.ItemText>
+                    {item === 'review' && (
+                      <Text as="span" ms="auto" fontSize="xs" color="gray.600" fontVariantNumeric="tabular-nums">
+                        {reviews}
+                      </Text>
+                    )}
+                    <Menu.ItemIndicator />
+                  </Menu.RadioItem>
+                </Fragment>
+              ))}
+            </Menu.RadioItemGroup>
+          </Menu.Content>
+        </Menu.Positioner>
+      </Portal>
+    </Menu.Root>
+  );
+}
+
 export default function Requests() {
   const { data: user } = useAuth();
   const [params, setParams] = useSearchParams();
   const [searchRevision, setSearchRevision] = useState(0);
-  const reviews = useReviewCount(user?.role === 'admin');
   if (!user) return null;
   const admin = user.role === 'admin';
   const view: View = admin && params.get('view') !== 'personal' ? 'platform' : 'personal';
   const filters = readRequestFilters(params, view === 'platform');
-  const reviewing = view === 'platform' && params.get('reviewOnly') === 'true';
   const platform = view === 'platform';
   const switchView = (next: View) => {
     const search = writeRequestFilters(params, { ...filters, userId: '', channelId: '', apiKeyId: '' });
@@ -128,24 +201,12 @@ export default function Requests() {
   return (
     <Stack gap="7">
       <Title action={admin && <ViewSwitch label="请求视图" items={views} value={view} onChange={switchView} />}>
-        请求记录
-      </Title>
-      {platform && (
-        <ViewSwitch
-          label="请求筛选"
-          items={[
-            { value: 'all', label: '全部请求' },
-            { value: 'review', label: `待核对 (${reviews})` },
-          ]}
-          value={reviewing ? 'review' : 'all'}
-          onChange={(next) => {
-            const search = new URLSearchParams(params);
-            if (next === 'review') search.set('reviewOnly', 'true');
-            else search.delete('reviewOnly');
-            setParams(search);
-          }}
+        <RequestListMenu
+          section={filters.section}
+          platform={platform}
+          onChange={(section) => setParams(writeRequestFilters(params, { ...filters, section }))}
         />
-      )}
+      </Title>
       <RequestFilterBar
         applied={filters}
         platform={platform}
@@ -156,11 +217,10 @@ export default function Requests() {
         }}
       />
       <RequestList
-        key={JSON.stringify([view, reviewing, filters, searchRevision])}
+        key={JSON.stringify([view, filters, searchRevision])}
         user={user}
         view={view}
         filters={filters}
-        reviewing={reviewing}
         params={params}
         setParams={setParams}
       />
@@ -172,14 +232,12 @@ function RequestList({
   user,
   view,
   filters,
-  reviewing,
   params,
   setParams,
 }: {
   user: NonNullable<RouterOutputs['auth']['me']>;
   view: View;
   filters: RequestFilters;
-  reviewing: boolean;
   params: URLSearchParams;
   setParams: SetURLSearchParams;
 }) {
@@ -190,7 +248,13 @@ function RequestList({
   const admin = user.role === 'admin';
   const platform = view === 'platform';
   const bounds = requestTimeBounds(filters);
-  const common = { page, model: filters.model.trim() || undefined, ...bounds };
+  const reviewing = filters.section === 'review';
+  const common = {
+    page,
+    group: filters.section === 'review' ? undefined : filters.section,
+    model: filters.model.trim() || undefined,
+    ...bounds,
+  };
   const detailId = params.get('request');
   const setDetailId = (id?: string) => {
     const next = new URLSearchParams(params);

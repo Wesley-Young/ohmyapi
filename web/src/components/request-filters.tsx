@@ -189,7 +189,7 @@ export function RequestFilterBar({
                 setModel('');
                 setStart('');
                 setEnd('');
-                onChange(emptyRequestFilters);
+                onChange({ ...emptyRequestFilters, section: applied.section });
               }}
             >
               重置

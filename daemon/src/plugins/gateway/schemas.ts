@@ -5,6 +5,7 @@ import { pageInput } from '../../core/pagination.ts';
 const requestFilters = z
   .object({
     page: pageInput,
+    group: z.enum(['regular', 'decisions']).optional(),
     model: z.string().trim().max(256).optional(),
     from: z.iso.datetime().optional(),
     until: z.iso.datetime().optional(),
