@@ -13,6 +13,9 @@ export function formError(error: unknown) {
   };
 }
 
+export const localDay = new Intl.DateTimeFormat(undefined, { dateStyle: 'long' });
+export const localTime = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+
 export const localDate = (value: string) =>
   new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 /** 转为 datetime-local 输入框使用的本地时间字符串。 */

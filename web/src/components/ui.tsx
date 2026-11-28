@@ -429,6 +429,13 @@ export function FormDialog({
       }}
       closeOnEscape={!busy}
       closeOnInteractOutside={!busy}
+      onFocusOutside={(event) => {
+        // Chakra 延后一帧处理失焦事件，此时焦点可能已经回到弹窗。
+        const dialog = event.currentTarget;
+        if (dialog instanceof HTMLElement && dialog.contains(dialog.ownerDocument.activeElement)) {
+          event.preventDefault();
+        }
+      }}
       placement="center"
       scrollBehavior="inside"
       size={size}

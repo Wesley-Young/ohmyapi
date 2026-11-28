@@ -1,4 +1,4 @@
-import { Box, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
+import { Box, Button, Heading, HStack, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useQuery } from '@tanstack/react-query';
 import { Check, CircleAlert, Copy, CreditCard, Plug } from 'lucide-react';
@@ -14,6 +14,7 @@ import {
   localDate,
 } from '../lib/format';
 import { priceUnits } from '../lib/pricing';
+import { type RequestItem, requestMetricColumns, requestMetrics, requestOwner } from '../lib/request-metrics';
 import { trpc } from '../lib/trpc';
 import { ModelLabel } from './brand-icon';
 import { StatusDot } from './channel-icon';
@@ -169,7 +170,47 @@ function Attempts({ attempts }: { attempts: Detail['attempts'] }) {
   );
 }
 
-export function RequestDetail({ requestId, close }: { requestId: string; close: () => void }) {
+function RequestSummary({ request, platform }: { request: RequestItem; platform: boolean }) {
+  const values = requestMetrics(request);
+  return (
+    <Facts
+      items={[
+        { label: '请求时间', value: localDate(request.receivedAt) },
+        { label: '渠道', value: request.channelName ?? request.channelId ?? '—' },
+        { label: platform ? '用户' : 'API Key', value: requestOwner(request, platform) },
+        ...requestMetricColumns.map(({ key, label }) => {
+          const metric = values[key];
+          return {
+            label,
+            value:
+              'color' in metric ? (
+                <Text as="span" color={metric.color}>
+                  {metric.value}
+                </Text>
+              ) : (
+                metric.value
+              ),
+          };
+        }),
+        ...(request.reasoningEffort ? [{ label: '推理强度', value: request.reasoningEffort }] : []),
+      ]}
+    />
+  );
+}
+
+export function RequestDetail({
+  requestId,
+  summary,
+  platform,
+  onBilling,
+  close,
+}: {
+  requestId: string;
+  summary?: RequestItem;
+  platform: boolean;
+  onBilling: (kind: 'resolve' | 'correct') => void;
+  close: () => void;
+}) {
   const data = useQuery(
     trpc.requestDetail.queryOptions(
       { requestId },
@@ -228,6 +269,17 @@ export function RequestDetail({ requestId, close }: { requestId: string; close: 
                     </Stack>
                   </HStack>
                 </HStack>
+                {summary && <RequestSummary request={summary} platform={platform} />}
+                {platform && r.billingEnabled && (r.status === 'needs_review' || r.status === 'settled') && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    alignSelf="start"
+                    onClick={() => onBilling(r.status === 'needs_review' ? 'resolve' : 'correct')}
+                  >
+                    {r.status === 'needs_review' ? '核对费用' : '修正费用'}
+                  </Button>
+                )}
                 {r.endpoint === '/v1/images' && r.reservation && (
                   <Facts
                     items={[
