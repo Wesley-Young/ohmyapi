@@ -40,11 +40,14 @@ const openAIPlans: Record<string, { label: string; tier: Tier }> = {
 };
 
 const claudePlans: Record<string, { label: string; tier: Tier }> = {
-  claude_free: { label: 'Free', tier: 'free' },
-  claude_pro: { label: 'Pro', tier: 'standard' },
-  claude_max: { label: 'Max', tier: 'premium' },
-  claude_team: { label: 'Team', tier: 'organization' },
-  claude_enterprise: { label: 'Enterprise', tier: 'organization' },
+  free: { label: 'Free', tier: 'free' },
+  pro: { label: 'Pro', tier: 'standard' },
+  max: { label: 'Max', tier: 'premium' },
+  ultra: { label: 'Ultra', tier: 'luxury' },
+  max_5x: { label: 'Max', tier: 'premium' },
+  max_20x: { label: 'Ultra', tier: 'luxury' },
+  team: { label: 'Team', tier: 'organization' },
+  enterprise: { label: 'Enterprise', tier: 'organization' },
 };
 
 // Antigravity 的套餐来自 loadCodeAssist 的 tier ID。
@@ -76,10 +79,11 @@ function planInfo(provider: SubscriptionProvider, raw: string, tokenPlan: boolea
   }
   if (provider === 'antigravity') return antigravityPlans[raw] ?? { label: raw, tier: 'free' };
   if (provider === 'openai') return openAIPlans[raw.replace(/[\s_-]+/g, '')] ?? { label: raw, tier: 'free' };
-  // Max 的倍数只出现在 rate_limit_tier（如 default_claude_max_5x），按数字归档以兼容新倍数。
-  const multiple = raw.match(/max_(\d+)x/)?.[1];
+  const key = raw.replace(/^(?:default_)?claude_/, '');
+  if (Object.hasOwn(claudePlans, key)) return claudePlans[key];
+  const multiple = key.match(/^max_(\d+)x$/)?.[1];
   if (multiple) return { label: `Max ${multiple}x`, tier: Number(multiple) >= 20 ? 'luxury' : 'premium' };
-  return claudePlans[raw] ?? { label: raw, tier: 'free' };
+  return { label: raw, tier: 'free' };
 }
 
 export function PlanBadge({

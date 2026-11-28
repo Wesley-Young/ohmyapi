@@ -47,20 +47,26 @@ async function fetchOAuthProfile(access: string, request: OutboundFetch, signal?
   };
 }
 
-/**
- * profile 中 organization_type 区分 Pro / Max / Team 等，rate_limit_tier 才包含 Max 的倍数
- *（如 default_claude_max_5x），因此 Max 优先返回 rate_limit_tier。
- */
 export async function fetchClaudePlan(access: string, request: OutboundFetch, signal?: AbortSignal) {
   const profile = z
     .object({
       organization: z
-        .object({ organization_type: z.string().nullish(), rate_limit_tier: z.string().nullish() })
+        .object({
+          plan_display_name: z.string().nullish(),
+          organization_type: z.string().nullish(),
+          rate_limit_tier: z.string().nullish(),
+        })
         .nullish(),
     })
     .parse(await fetchOAuthJson('/api/oauth/profile', access, request, signal));
-  const tier = planValue(profile.organization?.rate_limit_tier);
-  return tier?.includes('max') ? tier : planValue(profile.organization?.organization_type);
+  const org = profile.organization;
+  const name = planValue(org?.plan_display_name);
+  if (name) return name;
+  // 旧 profile 用限额倍数区分个人 Max 和 Ultra，团队席位也可能使用相同的限额。
+  const type = planValue(org?.organization_type);
+  const tier = planValue(org?.rate_limit_tier);
+  if ((!type || type === 'claude_max') && tier?.includes('max')) return tier;
+  return type;
 }
 
 export async function exchangeClaudeCode(
