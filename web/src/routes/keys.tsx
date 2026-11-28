@@ -1,7 +1,7 @@
 import { Badge, Box, Button, Grid, HStack, Menu, Portal, Stack, Table, Text } from '@chakra-ui/react';
 import type { RouterOutputs } from '@ohmyapi/daemon/trpc';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { BookOpen, Check, ChevronDown, Copy, Download, Pencil, Trash2 } from 'lucide-react';
+import { BookOpen, Check, Copy, Download, Pencil, Trash2 } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
 import { ChannelVendorIcon } from '../components/brand-icon';
@@ -45,17 +45,15 @@ function ExportMenu({
       }}
     >
       <Menu.Trigger asChild>
-        <Button
-          type="button"
+        <IconButton
           aria-label={`导出「${apiKey.name}」`}
-          variant="outline"
+          title="导出 Key"
+          variant="ghost"
           size="sm"
           disabled={disabled || !available.length}
         >
           <Download size={16} aria-hidden="true" />
-          导出
-          <ChevronDown size={14} aria-hidden="true" />
-        </Button>
+        </IconButton>
       </Menu.Trigger>
       <Portal>
         <Menu.Positioner>
